@@ -1,11 +1,16 @@
 //! SPI master driver for WS63 (SPI0/1, SSI v151).
 //! SCK = SSI_CLK / (2 * (1 + CLK_DIV)), default SSI_CLK = 240MHz.
 
-use core::marker::PhantomData;
 use crate::peripherals::{Spi0, Spi1};
+use core::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpiMode { Mode0, Mode1, Mode2, Mode3 }
+pub enum SpiMode {
+    Mode0,
+    Mode1,
+    Mode2,
+    Mode3,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -53,9 +58,11 @@ fn configure_spi(idx: u8, config: &Config) {
     r.spi_er().write(|w| unsafe { w.bits(0) });
     let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ;
     let mut div = pclk / (2 * config.frequency);
-    if div > 0 { div -= 1; }
-    if div > 0xFFFF { div = 0xFFFF; }
-    r.spi_brs().write(|w| unsafe { w.bits(div as u32) });
+    div = div.saturating_sub(1);
+    if div > 0xFFFF {
+        div = 0xFFFF;
+    }
+    r.spi_brs().write(|w| unsafe { w.bits(div) });
 
     let mut ctra = 0u32;
     match config.mode {
@@ -81,7 +88,9 @@ impl<T> Spi<'_, T> {
             unsafe { r.spi_dr().write(|w| w.bits(tx)) };
             while !r.spi_wsr().read().rxfne().bit_is_set() {}
             let rx = r.spi_dr().read().bits();
-            if i < read.len() { read[i] = rx as u8; }
+            if i < read.len() {
+                read[i] = rx as u8;
+            }
         }
         Ok(())
     }
@@ -95,14 +104,20 @@ impl<T> Spi<'_, T> {
         Ok(())
     }
 
-    pub fn register_block(&self) -> &'static ws63_pac::spi0::RegisterBlock { spi_regs(self.idx) }
+    pub fn register_block(&self) -> &'static ws63_pac::spi0::RegisterBlock {
+        spi_regs(self.idx)
+    }
 }
 
 #[derive(Debug)]
-pub enum SpiError { Overflow }
+pub enum SpiError {
+    Overflow,
+}
 
 impl embedded_hal::spi::Error for SpiError {
-    fn kind(&self) -> embedded_hal::spi::ErrorKind { embedded_hal::spi::ErrorKind::Other }
+    fn kind(&self) -> embedded_hal::spi::ErrorKind {
+        embedded_hal::spi::ErrorKind::Other
+    }
 }
 impl embedded_hal::spi::ErrorType for Spi<'_, Spi0<'_>> {
     type Error = SpiError;
@@ -128,5 +143,7 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Spi0<'_>> {
         }
         Ok(())
     }
-    fn flush(&mut self) -> Result<(), Self::Error> { Ok(()) }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }

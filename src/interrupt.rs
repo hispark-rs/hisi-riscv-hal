@@ -11,7 +11,8 @@ pub fn disable(_interrupt: Interrupt) {}
 
 #[inline]
 pub fn free<F, R>(f: F) -> R
-where F: FnOnce() -> R
+where
+    F: FnOnce() -> R,
 {
     riscv::interrupt::free(f)
 }

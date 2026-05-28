@@ -4,8 +4,8 @@
 //! the underlying hardware registers. The [`Peripherals`] struct is obtained
 //! once via [`Peripherals::take()`].
 
-use core::marker::PhantomData;
 pub use crate::soc::ws63::Interrupt;
+use core::marker::PhantomData;
 
 macro_rules! peripheral {
     ($name:ident, $pac_ty:ty) => {

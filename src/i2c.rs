@@ -2,8 +2,8 @@
 //!
 //! I2C clock = PCLK / (scl_h + scl_l) where each value*2 = actual period.
 
-use core::marker::PhantomData;
 use crate::peripherals::{I2c0, I2c1};
+use core::marker::PhantomData;
 
 pub struct I2c<'d, T> {
     idx: u8,
@@ -79,13 +79,13 @@ impl<T> I2c<'_, T> {
 
         for &byte in data {
             r.i2c_txr().write(|w| unsafe { w.bits(byte as u32) });
-            r.i2c_com().write(|w| { w.op_we().set_bit() });
+            r.i2c_com().write(|w| w.op_we().set_bit());
             while !r.i2c_sr().read().int_tx().bit_is_set() {}
             self.clear_interrupts();
         }
 
         // Stop
-        r.i2c_com().write(|w| { w.op_stop().set_bit() });
+        r.i2c_com().write(|w| w.op_stop().set_bit());
         while !r.i2c_sr().read().int_stop().bit_is_set() {}
         self.clear_interrupts();
 
@@ -112,7 +112,9 @@ impl<T> I2c<'_, T> {
             let is_last = i == buf_len - 1;
             let mut com = r.i2c_com().read().bits();
             com |= 1 << 2; // op_rd
-            if is_last { com |= 1 << 4; } // op_ack (NACK on last)
+            if is_last {
+                com |= 1 << 4;
+            } // op_ack (NACK on last)
             r.i2c_com().write(|w| unsafe { w.bits(com) });
 
             while !r.i2c_sr().read().int_rx().bit_is_set() {}
@@ -120,7 +122,7 @@ impl<T> I2c<'_, T> {
             self.clear_interrupts();
         }
 
-        r.i2c_com().write(|w| { w.op_stop().set_bit() });
+        r.i2c_com().write(|w| w.op_stop().set_bit());
         while !r.i2c_sr().read().int_stop().bit_is_set() {}
         self.clear_interrupts();
 
@@ -128,19 +130,29 @@ impl<T> I2c<'_, T> {
     }
 
     pub fn write_read(&mut self, addr: u8, wr_buf: &[u8], rd_buf: &mut [u8]) -> Result<(), I2cError> {
-        if !wr_buf.is_empty() { self.write(addr, wr_buf)?; }
-        if !rd_buf.is_empty() { self.read(addr, rd_buf)?; }
+        if !wr_buf.is_empty() {
+            self.write(addr, wr_buf)?;
+        }
+        if !rd_buf.is_empty() {
+            self.read(addr, rd_buf)?;
+        }
         Ok(())
     }
 }
 
 #[derive(Debug)]
-pub enum I2cError { Ack, BusError, Timeout }
+pub enum I2cError {
+    Ack,
+    BusError,
+    Timeout,
+}
 
 impl embedded_hal::i2c::Error for I2cError {
     fn kind(&self) -> embedded_hal::i2c::ErrorKind {
         match self {
-            I2cError::Ack => embedded_hal::i2c::ErrorKind::NoAcknowledge(embedded_hal::i2c::NoAcknowledgeSource::Unknown),
+            I2cError::Ack => {
+                embedded_hal::i2c::ErrorKind::NoAcknowledge(embedded_hal::i2c::NoAcknowledgeSource::Unknown)
+            }
             I2cError::BusError => embedded_hal::i2c::ErrorKind::Bus,
             I2cError::Timeout => embedded_hal::i2c::ErrorKind::Other,
         }

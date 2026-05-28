@@ -3,17 +3,29 @@
 //! Baud rate: div = (div_h << 8 | div_l) + div_fra / 64.
 //! Clock source: 240MHz system clock.
 
-use core::marker::PhantomData;
 use crate::peripherals::{Uart0, Uart1, Uart2};
+use core::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DataBits { Five, Six, Seven, Eight }
+pub enum DataBits {
+    Five,
+    Six,
+    Seven,
+    Eight,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Parity { None, Even, Odd }
+pub enum Parity {
+    None,
+    Even,
+    Odd,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StopBits { One, Two }
+pub enum StopBits {
+    One,
+    Two,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -33,7 +45,7 @@ pub struct Uart<'d, T> {
     _peripheral: PhantomData<&'d T>,
 }
 
-fn regs<T>() -> &'static ws63_pac::uart0::RegisterBlock {
+fn regs() -> &'static ws63_pac::uart0::RegisterBlock {
     unsafe { &*Uart0::ptr() }
 }
 
@@ -96,11 +108,18 @@ fn configure_uart(idx: u8, config: &Config) {
         DataBits::Eight => 3 << 2,
     };
     match config.parity {
-        Parity::Even => { ctl |= 1 << 5; ctl |= 1 << 4; }
-        Parity::Odd => { ctl |= 1 << 5; }
+        Parity::Even => {
+            ctl |= 1 << 5;
+            ctl |= 1 << 4;
+        }
+        Parity::Odd => {
+            ctl |= 1 << 5;
+        }
         Parity::None => {}
     }
-    if matches!(config.stop_bits, StopBits::Two) { ctl |= 1 << 7; }
+    if matches!(config.stop_bits, StopBits::Two) {
+        ctl |= 1 << 7;
+    }
     r.uart_ctl().write(|w| unsafe { w.bits(ctl | (1 << 0)) }); // div_en=1
 
     // Enable FIFO
@@ -119,11 +138,7 @@ impl<T> Uart<'_, T> {
 
     pub fn read_byte(&self, idx: u8) -> Option<u8> {
         let r = uart_regs(idx);
-        if r.fifo_status().read().rx_fifo_empty().bit_is_set() {
-            None
-        } else {
-            Some(r.data().read().bits() as u8)
-        }
+        if r.fifo_status().read().rx_fifo_empty().bit_is_set() { None } else { Some(r.data().read().bits() as u8) }
     }
 
     pub fn flush_tx(&self, idx: u8) {
@@ -132,7 +147,9 @@ impl<T> Uart<'_, T> {
     }
 
     pub fn write(&self, idx: u8, data: &[u8]) {
-        for &b in data { self.write_byte(idx, b); }
+        for &b in data {
+            self.write_byte(idx, b);
+        }
     }
 
     pub fn uart_regs(&self, idx: u8) -> &'static ws63_pac::uart0::RegisterBlock {
@@ -145,16 +162,26 @@ impl embedded_io::ErrorType for Uart<'_, Uart0<'_>> {
 }
 impl embedded_io::Write for Uart<'_, Uart0<'_>> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        for &b in buf { self.write_byte(0, b); }
+        for &b in buf {
+            self.write_byte(0, b);
+        }
         Ok(buf.len())
     }
-    fn flush(&mut self) -> Result<(), Self::Error> { self.flush_tx(0); Ok(()) }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush_tx(0);
+        Ok(())
+    }
 }
 impl embedded_io::Read for Uart<'_, Uart0<'_>> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut n = 0;
         for b in buf.iter_mut() {
-            if let Some(byte) = self.read_byte(0) { *b = byte; n += 1; } else { break; }
+            if let Some(byte) = self.read_byte(0) {
+                *b = byte;
+                n += 1;
+            } else {
+                break;
+            }
         }
         Ok(n)
     }
