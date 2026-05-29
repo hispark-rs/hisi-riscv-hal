@@ -44,6 +44,8 @@ impl Peripheral {
     /// Get the clock register and bit position for this peripheral.
     pub fn cken_info(&self) -> (u8, u8) {
         match self {
+            // PWM has 9 clock gates (bits 2:10); cken_info returns base bit.
+            // peripheral_guard handles the 9-bit bulk write specially.
             Peripheral::Pwm => (0, 2),
             Peripheral::I2c0 => (0, 18),
             Peripheral::I2c1 => (0, 19),
@@ -73,17 +75,37 @@ static REF_COUNTS: [AtomicU8; 17] = {
 /// RAII guard that enables a peripheral clock on creation.
 ///
 /// Uses reference counting — the clock is only disabled when
-/// all guards for that peripheral are dropped.
+/// all guards for that peripheral are dropped. Stores a raw
+/// pointer to the CLDO_CRG register block so Drop can write
+/// the disable bit.
 pub struct PeripheralGuard<'d> {
     peripheral: Peripheral,
+    cldo_crg: *const (), // raw pointer to CLDO_CRG register block (static MMIO, always valid)
     _marker: PhantomData<&'d ()>,
 }
+
+// SAFETY: MMIO register blocks are Sync on single-core RISC-V
+unsafe impl Send for PeripheralGuard<'_> {}
+unsafe impl Sync for PeripheralGuard<'_> {}
 
 impl Drop for PeripheralGuard<'_> {
     fn drop(&mut self) {
         let idx = self.peripheral as usize;
         let count = REF_COUNTS[idx].load(Ordering::Relaxed);
         if count <= 1 {
+            // Actually disable the clock in hardware
+            let cken = unsafe { &*(self.cldo_crg as *const ws63_pac::cldo_crg::RegisterBlock) };
+            let (reg, bit) = self.peripheral.cken_info();
+            if matches!(self.peripheral, Peripheral::Pwm) {
+                let bits = cken.cken_ctl0().read();
+                cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() & !(0x1FF << 2)) });
+            } else if reg == 0 {
+                let bits = cken.cken_ctl0().read();
+                cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() & !(1 << bit)) });
+            } else {
+                let bits = cken.cken_ctl1().read();
+                cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() & !(1 << bit)) });
+            }
             REF_COUNTS[idx].store(0, Ordering::Relaxed);
         } else {
             REF_COUNTS[idx].store(count - 1, Ordering::Relaxed);
@@ -119,11 +141,18 @@ impl<'d> ClockControl<'d> {
         let idx = peripheral as usize;
         let count = REF_COUNTS[idx].load(Ordering::Relaxed);
         if count == 0 {
-            let (reg, bit) = peripheral.cken_info();
-            self.write_cken_bit(reg, bit, true);
+            // PWM has 9 contiguous bits (2:10) — bulk-enable all of them
+            match peripheral {
+                Peripheral::Pwm => self.enable_pwm(),
+                _ => {
+                    let (reg, bit) = peripheral.cken_info();
+                    self.write_cken_bit(reg, bit, true);
+                }
+            }
         }
         REF_COUNTS[idx].store(count + 1, Ordering::Relaxed);
-        PeripheralGuard { peripheral, _marker: PhantomData }
+        let cldo_ptr = self.cldo_crg.register_block() as *const ws63_pac::cldo_crg::RegisterBlock as *const ();
+        PeripheralGuard { peripheral, cldo_crg: cldo_ptr, _marker: PhantomData }
     }
 
     // ── Private: consolidated clock register access ────────────────
@@ -201,12 +230,30 @@ impl<'d> ClockControl<'d> {
     }
 
     /// Disable the clock gate for a specific peripheral.
+    ///
+    /// Only disables the clock if no PeripheralGuard references are active.
+    /// If guards exist, this is a no-op to avoid corrupting the RAII system.
     pub fn disable_peripheral(&self, peripheral: Peripheral) {
-        let (reg, bit) = peripheral.cken_info();
-        self.write_cken_bit(reg, bit, false);
+        let idx = peripheral as usize;
+        let count = REF_COUNTS[idx].load(Ordering::Relaxed);
+        if count > 0 {
+            return; // Guards are active, do not force-disable
+        }
+        if matches!(peripheral, Peripheral::Pwm) {
+            // Disable all 9 PWM clock bits
+            let cken = self.cldo_crg.register_block();
+            let bits = cken.cken_ctl0().read();
+            cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() & !(0x1FF << 2)) });
+        } else {
+            let (reg, bit) = peripheral.cken_info();
+            self.write_cken_bit(reg, bit, false);
+        }
     }
 
     /// Trigger a soft reset for a specific peripheral via CLDO_CRG.
+    ///
+    /// Power-cycles the peripheral clock (disable → delay → enable).
+    /// Does NOT check ref-count — use with caution.
     pub fn reset_peripheral(&self, peripheral: Peripheral) {
         let (reg, bit) = peripheral.cken_info();
         self.write_cken_bit(reg, bit, false);

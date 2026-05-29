@@ -104,12 +104,24 @@ impl<'d> TimerDriver<'d> {
 
     /// Check if a timer interrupt is pending.
     pub fn interrupt_pending(&self, n: usize) -> bool {
-        (self.regs().raw_intr_stat().read().bits() >> n) & 1 != 0
+        let r = self.regs();
+        match n {
+            0 => r.timer0_raw_intr(0).read().bits() & 1 != 0,
+            1 => r.timer0_raw_intr(1).read().bits() & 1 != 0,
+            2 => r.timer0_raw_intr(2).read().bits() & 1 != 0,
+            _ => unreachable!(),
+        }
     }
 
-    /// Clear a timer interrupt.
-    pub fn clear_interrupt(&self, _n: usize) {
-        let _ = self.regs().eoi_ren().read().bits();
+    /// Clear a timer interrupt (per-channel EOI).
+    pub fn clear_interrupt(&self, n: usize) {
+        let r = self.regs();
+        match n {
+            0 => { let _ = r.timer0_eoi(0).read().bits(); }
+            1 => { let _ = r.timer0_eoi(1).read().bits(); }
+            2 => { let _ = r.timer0_eoi(2).read().bits(); }
+            _ => unreachable!(),
+        }
     }
 
     /// Create a one-shot timer wrapper for the given channel.

@@ -292,8 +292,18 @@ impl<'d> Flex<'d> {
     }
 
     pub fn is_high(&self) -> bool {
+        // Save output enable state, switch to input, read, restore
+        let r = regs(self.pin.block);
+        let oen = r.gpio_sw_oen().read().bits();
         self.pin.set_oen(true);
-        let val = (regs(self.pin.block).gpio_sw_out().read().bits() >> self.pin.bit) & 1 != 0;
+        let val = (r.gpio_sw_out().read().bits() >> self.pin.bit) & 1 != 0;
+        // Restore original OEN state
+        let mask = 1 << self.pin.bit;
+        if oen & mask != 0 {
+            r.gpio_sw_oen().modify(|reg, w| unsafe { w.bits(reg.bits() | mask) });
+        } else {
+            r.gpio_sw_oen().modify(|reg, w| unsafe { w.bits(reg.bits() & !mask) });
+        }
         val
     }
 

@@ -4,6 +4,17 @@
 pub use ws63_pac::interrupt::ExternalInterrupt as Interrupt;
 
 /// System clock frequency (240 MHz).
+///
+/// # Clock initialization note
+///
+/// This value assumes the boot ROM has already configured the PLL for 240 MHz
+/// operation. On hardware, verify the actual PLL configuration. If the PLL is
+/// not set, the CPU runs from the internal RC oscillator (~16-32 MHz), and all
+/// baud-rate / SPI-clock / timer calculations will be wrong.
+///
+/// To configure the PLL manually, use the CLDO_CRG clock divider and PLL
+/// configuration registers before creating any peripheral drivers.
+pub const SYSTEM_CLOCK_HZ: u32 = 240_000_000;
 pub const SYSTEM_CLOCK_HZ: u32 = 240_000_000;
 
 /// Number of GPIO pins (19: GPIO0[7:0] + GPIO1[15:8] + GPIO2[18:16]).
