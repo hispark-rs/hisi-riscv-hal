@@ -83,9 +83,7 @@ impl<'d> TrngDriver<'d> {
     /// * `external` — `true` for external clock, `false` for internal clock.
     pub fn set_sample_clock(&mut self, external: bool) {
         unsafe {
-            self.regs()
-                .trng_fro_sample_clk_sel()
-                .write(|w| w.bits(if external { 1 } else { 0 }));
+            self.regs().trng_fro_sample_clk_sel().write(|w| w.bits(if external { 1 } else { 0 }));
         }
     }
 
@@ -95,9 +93,7 @@ impl<'d> TrngDriver<'d> {
     /// Default is 0x1b (27).
     pub fn set_divider(&mut self, div: u8) {
         unsafe {
-            self.regs()
-                .trng_fro_div_cnt()
-                .write(|w| w.bits(div as u32));
+            self.regs().trng_fro_div_cnt().write(|w| w.bits(div as u32));
         }
     }
 

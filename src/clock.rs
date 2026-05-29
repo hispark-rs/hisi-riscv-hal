@@ -3,12 +3,18 @@
 //! The WS63 uses a CLDO_CRG (Clock and Reset Generator) for peripheral clock
 //! enables, dividers, and clock source selection. The system boots at 240MHz
 //! and this module provides helpers for enabling/disabling peripheral clocks.
+//!
+//! # Peripheral clock guards
+//!
+//! The [`PeripheralGuard`] type provides RAII-based clock management:
+//! the clock is enabled when the guard is created and disabled on drop,
+//! with reference counting to handle multiple users of the same peripheral.
 
 use crate::peripherals::CldoCrg;
 use crate::system::{Clocks, System};
 use core::marker::PhantomData;
-use portable_atomic::AtomicU8;
 use core::sync::atomic::Ordering;
+use portable_atomic::AtomicU8;
 
 // ── Peripheral enum + RAII guards ──────────────────────────────────
 
@@ -113,153 +119,100 @@ impl<'d> ClockControl<'d> {
         let idx = peripheral as usize;
         let count = REF_COUNTS[idx].load(Ordering::Relaxed);
         if count == 0 {
-            let cken = self.cldo_crg.register_block();
             let (reg, bit) = peripheral.cken_info();
-            if reg == 0 {
-                let bits = cken.cken_ctl0().read();
-                cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << bit)) });
-            } else {
-                let bits = cken.cken_ctl1().read();
-                cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << bit)) });
-            }
+            self.write_cken_bit(reg, bit, true);
         }
         REF_COUNTS[idx].store(count + 1, Ordering::Relaxed);
         PeripheralGuard { peripheral, _marker: PhantomData }
     }
 
-    /// Enable the clock gate for a specific UART instance.
-    pub fn enable_uart(&self, uart_idx: usize) {
+    // ── Private: consolidated clock register access ────────────────
+
+    /// Write a clock enable bit to cken_ctl0 or cken_ctl1.
+    fn write_cken_bit(&self, reg: u8, bit: u8, set: bool) {
         let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl1().read();
+        let bits = if reg == 0 { cken.cken_ctl0().read().bits() } else { cken.cken_ctl1().read().bits() };
+        let val = if set { bits | (1 << bit) } else { bits & !(1 << bit) };
+        if reg == 0 {
+            unsafe { cken.cken_ctl0().write(|w| w.bits(val)) };
+        } else {
+            unsafe { cken.cken_ctl1().write(|w| w.bits(val)) };
+        }
+    }
+
+    // ── Individual clock enable methods ────────────────────────────
+
+    pub fn enable_uart(&self, uart_idx: usize) {
         let bit = match uart_idx {
             0 => 18,
             1 => 19,
             2 => 20,
             _ => unreachable!(),
         };
-        cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << bit)) });
+        self.write_cken_bit(1, bit, true);
     }
 
-    /// Enable the clock gate for a specific I2C instance.
     pub fn enable_i2c(&self, i2c_idx: usize) {
-        // I2C clock gates are in cken_ctl0 general clock enables
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl0().read();
         let bit = match i2c_idx {
             0 => 18,
             1 => 19,
             _ => unreachable!(),
         };
-        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << bit)) });
+        self.write_cken_bit(0, bit, true);
     }
 
-    /// Enable the clock gate for the SPI peripheral.
     pub fn enable_spi(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl1().read();
-        cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << 25)) });
+        self.write_cken_bit(1, 25, true);
     }
 
-    /// Enable the clock gate for PWM.
     pub fn enable_pwm(&self) {
+        // PWM has 9 contiguous bits (2:10) — needs bulk write
         let cken = self.cldo_crg.register_block();
         let bits = cken.cken_ctl0().read();
-        // PWM clock gates: bits 2:10
         cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (0x1FF << 2)) });
     }
 
-    /// Enable the clock gate for TIMER.
     pub fn enable_timer(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits0 = cken.cken_ctl0().read();
-        cken.cken_ctl0().write(|w| unsafe { w.bits(bits0.bits() | (1 << 21)) });
+        self.write_cken_bit(0, 21, true);
     }
-
-    /// Enable the clock gate for the LSADC peripheral.
     pub fn enable_lsadc(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl0().read();
-        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 22)) });
+        self.write_cken_bit(0, 22, true);
     }
-
-    /// Enable the clock gate for the TSENSOR peripheral.
     pub fn enable_tsensor(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl0().read();
-        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 23)) });
+        self.write_cken_bit(0, 23, true);
     }
-
-    /// Enable the clock gate for the I2S peripheral.
     pub fn enable_i2s(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl0().read();
-        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 24)) });
+        self.write_cken_bit(0, 24, true);
     }
-
-    /// Enable the clock gate for the DMA peripheral.
     pub fn enable_dma(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl1().read();
-        cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << 22)) });
+        self.write_cken_bit(1, 22, true);
     }
-
-    /// Enable the clock gate for the SDMA peripheral.
     pub fn enable_sdma(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl1().read();
-        cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << 23)) });
+        self.write_cken_bit(1, 23, true);
     }
-
-    /// Enable the clock gate for the SFC (SPI Flash Controller) peripheral.
     pub fn enable_sfc(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl1().read();
-        cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << 24)) });
+        self.write_cken_bit(1, 24, true);
     }
-
-    /// Enable the clock gate for the TRNG peripheral.
     pub fn enable_trng(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl0().read();
-        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 25)) });
+        self.write_cken_bit(0, 25, true);
     }
-
-    /// Enable the clock gate for the security acceleration (SPACC/PKE/KM) peripherals.
     pub fn enable_security(&self) {
-        let cken = self.cldo_crg.register_block();
-        let bits = cken.cken_ctl0().read();
-        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 26)) });
+        self.write_cken_bit(0, 26, true);
     }
 
     /// Disable the clock gate for a specific peripheral.
     pub fn disable_peripheral(&self, peripheral: Peripheral) {
-        let cken = self.cldo_crg.register_block();
         let (reg, bit) = peripheral.cken_info();
-        if reg == 0 {
-            let bits = cken.cken_ctl0().read();
-            cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() & !(1 << bit)) });
-        } else {
-            let bits = cken.cken_ctl1().read();
-            cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() & !(1 << bit)) });
-        }
+        self.write_cken_bit(reg, bit, false);
     }
 
     /// Trigger a soft reset for a specific peripheral via CLDO_CRG.
     pub fn reset_peripheral(&self, peripheral: Peripheral) {
-        let cken = self.cldo_crg.register_block();
         let (reg, bit) = peripheral.cken_info();
-        // Reset: disable, then re-enable clock (power-cycle style reset)
-        if reg == 0 {
-            let bits = cken.cken_ctl0().read();
-            cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() & !(1 << bit)) });
-            // Small delay
-            for _ in 0..100 { core::hint::spin_loop(); }
-            cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << bit)) });
-        } else {
-            let bits = cken.cken_ctl1().read();
-            cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() & !(1 << bit)) });
-            for _ in 0..100 { core::hint::spin_loop(); }
-            cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << bit)) });
+        self.write_cken_bit(reg, bit, false);
+        for _ in 0..100 {
+            core::hint::spin_loop();
         }
+        self.write_cken_bit(reg, bit, true);
     }
 }

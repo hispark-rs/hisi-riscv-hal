@@ -14,9 +14,7 @@ pub use crate::clock::{ClockControl, Peripheral, PeripheralGuard};
 pub use crate::delay::Delay;
 pub use crate::dma::{Dma0, DmaDriver, Sdma0};
 pub use crate::efuse::EfuseDriver;
-pub use crate::gpio::{
-    AnyPin, Flex, GpioPin, Input, InputConfig, InputMode, Output, OutputConfig, OutputMode, Pull,
-};
+pub use crate::gpio::{AnyPin, Flex, GpioPin, Input, InputConfig, InputMode, Output, OutputConfig, OutputMode, Pull};
 pub use crate::i2c::I2c;
 pub use crate::i2s::I2sDriver;
 pub use crate::interrupt::{InterruptConfigurable, Priority};

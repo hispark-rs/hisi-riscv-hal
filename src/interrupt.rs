@@ -19,8 +19,12 @@ impl Priority {
     pub const P6: Self = Priority(6);
     pub const P7: Self = Priority(7);
 
-    pub const fn max() -> Self { Priority(7) }
-    pub const fn min() -> Self { Priority(0) }
+    pub const fn max() -> Self {
+        Priority(7)
+    }
+    pub const fn min() -> Self {
+        Priority(0)
+    }
 }
 
 /// A type that can have its interrupt handler configured.

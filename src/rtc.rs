@@ -45,9 +45,7 @@ impl<'d> RtcDriver<'d> {
     /// * `load_value` - In periodic mode, the counter resets when reaching this value.
     pub fn configure(&mut self, mode: RtcMode, load_value: u32) {
         unsafe {
-            self.regs()
-                .rtc_load_count()
-                .write(|w| w.bits(load_value));
+            self.regs().rtc_load_count().write(|w| w.bits(load_value));
         }
 
         let mut ctrl: u32 = 0;
@@ -81,9 +79,7 @@ impl<'d> RtcDriver<'d> {
     /// Set the load (alarm) value.
     pub fn set_load(&mut self, load_value: u32) {
         unsafe {
-            self.regs()
-                .rtc_load_count()
-                .write(|w| w.bits(load_value));
+            self.regs().rtc_load_count().write(|w| w.bits(load_value));
         }
     }
 

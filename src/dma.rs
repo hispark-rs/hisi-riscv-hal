@@ -148,9 +148,7 @@ pub struct DmaDriver<'d, T: DmaInstance> {
 impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     /// Create a new DMA driver from a DMA peripheral.
     pub fn new(_dma: impl Into<PhantomData<&'d T>>) -> Self {
-        Self {
-            _instance: PhantomData,
-        }
+        Self { _instance: PhantomData }
     }
 
     fn regs() -> &'static ws63_pac::dma::RegisterBlock {
@@ -316,18 +314,14 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     /// Issue a software burst request for a channel.
     pub fn burst_request(&mut self, channel: u8) {
         unsafe {
-            Self::regs()
-                .dmac_burst_req()
-                .write(|w| w.bits(1 << channel));
+            Self::regs().dmac_burst_req().write(|w| w.bits(1 << channel));
         }
     }
 
     /// Issue a software single request for a channel.
     pub fn single_request(&mut self, channel: u8) {
         unsafe {
-            Self::regs()
-                .dmac_single_req()
-                .write(|w| w.bits(1 << channel));
+            Self::regs().dmac_single_req().write(|w| w.bits(1 << channel));
         }
     }
 
@@ -344,10 +338,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     /// Returns `(transfer_done_mask, error_mask)`.
     pub fn interrupt_status(&self) -> (u8, u8) {
         let sts = Self::regs().dmac_int_st().read().bits();
-        (
-            (sts & 0xFF) as u8,
-            ((sts >> 16) & 0xFF) as u8,
-        )
+        ((sts & 0xFF) as u8, ((sts >> 16) & 0xFF) as u8)
     }
 
     /// Clear transfer complete interrupt for a channel.
@@ -360,9 +351,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     /// Clear error interrupt for a channel.
     pub fn clear_error_interrupt(&mut self, channel: u8) {
         unsafe {
-            Self::regs()
-                .dmac_int_clr()
-                .write(|w| w.bits(1 << (channel + 8)));
+            Self::regs().dmac_int_clr().write(|w| w.bits(1 << (channel + 8)));
         }
     }
 
@@ -382,9 +371,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 impl<'d> DmaDriver<'d, Dma0> {
     /// Create a new primary DMA driver.
     pub fn new_dma(_dma: Dma<'d>) -> Self {
-        Self {
-            _instance: PhantomData,
-        }
+        Self { _instance: PhantomData }
     }
 }
 
@@ -429,17 +416,12 @@ pub trait DmaEligible {
 }
 
 /// Trait bound ensuring a DMA channel can be used with a given peripheral.
+///
+/// To be useful, this needs per-peripheral impls that bind specific
+/// `DmaChannel` types to specific `DmaEligible` peripherals (e.g.,
+/// `impl DmaChannelFor<Spi0> for Channel0`). The blanket impl is omitted
+/// intentionally — it would defeat compile-time channel safety.
 pub trait DmaChannelFor<P: DmaEligible> {}
-
-impl<'d, T, P> DmaChannelFor<P> for DmaDriver<'d, T>
-where
-    T: DmaInstance,
-    P: DmaEligible,
-{
-}
-
-/// Helper type alias for a DMA channel compatible with a peripheral.
-pub type PeripheralDmaChannel<P> = core::marker::PhantomData<P>;
 
 // ── DmaEligible implementations ──────────────────────────────────
 
@@ -460,8 +442,6 @@ impl DmaEligible for Spi1<'static> {
 impl<'d> DmaDriver<'d, Sdma0> {
     /// Create a new secure DMA driver.
     pub fn new_sdma(_sdma: Sdma<'d>) -> Self {
-        Self {
-            _instance: PhantomData,
-        }
+        Self { _instance: PhantomData }
     }
 }

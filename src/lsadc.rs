@@ -51,11 +51,7 @@ pub struct AdcConfig {
 
 impl Default for AdcConfig {
     fn default() -> Self {
-        Self {
-            sample_count: 7,
-            start_count: 3,
-            cast_count: 3,
-        }
+        Self { sample_count: 7, start_count: 3, cast_count: 3 }
     }
 }
 
@@ -166,18 +162,14 @@ impl<'d> LsAdc<'d> {
         if val == 0 {
             return None;
         }
-        Some(AdcSample {
-            data: (val & 0x3FFF) as u16,
-            channel: ((val >> 14) & 0x07) as u8,
-        })
+        Some(AdcSample { data: (val & 0x3FFF) as u16, channel: ((val >> 14) & 0x07) as u8 })
     }
 
     /// Enable the CIC filter with a given oversampling ratio.
     pub fn enable_cic_filter(&mut self, oversampling_ratio: u8) {
         let r = self.regs();
         unsafe {
-            r.cfg_cic_osr()
-                .write(|w| w.bits(oversampling_ratio as u32 & 0xFF));
+            r.cfg_cic_osr().write(|w| w.bits(oversampling_ratio as u32 & 0xFF));
             r.cfg_cic_filter_en().write(|w| w.bits(0x01));
         }
     }
@@ -208,9 +200,7 @@ impl<'d> LsAdc<'d> {
     /// `true` = post-processed data, `false` = raw ADC data.
     pub fn set_data_select(&mut self, processed: bool) {
         unsafe {
-            self.regs()
-                .cfg_data_sel()
-                .write(|w| w.bits(if processed { 1 } else { 0 }));
+            self.regs().cfg_data_sel().write(|w| w.bits(if processed { 1 } else { 0 }));
         }
     }
 }

@@ -114,9 +114,7 @@ impl<'d> TempSensor<'d> {
     /// Interrupt triggers when temperature code exceeds this value.
     pub fn set_high_limit(&mut self, code: u16) {
         unsafe {
-            self.regs()
-                .tsensor_temp_high_limit()
-                .write(|w| w.bits((code & 0x3FF) as u32));
+            self.regs().tsensor_temp_high_limit().write(|w| w.bits((code & 0x3FF) as u32));
         }
     }
 
@@ -125,9 +123,7 @@ impl<'d> TempSensor<'d> {
     /// Interrupt triggers when temperature code falls below this value.
     pub fn set_low_limit(&mut self, code: u16) {
         unsafe {
-            self.regs()
-                .tsensor_temp_low_limit()
-                .write(|w| w.bits((code & 0x3FF) as u32));
+            self.regs().tsensor_temp_low_limit().write(|w| w.bits((code & 0x3FF) as u32));
         }
     }
 
@@ -201,12 +197,8 @@ impl<'d> TempSensor<'d> {
     /// * `enable` — Enable auto refresh.
     pub fn configure_auto_refresh(&mut self, period: u16, enable: bool) {
         unsafe {
-            self.regs()
-                .tsensor_auto_refresh_period()
-                .write(|w| w.bits(period as u32));
-            self.regs()
-                .tsensor_auto_refresh_cfg()
-                .write(|w| w.bits(if enable { 1 } else { 0 }));
+            self.regs().tsensor_auto_refresh_period().write(|w| w.bits(period as u32));
+            self.regs().tsensor_auto_refresh_cfg().write(|w| w.bits(if enable { 1 } else { 0 }));
         }
     }
 

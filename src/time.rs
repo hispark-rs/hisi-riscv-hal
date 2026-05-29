@@ -16,7 +16,9 @@ impl Instant {
         let tcxo = unsafe { &*Tcxo::ptr() };
         // Latch the counter
         let status = tcxo.tcxo_status().read().bits();
-        unsafe { tcxo.tcxo_status().write(|w| w.bits(status | 0x01)); }
+        unsafe {
+            tcxo.tcxo_status().write(|w| w.bits(status | 0x01));
+        }
         while tcxo.tcxo_status().read().bits() & 0x10 == 0 {}
         // Read 64-bit counter
         let c0 = tcxo.tcxo_count0().read().bits() as u64;
@@ -38,11 +40,7 @@ impl Instant {
 
     /// Returns `Some(Duration)` if `earlier` is earlier than `self`, or `None` otherwise.
     pub fn checked_duration_since(&self, earlier: Instant) -> Option<Duration> {
-        if self.0 >= earlier.0 {
-            Some(Duration::from_micros(self.0 - earlier.0))
-        } else {
-            None
-        }
+        if self.0 >= earlier.0 { Some(Duration::from_micros(self.0 - earlier.0)) } else { None }
     }
 
     /// Returns the raw counter value.
@@ -89,16 +87,22 @@ impl Duration {
 
 impl core::ops::Add for Duration {
     type Output = Self;
-    fn add(self, rhs: Self) -> Self { Duration(self.0 + rhs.0) }
+    fn add(self, rhs: Self) -> Self {
+        Duration(self.0 + rhs.0)
+    }
 }
 
 impl core::ops::AddAssign for Duration {
-    fn add_assign(&mut self, rhs: Self) { self.0 += rhs.0; }
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
 }
 
 impl core::ops::Sub for Duration {
     type Output = Self;
-    fn sub(self, rhs: Self) -> Self { Duration(self.0.saturating_sub(rhs.0)) }
+    fn sub(self, rhs: Self) -> Self {
+        Duration(self.0.saturating_sub(rhs.0))
+    }
 }
 
 /// A rate in Hz.
@@ -106,11 +110,21 @@ impl core::ops::Sub for Duration {
 pub struct Rate(u32);
 
 impl Rate {
-    pub const fn from_hz(hz: u32) -> Self { Rate(hz) }
-    pub const fn from_khz(khz: u32) -> Self { Rate(khz * 1_000) }
-    pub const fn from_mhz(mhz: u32) -> Self { Rate(mhz * 1_000_000) }
-    pub const fn to_hz(&self) -> u32 { self.0 }
-    pub const fn to_khz(&self) -> u32 { self.0 / 1_000 }
+    pub const fn from_hz(hz: u32) -> Self {
+        Rate(hz)
+    }
+    pub const fn from_khz(khz: u32) -> Self {
+        Rate(khz * 1_000)
+    }
+    pub const fn from_mhz(mhz: u32) -> Self {
+        Rate(mhz * 1_000_000)
+    }
+    pub const fn to_hz(&self) -> u32 {
+        self.0
+    }
+    pub const fn to_khz(&self) -> u32 {
+        self.0 / 1_000
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────

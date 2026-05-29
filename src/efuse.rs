@@ -32,9 +32,7 @@ impl<'d> EfuseDriver<'d> {
     /// Controls the timing of eFuse read/write operations.
     pub fn set_clock_period(&mut self, period: u8) {
         unsafe {
-            self.regs()
-                .efuse_clk_period()
-                .write(|w| w.bits(period as u32));
+            self.regs().efuse_clk_period().write(|w| w.bits(period as u32));
         }
     }
 
@@ -46,9 +44,7 @@ impl<'d> EfuseDriver<'d> {
         // Preserve wr_rd bit, update control field
         let wr_rd = current & 0x10000;
         unsafe {
-            self.regs()
-                .efuse_ctl_data()
-                .write(|w| w.bits(wr_rd | (ctl as u32)));
+            self.regs().efuse_ctl_data().write(|w| w.bits(wr_rd | (ctl as u32)));
         }
     }
 
@@ -57,9 +53,7 @@ impl<'d> EfuseDriver<'d> {
         let current = self.regs().efuse_ctl_data().read().bits();
         let ctl = current & 0xFFFF;
         unsafe {
-            self.regs()
-                .efuse_ctl_data()
-                .write(|w| w.bits(ctl | (if write { 0x10000 } else { 0 })));
+            self.regs().efuse_ctl_data().write(|w| w.bits(ctl | (if write { 0x10000 } else { 0 })));
         }
     }
 
@@ -73,9 +67,7 @@ impl<'d> EfuseDriver<'d> {
     /// * `enable` — `true` to enable AVDD for programming, `false` to disable.
     pub fn set_avdd(&mut self, enable: bool) {
         unsafe {
-            self.regs()
-                .efuse_avdd_ctl()
-                .write(|w| w.bits(if enable { 1 } else { 0 }));
+            self.regs().efuse_avdd_ctl().write(|w| w.bits(if enable { 1 } else { 0 }));
         }
     }
 
@@ -96,20 +88,15 @@ impl<'d> EfuseDriver<'d> {
         }
     }
 
-    /// Read the chip ID from eFuse.
-    ///
-    /// The chip ID is stored in the eFuse control data register
-    /// and contains manufacturing information.
-    pub fn read_chip_id(&self) -> u32 {
-        self.regs().efuse_ctl_data().read().bits()
-    }
-
     /// Read a raw eFuse word at the given control data value.
     ///
     /// * `ctl` — Control data value specifying which eFuse word to read.
+    ///   Note: `read_chip_id()` is an alias for `read_control_data()` above.
     pub fn read_raw(&mut self, ctl: u16) -> u32 {
-        self.set_control(ctl);
-        self.set_write_mode(false);
+        // Set control word with write mode disabled (= read mode)
+        let current = self.regs().efuse_ctl_data().read().bits();
+        let val = (current & 0x10000) | (ctl as u32);
+        unsafe { self.regs().efuse_ctl_data().write(|w| w.bits(val)) };
         self.regs().efuse_ctl_data().read().bits()
     }
 }

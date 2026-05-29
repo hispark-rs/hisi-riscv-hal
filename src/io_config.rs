@@ -362,12 +362,7 @@ impl<'d> IoConfigDriver<'d> {
 }
 
 /// Build a pad control register value.
-fn build_pad_ctrl(
-    drive: DriveStrength,
-    pull: PullResistor,
-    schmitt_trigger: bool,
-    input_enable: bool,
-) -> u32 {
+fn build_pad_ctrl(drive: DriveStrength, pull: PullResistor, schmitt_trigger: bool, input_enable: bool) -> u32 {
     let mut val: u32 = 0;
 
     // Drive strength: ds2=bit6, ds1=bit5, ds0=bit4

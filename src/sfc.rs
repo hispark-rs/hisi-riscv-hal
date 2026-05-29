@@ -198,22 +198,54 @@ impl<'d> SfcDriver<'d> {
     fn write_databuf(r: &ws63_pac::sfc_cfg::RegisterBlock, idx: usize, word: u32) {
         unsafe {
             match idx {
-                0 => { r.cmd_databuf_0().write(|w| w.bits(word)); }
-                1 => { r.cmd_databuf_1().write(|w| w.bits(word)); }
-                2 => { r.cmd_databuf_2().write(|w| w.bits(word)); }
-                3 => { r.cmd_databuf_3().write(|w| w.bits(word)); }
-                4 => { r.cmd_databuf_4().write(|w| w.bits(word)); }
-                5 => { r.cmd_databuf_5().write(|w| w.bits(word)); }
-                6 => { r.cmd_databuf_6().write(|w| w.bits(word)); }
-                7 => { r.cmd_databuf_7().write(|w| w.bits(word)); }
-                8 => { r.cmd_databuf_8().write(|w| w.bits(word)); }
-                9 => { r.cmd_databuf_9().write(|w| w.bits(word)); }
-                10 => { r.cmd_databuf_10().write(|w| w.bits(word)); }
-                11 => { r.cmd_databuf_11().write(|w| w.bits(word)); }
-                12 => { r.cmd_databuf_12().write(|w| w.bits(word)); }
-                13 => { r.cmd_databuf_13().write(|w| w.bits(word)); }
-                14 => { r.cmd_databuf_14().write(|w| w.bits(word)); }
-                15 => { r.cmd_databuf_15().write(|w| w.bits(word)); }
+                0 => {
+                    r.cmd_databuf_0().write(|w| w.bits(word));
+                }
+                1 => {
+                    r.cmd_databuf_1().write(|w| w.bits(word));
+                }
+                2 => {
+                    r.cmd_databuf_2().write(|w| w.bits(word));
+                }
+                3 => {
+                    r.cmd_databuf_3().write(|w| w.bits(word));
+                }
+                4 => {
+                    r.cmd_databuf_4().write(|w| w.bits(word));
+                }
+                5 => {
+                    r.cmd_databuf_5().write(|w| w.bits(word));
+                }
+                6 => {
+                    r.cmd_databuf_6().write(|w| w.bits(word));
+                }
+                7 => {
+                    r.cmd_databuf_7().write(|w| w.bits(word));
+                }
+                8 => {
+                    r.cmd_databuf_8().write(|w| w.bits(word));
+                }
+                9 => {
+                    r.cmd_databuf_9().write(|w| w.bits(word));
+                }
+                10 => {
+                    r.cmd_databuf_10().write(|w| w.bits(word));
+                }
+                11 => {
+                    r.cmd_databuf_11().write(|w| w.bits(word));
+                }
+                12 => {
+                    r.cmd_databuf_12().write(|w| w.bits(word));
+                }
+                13 => {
+                    r.cmd_databuf_13().write(|w| w.bits(word));
+                }
+                14 => {
+                    r.cmd_databuf_14().write(|w| w.bits(word));
+                }
+                15 => {
+                    r.cmd_databuf_15().write(|w| w.bits(word));
+                }
                 _ => {}
             }
         }
@@ -360,13 +392,7 @@ impl<'d> SfcDriver<'d> {
     /// * `flash_addr` — Flash address.
     /// * `length` — Number of bytes to transfer.
     /// * `read` — `true` for flash-to-memory read, `false` for memory-to-flash write.
-    pub fn bus_dma_start(
-        &mut self,
-        mem_addr: u32,
-        flash_addr: u32,
-        length: u32,
-        read: bool,
-    ) {
+    pub fn bus_dma_start(&mut self, mem_addr: u32, flash_addr: u32, length: u32, read: bool) {
         let r = self.regs();
 
         unsafe {

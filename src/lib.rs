@@ -36,9 +36,9 @@ pub mod ulp_gpio;
 pub mod wdt;
 
 // Crypto modules
-pub mod spacc;
-pub mod pke;
 pub mod km;
+pub mod pke;
+pub mod spacc;
 
 pub mod soc;
 

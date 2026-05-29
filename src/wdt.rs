@@ -96,13 +96,7 @@ impl<'d> Watchdog<'d> {
     /// * `mode` - Interrupt mode (single or double interrupt before reset).
     /// * `reset_enable` - Whether to enable system reset on timeout.
     /// * `reset_pulse` - Reset pulse length if reset is enabled.
-    pub fn configure(
-        &mut self,
-        timeout_ms: u32,
-        mode: WdtMode,
-        reset_enable: bool,
-        reset_pulse: ResetPulseLength,
-    ) {
+    pub fn configure(&mut self, timeout_ms: u32, mode: WdtMode, reset_enable: bool, reset_pulse: ResetPulseLength) {
         // Calculate load value from timeout in ms
         let load = ((timeout_ms as u64 * WDT_CLOCK_HZ as u64) / 1000) as u32;
         let load = load.min(WDT_MAX_LOAD);

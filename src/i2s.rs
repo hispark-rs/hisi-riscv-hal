@@ -166,27 +166,22 @@ impl<'d> I2sDriver<'d> {
         }
 
         // Set data width modes
-        let dw = ((config.tx_width as u32) & 0x07)
-            | (((config.rx_width as u32) & 0x07) << 8);
+        let dw = ((config.tx_width as u32) & 0x07) | (((config.rx_width as u32) & 0x07) << 8);
         unsafe {
             r.data_width_set().write(|w| w.bits(dw));
         }
 
         // Set FIFO thresholds
-        let thresh = (config.tx_fifo_threshold as u32 & 0xFF)
-            | ((config.rx_fifo_threshold as u32 & 0xFF) << 8);
+        let thresh = (config.tx_fifo_threshold as u32 & 0xFF) | ((config.rx_fifo_threshold as u32 & 0xFF) << 8);
         unsafe {
             r.fifo_threshold().write(|w| w.bits(thresh));
         }
 
         // Set clock dividers (for master mode)
         unsafe {
-            r.i2s_bclk_div_num()
-                .write(|w| w.bits(config.bclk_div as u32 & 0x7F));
-            r.i2s_fs_div_num()
-                .write(|w| w.bits(config.fs_div_num as u32 & 0x3FF));
-            r.i2s_fs_div_ratio_num()
-                .write(|w| w.bits(config.fs_div_ratio as u32 & 0x7FF));
+            r.i2s_bclk_div_num().write(|w| w.bits(config.bclk_div as u32 & 0x7F));
+            r.i2s_fs_div_num().write(|w| w.bits(config.fs_div_num as u32 & 0x3FF));
+            r.i2s_fs_div_ratio_num().write(|w| w.bits(config.fs_div_ratio as u32 & 0x7FF));
         }
 
         // Enable clock in master mode
@@ -310,12 +305,7 @@ impl<'d> I2sDriver<'d> {
     /// Returns `(rx_int, tx_int, rx_overflow, tx_underflow)`.
     pub fn interrupt_status(&self) -> (bool, bool, bool, bool) {
         let sts = self.regs().intstatus().read().bits();
-        (
-            (sts & 0x01) != 0,
-            (sts & 0x02) != 0,
-            (sts & 0x04) != 0,
-            (sts & 0x08) != 0,
-        )
+        ((sts & 0x01) != 0, (sts & 0x02) != 0, (sts & 0x04) != 0, (sts & 0x08) != 0)
     }
 
     /// Clear all interrupts.

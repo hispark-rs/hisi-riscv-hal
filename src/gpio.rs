@@ -396,7 +396,9 @@ impl GpioPin<'_, InputMode> {
     pub fn is_high(&self) -> bool {
         (regs(self.block).gpio_sw_out().read().bits() >> self.bit) & 1 != 0
     }
-    pub fn is_low(&self) -> bool { !self.is_high() }
+    pub fn is_low(&self) -> bool {
+        !self.is_high()
+    }
     pub fn enable_interrupt(&self) {
         regs(self.block).gpio_int_en().modify(|r, w| unsafe { w.bits(r.bits() | (1 << self.bit)) });
     }
@@ -420,21 +422,34 @@ impl embedded_hal::digital::ErrorType for GpioPin<'_, OutputMode> {
     type Error = core::convert::Infallible;
 }
 impl embedded_hal::digital::OutputPin for GpioPin<'_, OutputMode> {
-    fn set_low(&mut self) -> Result<(), Self::Error> { GpioPin::set_low(self); Ok(()) }
-    fn set_high(&mut self) -> Result<(), Self::Error> { GpioPin::set_high(self); Ok(()) }
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        GpioPin::set_low(self);
+        Ok(())
+    }
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        GpioPin::set_high(self);
+        Ok(())
+    }
 }
 impl embedded_hal::digital::StatefulOutputPin for GpioPin<'_, OutputMode> {
-    fn is_set_high(&mut self) -> Result<bool, Self::Error> { Ok(GpioPin::is_set_high(self)) }
-    fn is_set_low(&mut self) -> Result<bool, Self::Error> { Ok(!GpioPin::is_set_high(self)) }
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(GpioPin::is_set_high(self))
+    }
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(!GpioPin::is_set_high(self))
+    }
 }
 impl embedded_hal::digital::ErrorType for GpioPin<'_, InputMode> {
     type Error = core::convert::Infallible;
 }
 impl embedded_hal::digital::InputPin for GpioPin<'_, InputMode> {
-    fn is_high(&mut self) -> Result<bool, Self::Error> { Ok(GpioPin::is_high(self)) }
-    fn is_low(&mut self) -> Result<bool, Self::Error> { Ok(GpioPin::is_low(self)) }
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(GpioPin::is_high(self))
+    }
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(GpioPin::is_low(self))
+    }
 }
-
 
 // ── Pin creation functions ────────────────────────────────────────
 
