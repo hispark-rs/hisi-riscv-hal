@@ -35,7 +35,8 @@ pub enum Peripheral {
 }
 
 impl Peripheral {
-    fn cken_info(&self) -> (u8, u8) {
+    /// Get the clock register and bit position for this peripheral.
+    pub fn cken_info(&self) -> (u8, u8) {
         match self {
             Peripheral::Pwm => (0, 2),
             Peripheral::I2c0 => (0, 18),

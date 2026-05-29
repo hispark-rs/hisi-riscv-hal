@@ -40,7 +40,7 @@ pub mod spacc;
 pub mod pke;
 pub mod km;
 
-mod soc;
+pub mod soc;
 
 pub use peripherals::Peripherals;
 pub use system::System;

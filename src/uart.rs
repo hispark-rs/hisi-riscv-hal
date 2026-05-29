@@ -249,3 +249,35 @@ impl embedded_io::Read for Uart<'_, Uart2<'_>> {
         Ok(n)
     }
 }
+
+// ── embedded-hal-nb serial traits ──────────────────────────────
+
+macro_rules! impl_nb_serial {
+    ($uart:ty, $idx:expr) => {
+        impl embedded_hal_nb::serial::ErrorType for Uart<'_, $uart> {
+            type Error = core::convert::Infallible;
+        }
+        impl embedded_hal_nb::serial::Read for Uart<'_, $uart> {
+            fn read(&mut self) -> nb::Result<u8, Self::Error> {
+                match self.read_byte($idx) {
+                    Some(b) => Ok(b),
+                    None => Err(nb::Error::WouldBlock),
+                }
+            }
+        }
+        impl embedded_hal_nb::serial::Write for Uart<'_, $uart> {
+            fn write(&mut self, byte: u8) -> nb::Result<(), Self::Error> {
+                self.write_byte($idx, byte);
+                Ok(())
+            }
+            fn flush(&mut self) -> nb::Result<(), Self::Error> {
+                self.flush_tx($idx);
+                Ok(())
+            }
+        }
+    };
+}
+
+impl_nb_serial!(Uart0<'_>, 0);
+impl_nb_serial!(Uart1<'_>, 1);
+impl_nb_serial!(Uart2<'_>, 2);

@@ -44,3 +44,23 @@ impl<'d> PwmChannel<'d> {
         self.regs().pwm_period_val0().write(|w| unsafe { w.bits(count) });
     }
 }
+
+impl embedded_hal::pwm::ErrorType for PwmChannel<'_> {
+    type Error = core::convert::Infallible;
+}
+
+impl embedded_hal::pwm::SetDutyCycle for PwmChannel<'_> {
+    fn max_duty_cycle(&self) -> u16 {
+        u16::MAX
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        let r = self.regs();
+        let duty_val = duty as u32;
+        unsafe {
+            r.pwm_duty_l0().write(|w| w.bits(duty_val & 0xFFFF));
+            r.pwm_duty_h0().write(|w| w.bits((duty_val >> 16) & 0xFFFF));
+        }
+        Ok(())
+    }
+}

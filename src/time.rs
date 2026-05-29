@@ -112,3 +112,49 @@ impl Rate {
     pub const fn to_hz(&self) -> u32 { self.0 }
     pub const fn to_khz(&self) -> u32 { self.0 / 1_000 }
 }
+
+// ── Tests ────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_duration_constructors() {
+        assert_eq!(Duration::from_micros(500).as_micros(), 500);
+        assert_eq!(Duration::from_millis(1).as_micros(), 1000);
+        assert_eq!(Duration::from_secs(1).as_micros(), 1_000_000);
+        assert_eq!(Duration::from_micros(1500).as_millis(), 1);
+    }
+
+    #[test]
+    fn test_duration_add_sub() {
+        let a = Duration::from_micros(100);
+        let b = Duration::from_micros(50);
+        assert_eq!((a + b).as_micros(), 150);
+        assert_eq!((a - b).as_micros(), 50);
+        // Saturating subtract
+        assert_eq!((b - a).as_micros(), 0);
+    }
+
+    #[test]
+    fn test_duration_default() {
+        assert_eq!(Duration::default().as_micros(), 0);
+    }
+
+    #[test]
+    fn test_rate_constructors() {
+        assert_eq!(Rate::from_hz(1000).to_hz(), 1000);
+        assert_eq!(Rate::from_khz(1).to_hz(), 1000);
+        assert_eq!(Rate::from_mhz(1).to_hz(), 1_000_000);
+        assert_eq!(Rate::from_mhz(240).to_khz(), 240_000);
+    }
+
+    #[test]
+    fn test_instant_checked_duration() {
+        let early = Instant(100);
+        let late = Instant(200);
+        assert_eq!(late.checked_duration_since(early).unwrap().as_micros(), 100);
+        assert!(early.checked_duration_since(late).is_none());
+    }
+}

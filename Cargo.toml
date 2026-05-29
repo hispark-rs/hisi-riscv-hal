@@ -11,6 +11,7 @@ categories = ["embedded", "no-std", "hardware-support"]
 [dependencies]
 ws63-pac = { version = "0.1", git = "https://github.com/sanchuanhehe/ws63-pac", features = ["critical-section", "rt"] }
 embedded-hal = "1.0.0"
+embedded-hal-nb = "1.0"
 embedded-io = "0.6"
 nb = "1"
 cfg-if = "1"
