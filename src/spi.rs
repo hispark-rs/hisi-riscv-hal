@@ -57,7 +57,8 @@ fn configure_spi(idx: u8, config: &Config) {
     let r = spi_regs(idx);
     r.spi_er().write(|w| unsafe { w.bits(0) });
     let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ;
-    let mut div = pclk / (2 * config.frequency);
+    let freq = if config.frequency == 0 { 1 } else { config.frequency };
+    let mut div = pclk / (2 * freq);
     div = div.saturating_sub(1);
     if div > 0xFFFF {
         div = 0xFFFF;
