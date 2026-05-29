@@ -147,3 +147,33 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Spi0<'_>> {
         Ok(())
     }
 }
+
+// SPI1 also implements the same traits
+impl embedded_hal::spi::ErrorType for Spi<'_, Spi1<'_>> {
+    type Error = SpiError;
+}
+impl embedded_hal::spi::SpiBus for Spi<'_, Spi1<'_>> {
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+        self.transfer(write, read)
+    }
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
+        self.transfer(&[], buf)
+    }
+    fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        Spi::write(self, buf)
+    }
+    fn transfer_in_place(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
+        let r = spi_regs(self.idx);
+        for byte in buf.iter_mut() {
+            let tx = *byte as u32;
+            while !r.spi_wsr().read().txfnf().bit_is_set() {}
+            unsafe { r.spi_dr().write(|w| w.bits(tx)) };
+            while !r.spi_wsr().read().rxfne().bit_is_set() {}
+            *byte = r.spi_dr().read().bits() as u8;
+        }
+        Ok(())
+    }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}

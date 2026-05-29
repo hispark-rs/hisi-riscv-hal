@@ -70,4 +70,60 @@ impl<'d> ClockControl<'d> {
         let bits0 = cken.cken_ctl0().read();
         cken.cken_ctl0().write(|w| unsafe { w.bits(bits0.bits() | (1 << 21)) });
     }
+
+    /// Enable the clock gate for the LSADC peripheral.
+    pub fn enable_lsadc(&self) {
+        let cken = self.cldo_crg.register_block();
+        let bits = cken.cken_ctl0().read();
+        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 22)) });
+    }
+
+    /// Enable the clock gate for the TSENSOR peripheral.
+    pub fn enable_tsensor(&self) {
+        let cken = self.cldo_crg.register_block();
+        let bits = cken.cken_ctl0().read();
+        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 23)) });
+    }
+
+    /// Enable the clock gate for the I2S peripheral.
+    pub fn enable_i2s(&self) {
+        let cken = self.cldo_crg.register_block();
+        let bits = cken.cken_ctl0().read();
+        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 24)) });
+    }
+
+    /// Enable the clock gate for the DMA peripheral.
+    pub fn enable_dma(&self) {
+        let cken = self.cldo_crg.register_block();
+        let bits = cken.cken_ctl1().read();
+        cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << 22)) });
+    }
+
+    /// Enable the clock gate for the SDMA peripheral.
+    pub fn enable_sdma(&self) {
+        let cken = self.cldo_crg.register_block();
+        let bits = cken.cken_ctl1().read();
+        cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << 23)) });
+    }
+
+    /// Enable the clock gate for the SFC (SPI Flash Controller) peripheral.
+    pub fn enable_sfc(&self) {
+        let cken = self.cldo_crg.register_block();
+        let bits = cken.cken_ctl1().read();
+        cken.cken_ctl1().write(|w| unsafe { w.bits(bits.bits() | (1 << 24)) });
+    }
+
+    /// Enable the clock gate for the TRNG peripheral.
+    pub fn enable_trng(&self) {
+        let cken = self.cldo_crg.register_block();
+        let bits = cken.cken_ctl0().read();
+        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 25)) });
+    }
+
+    /// Enable the clock gate for the security acceleration (SPACC/PKE/KM) peripherals.
+    pub fn enable_security(&self) {
+        let cken = self.cldo_crg.register_block();
+        let bits = cken.cken_ctl0().read();
+        cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (1 << 26)) });
+    }
 }

@@ -160,4 +160,54 @@ impl embedded_hal::i2c::Error for I2cError {
     }
 }
 
+// ── embedded-hal I2c trait ──────────────────────────────────────
+
+impl embedded_hal::i2c::ErrorType for I2c<'_, I2c0<'_>> {
+    type Error = I2cError;
+}
+
+impl embedded_hal::i2c::I2c for I2c<'_, I2c0<'_>> {
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        for op in operations {
+            match op {
+                embedded_hal::i2c::Operation::Read(buf) => {
+                    self.read(address, buf)?;
+                }
+                embedded_hal::i2c::Operation::Write(data) => {
+                    self.write(address, data)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl embedded_hal::i2c::ErrorType for I2c<'_, I2c1<'_>> {
+    type Error = I2cError;
+}
+
+impl embedded_hal::i2c::I2c for I2c<'_, I2c1<'_>> {
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        for op in operations {
+            match op {
+                embedded_hal::i2c::Operation::Read(buf) => {
+                    self.read(address, buf)?;
+                }
+                embedded_hal::i2c::Operation::Write(data) => {
+                    self.write(address, data)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 fn _i2c_op(_addr: u8) {}

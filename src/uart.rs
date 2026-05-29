@@ -187,3 +187,65 @@ impl embedded_io::Read for Uart<'_, Uart0<'_>> {
         Ok(n)
     }
 }
+
+// UART1 embedded-io traits
+impl embedded_io::ErrorType for Uart<'_, Uart1<'_>> {
+    type Error = core::convert::Infallible;
+}
+impl embedded_io::Write for Uart<'_, Uart1<'_>> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        for &b in buf {
+            self.write_byte(1, b);
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush_tx(1);
+        Ok(())
+    }
+}
+impl embedded_io::Read for Uart<'_, Uart1<'_>> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let mut n = 0;
+        for b in buf.iter_mut() {
+            if let Some(byte) = self.read_byte(1) {
+                *b = byte;
+                n += 1;
+            } else {
+                break;
+            }
+        }
+        Ok(n)
+    }
+}
+
+// UART2 embedded-io traits
+impl embedded_io::ErrorType for Uart<'_, Uart2<'_>> {
+    type Error = core::convert::Infallible;
+}
+impl embedded_io::Write for Uart<'_, Uart2<'_>> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        for &b in buf {
+            self.write_byte(2, b);
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush_tx(2);
+        Ok(())
+    }
+}
+impl embedded_io::Read for Uart<'_, Uart2<'_>> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let mut n = 0;
+        for b in buf.iter_mut() {
+            if let Some(byte) = self.read_byte(2) {
+                *b = byte;
+                n += 1;
+            } else {
+                break;
+            }
+        }
+        Ok(n)
+    }
+}
