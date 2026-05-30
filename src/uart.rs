@@ -92,8 +92,12 @@ fn configure_uart(idx: u8, config: &Config) {
     r.uart_ctl().write(|w| w.div_en().set_bit());
 
     // Set baud rate: div = PCLK / (16 * baudrate)
+    // Valid range: div ∈ [1, 65535] (16-bit divider).
+    // At 240MHz PCLK, valid baud ∈ [229, 15_000_000].
     let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ;
-    let div = pclk / (16 * config.baudrate);
+    let min_baud = (pclk / (16 * 65535)) + 1;
+    let baudrate = if config.baudrate < min_baud { min_baud } else { config.baudrate };
+    let div = pclk / (16 * baudrate);
     let div_l = (div & 0xFF) as u16;
     let div_h = ((div >> 8) & 0xFF) as u16;
     r.div_l().write(|w| unsafe { w.bits(div_l) });

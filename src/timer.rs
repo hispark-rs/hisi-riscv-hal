@@ -155,14 +155,23 @@ impl OneShotTimer<'_> {
     }
 
     /// Start the timer for the given duration in microseconds.
+    ///
+    /// Max duration: ~17.9 seconds at 240MHz (u32 ticks limit).
+    /// For longer durations, use `start_millis()` or loop `start_micros()`.
     pub fn start_micros(&mut self, us: u32) {
-        let ticks = ((SYSTEM_CLOCK_HZ as u64 * us as u64) / 1_000_000) as u32;
+        let ticks64 = SYSTEM_CLOCK_HZ as u64 * us as u64 / 1_000_000;
+        // Clamp to u32 max — delays longer than ~17.9s at 240MHz
+        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
         self.start(ticks);
     }
 
     /// Start the timer for the given duration in milliseconds.
+    ///
+    /// Max duration: ~17,895ms (~17.9s) at 240MHz.
+    /// For longer durations, repeat this call in a loop.
     pub fn start_millis(&mut self, ms: u32) {
-        let ticks = ((SYSTEM_CLOCK_HZ as u64 * ms as u64) / 1_000) as u32;
+        let ticks64 = SYSTEM_CLOCK_HZ as u64 * ms as u64 / 1_000;
+        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
         self.start(ticks);
     }
 
@@ -195,7 +204,8 @@ impl OneShotTimer<'_> {
 
 impl embedded_hal::delay::DelayNs for OneShotTimer<'_> {
     fn delay_ns(&mut self, ns: u32) {
-        let ticks = ((SYSTEM_CLOCK_HZ as u64 * ns as u64) / 1_000_000_000) as u32;
+        let ticks64 = (SYSTEM_CLOCK_HZ as u64 * ns as u64) / 1_000_000_000;
+        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
         if ticks > 0 {
             self.start(ticks);
             self.wait();
