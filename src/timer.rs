@@ -36,6 +36,7 @@ impl<'d> TimerDriver<'d> {
     }
 
     fn regs(&self) -> &'static ws63_pac::timer::RegisterBlock {
+        // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Timer::ptr() }
     }
 

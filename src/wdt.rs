@@ -71,6 +71,7 @@ impl<'d> Watchdog<'d> {
     }
 
     fn regs(&self) -> &'static ws63_pac::wdt::RegisterBlock {
+        // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Wdt::ptr() }
     }
 

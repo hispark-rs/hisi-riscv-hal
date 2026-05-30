@@ -101,6 +101,7 @@ pub enum TcxoFreq {
 impl TcxoFreq {
     /// Detect the TCXO frequency by reading the HW_CTL register.
     pub fn detect() -> Self {
+        // SAFETY: HW_CTL (0x4000_0014) is a valid physical MMIO register per fbb_ws63
         let hw_ctl = unsafe { HW_CTL.read_volatile() };
         if hw_ctl & 0x01 == 0 {
             TcxoFreq::MHz24
@@ -209,6 +210,8 @@ pub fn init_clocks(_sys_ctl0: &SysCtl0<'_>, _cldo_crg: &CldoCrg<'_>) -> SystemCl
 
     // ── Step 1: Switch flash clock to PLL ────────────────────
     // (fbb_ws63: switch_flash_clock_to_pll in soc_porting.c)
+    // SAFETY: CMU_NEW_CFG1 (0x4000_34A4), CLDO_CRG_CLK_SEL (0x4400_1134)
+    // are valid physical MMIO addresses per fbb_ws63 register map.
     unsafe { CMU_NEW_CFG1.write_volatile(0x1) };       // CPU_DIV_FLASH_RSTN_SYNC
     for _ in 0..tcxo_freq.hz() / 1_000_000 / 3 {
         core::hint::spin_loop();                           // delay 1µs

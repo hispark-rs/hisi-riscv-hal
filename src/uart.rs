@@ -47,6 +47,7 @@ pub struct Uart<'d, T> {
 
 #[allow(dead_code)]
 fn regs() -> &'static ws63_pac::uart0::RegisterBlock {
+    // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
     unsafe { &*Uart0::ptr() }
 }
 
@@ -60,6 +61,7 @@ fn uart_ptr(idx: u8) -> *const ws63_pac::uart0::RegisterBlock {
 }
 
 fn uart_regs(idx: u8) -> &'static ws63_pac::uart0::RegisterBlock {
+    // SAFETY: uart_ptr(idx) returns valid PAC MMIO addresses (UART0/1/2 at 0x4401_0000/1000/2000)
     unsafe { &*uart_ptr(idx) }
 }
 

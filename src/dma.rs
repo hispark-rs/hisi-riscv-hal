@@ -152,6 +152,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     }
 
     fn regs() -> &'static ws63_pac::dma::RegisterBlock {
+        // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*T::ptr() }
     }
 

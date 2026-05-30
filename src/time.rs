@@ -13,6 +13,7 @@ pub struct Instant(u64);
 impl Instant {
     /// Returns an instant corresponding to "now".
     pub fn now() -> Self {
+        // SAFETY: TCXO PAC pointer is a valid physical MMIO address (0x4400_04C0)
         let tcxo = unsafe { &*Tcxo::ptr() };
         // Latch the counter
         let status = tcxo.tcxo_status().read().bits();

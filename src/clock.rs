@@ -95,6 +95,9 @@ impl Drop for PeripheralGuard<'_> {
         let prev = REF_COUNTS[idx].fetch_sub(1, Ordering::Relaxed);
         if prev == 1 {
             // Actually disable the clock in hardware (last guard dropped)
+            // SAFETY: cldo_crg is a raw pointer to the CLDO_CRG MMIO register block
+            // (0x4400_1100). The pointer was captured during PeripheralGuard construction
+            // from a valid &CldoCrg reference. MMIO addresses are static and always valid.
             let cken = unsafe { &*(self.cldo_crg as *const ws63_pac::cldo_crg::RegisterBlock) };
             let (reg, bit) = self.peripheral.cken_info();
             if matches!(self.peripheral, Peripheral::Pwm) {

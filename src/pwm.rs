@@ -14,6 +14,7 @@ impl<'d> PwmChannel<'d> {
     }
 
     fn regs(&self) -> &'static ws63_pac::pwm::RegisterBlock {
+        // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Pwm::ptr() }
     }
 

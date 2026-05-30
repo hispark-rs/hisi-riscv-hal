@@ -19,6 +19,7 @@ impl<'d> KmDriver<'d> {
     }
 
     fn regs(&self) -> &'static ws63_pac::km::RegisterBlock {
+        // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Km::ptr() }
     }
 
