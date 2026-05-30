@@ -370,7 +370,7 @@ impl<'d> SfcDriver<'d> {
         let mut result = [0u8; 64];
         if read {
             let mut idx = 0;
-            for i in 0..(data_len + 3) / 4 {
+            for i in 0..data_len.div_ceil(4) {
                 let word = Self::read_databuf(r, i);
                 let bytes = word.to_le_bytes();
                 for &b in &bytes {

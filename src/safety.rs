@@ -99,6 +99,7 @@ pub struct PeripheralIndex(u8);
 
 impl PeripheralIndex {
     /// SAFETY: `idx` must be < PERIPHERAL_COUNT (17).
+    #[allow(clippy::missing_safety_doc)]
     pub const unsafe fn new_unchecked(idx: u8) -> Self {
         PeripheralIndex(idx)
     }
@@ -117,7 +118,7 @@ impl TryFrom<usize> for PeripheralIndex {
 
 /// Newtype proving a value is a valid GPIO pin number (0-18).
 #[derive(Debug, Clone, Copy)]
-pub struct GpioPinIndex(u8);
+pub struct GpioPinIndex(#[allow(dead_code)] u8);
 
 impl GpioPinIndex {
     pub const fn new(pin: u8) -> Option<Self> {

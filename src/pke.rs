@@ -31,6 +31,7 @@ impl<'d> PkeDriver<'d> {
         Self { _pke: pke }
     }
 
+    #[allow(dead_code)]
     fn regs(&self) -> &'static ws63_pac::pke::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Pke::ptr() }

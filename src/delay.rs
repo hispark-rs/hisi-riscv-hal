@@ -10,6 +10,7 @@ pub struct Delay;
 
 impl Delay {
     /// Create a new delay driver.
+    #[allow(clippy::new_without_default)]
     pub const fn new() -> Self {
         Delay
     }
@@ -36,7 +37,7 @@ impl Delay {
 impl embedded_hal::delay::DelayNs for Delay {
     fn delay_ns(&mut self, ns: u32) {
         // Use microsecond granularity, rounding up
-        let us = (ns + 999) / 1_000;
+        let us = ns.div_ceil(1_000);
         self.delay_micros(us);
     }
 

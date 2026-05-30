@@ -45,16 +45,10 @@ impl InputConfig {
 }
 
 /// Digital output configuration.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct OutputConfig {
     pub open_drain: bool,
     pub initial_high: bool,
-}
-
-impl Default for OutputConfig {
-    fn default() -> Self {
-        Self { open_drain: false, initial_high: false }
-    }
 }
 
 impl OutputConfig {
@@ -144,6 +138,7 @@ impl<'d> AnyPin<'d> {
 /// Digital input pin driver.
 pub struct Input<'d> {
     pin: AnyPin<'d>,
+    #[allow(dead_code)]
     config: InputConfig,
 }
 
@@ -262,6 +257,7 @@ impl embedded_hal::digital::StatefulOutputPin for Output<'_> {
 /// Combined input + output pin driver.
 pub struct Flex<'d> {
     pin: AnyPin<'d>,
+    #[allow(dead_code)]
     config: OutputConfig,
 }
 

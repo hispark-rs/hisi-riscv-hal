@@ -72,6 +72,7 @@ impl Peripheral {
 pub const PERIPHERAL_COUNT: usize = 17;
 
 static REF_COUNTS: [AtomicU8; PERIPHERAL_COUNT] = {
+    #[allow(clippy::declare_interior_mutable_const)]
     const ZERO: AtomicU8 = AtomicU8::new(0);
     [ZERO; PERIPHERAL_COUNT]
 };

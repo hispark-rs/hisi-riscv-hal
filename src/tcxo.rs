@@ -94,8 +94,8 @@ impl<'d> TcxoDriver<'d> {
     /// Returns `None` if the refresh timed out.
     pub fn read_counter32(&self) -> Option<u32> {
         self.refresh().ok()?;
-        let c0 = self.regs().tcxo_count0().read().bits() as u32;
-        let c1 = self.regs().tcxo_count1().read().bits() as u32;
+        let c0 = self.regs().tcxo_count0().read().bits();
+        let c1 = self.regs().tcxo_count1().read().bits();
         Some((c1 << 16) | c0)
     }
 
