@@ -21,6 +21,9 @@ portable-atomic = { version = "1", default-features = false }
 critical-section = { version = "1", optional = true }
 riscv = "0.13"
 
+[dev-dependencies]
+proptest = "1"
+
 [features]
 default = ["rt", "dep:critical-section"]
 rt = ["ws63-pac/rt", "dep:critical-section"]

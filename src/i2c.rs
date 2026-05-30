@@ -210,6 +210,72 @@ impl<T> I2c<'_, T> {
 
         Ok(())
     }
+
+    /// Core transaction implementation with repeated START support.
+    ///
+    /// Uses repeated START (Sr) between operations as required by the
+    /// embedded-hal I2c trait contract. Only emits STOP after the last operation.
+    fn transaction_impl(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal::i2c::Operation<'_>],
+    ) -> Result<(), I2cError> {
+        let r = i2c_regs(self.idx);
+        let addr_w = (address as u32) << 1;      // R/W=0 for write
+        let addr_r = ((address as u32) << 1) | 1; // R/W=1 for read
+
+        for (idx, op) in operations.iter_mut().enumerate() {
+            let is_first = idx == 0;
+
+            match op {
+                embedded_hal::i2c::Operation::Write(data) => {
+                    if is_first {
+                        self.send_start(addr_w, false)?;
+                    } else {
+                        self.send_start(addr_w, false)?;
+                    }
+                    self.clear_interrupts();
+
+                    for &byte in data.iter() {
+                        r.i2c_txr().write(|w| unsafe { w.bits(byte as u32) });
+                        unsafe { r.i2c_com().write(|w| w.bits(1 << 1)) }; // op_we
+                        self.wait_tx_ack()?;
+                        self.clear_interrupts();
+                    }
+                    // NO STOP between operations — next START will be repeated START
+                }
+                embedded_hal::i2c::Operation::Read(buf) => {
+                    if is_first {
+                        self.send_start(addr_r, true)?;
+                    } else {
+                        self.send_start(addr_r, true)?;
+                    }
+                    self.clear_interrupts();
+
+                    let buf_len = buf.len();
+                    for (i, byte) in buf.iter_mut().enumerate() {
+                        let is_last = i == buf_len - 1;
+                        let mut com: u32 = 1 << 2; // op_rd
+                        if is_last {
+                            com |= 1 << 4; // op_ack (host sends NACK on last byte)
+                        }
+                        unsafe { r.i2c_com().write(|w| w.bits(com)) };
+                        while !r.i2c_sr().read().int_rx().bit_is_set() {}
+                        *byte = r.i2c_rxr().read().bits() as u8;
+                        self.clear_interrupts();
+                    }
+                    // NO STOP between operations — next START will be repeated START
+                }
+            }
+        }
+
+        // STOP at end of all operations
+        r.i2c_com().write(|w| w.op_stop().set_bit());
+        while !r.i2c_sr().read().int_stop().bit_is_set() {}
+        self.clear_interrupts();
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -243,17 +309,7 @@ impl embedded_hal::i2c::I2c for I2c<'_, I2c0<'_>> {
         address: u8,
         operations: &mut [embedded_hal::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        for op in operations {
-            match op {
-                embedded_hal::i2c::Operation::Read(buf) => {
-                    self.read(address, buf)?;
-                }
-                embedded_hal::i2c::Operation::Write(data) => {
-                    self.write(address, data)?;
-                }
-            }
-        }
-        Ok(())
+        self.transaction_impl(address, operations)
     }
 }
 
@@ -267,18 +323,43 @@ impl embedded_hal::i2c::I2c for I2c<'_, I2c1<'_>> {
         address: u8,
         operations: &mut [embedded_hal::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        for op in operations {
-            match op {
-                embedded_hal::i2c::Operation::Read(buf) => {
-                    self.read(address, buf)?;
-                }
-                embedded_hal::i2c::Operation::Write(data) => {
-                    self.write(address, data)?;
-                }
-            }
-        }
-        Ok(())
+        self.transaction_impl(address, operations)
     }
 }
 
 fn _i2c_op(_addr: u8) {}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_i2c_address_write_encoding() {
+        // I2C write address = addr << 1 (R/W=0)
+        assert_eq!((0x50u32 << 1), 0xA0);
+        assert_eq!((0x50u32 << 1) & 0xFE, 0xA0); // Write bit is 0
+    }
+
+    #[test]
+    fn test_i2c_address_read_encoding() {
+        // I2C read address = (addr << 1) | 1 (R/W=1)
+        assert_eq!(((0x50u32 << 1) | 1), 0xA1);
+    }
+
+    #[test]
+    fn test_i2c_address_write_read_differ_by_one_bit() {
+        let addr_w = (0x48u32) << 1;       // 0x90
+        let addr_r = ((0x48u32) << 1) | 1; // 0x91
+        assert_eq!(addr_r, addr_w | 1);
+        assert_eq!(addr_w & 0x01, 0); // Write bit cleared
+        assert_eq!(addr_r & 0x01, 1); // Read bit set
+    }
+
+    #[test]
+    fn test_i2c_10bit_high_address_encoding() {
+        // 10-bit addressing uses 0x78-0x7B range
+        let addr: u32 = 0x78;
+        let addr_w = addr << 1;
+        assert_eq!(addr_w, 0xF0); // Address fits in 7 bits
+    }
+}

@@ -274,11 +274,93 @@ impl<'d> ClockControl<'d> {
     /// Power-cycles the peripheral clock (disable → delay → enable).
     /// Does NOT check ref-count — use with caution.
     pub fn reset_peripheral(&self, peripheral: Peripheral) {
-        let (reg, bit) = peripheral.cken_info();
-        self.write_cken_bit(reg, bit, false);
-        for _ in 0..100 {
-            core::hint::spin_loop();
+        // PWM has 9 contiguous bits (2:10) — bulk-toggle all of them
+        if matches!(peripheral, Peripheral::Pwm) {
+            let cken = self.cldo_crg.register_block();
+            let bits = cken.cken_ctl0().read();
+            cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() & !(0x1FF << 2)) });
+            for _ in 0..100 {
+                core::hint::spin_loop();
+            }
+            cken.cken_ctl0().write(|w| unsafe { w.bits(bits.bits() | (0x1FF << 2)) });
+        } else {
+            let (reg, bit) = peripheral.cken_info();
+            self.write_cken_bit(reg, bit, false);
+            for _ in 0..100 {
+                core::hint::spin_loop();
+            }
+            self.write_cken_bit(reg, bit, true);
         }
-        self.write_cken_bit(reg, bit, true);
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::soc::ws63::SYSTEM_CLOCK_HZ;
+
+    #[test]
+    fn test_system_clock_240mhz() {
+        assert_eq!(SYSTEM_CLOCK_HZ, 240_000_000);
+    }
+
+    #[test]
+    fn test_peripheral_count() {
+        assert_eq!(PERIPHERAL_COUNT, 17);
+    }
+
+    #[test]
+    fn test_peripheral_cken_info_coverage() {
+        let peripherals = [
+            Peripheral::Pwm,
+            Peripheral::I2c0,
+            Peripheral::I2c1,
+            Peripheral::Timer,
+            Peripheral::Lsadc,
+            Peripheral::Tsensor,
+            Peripheral::I2s,
+            Peripheral::Trng,
+            Peripheral::SecurityGroup,
+            Peripheral::Uart0,
+            Peripheral::Uart1,
+            Peripheral::Uart2,
+            Peripheral::Dma,
+            Peripheral::Sdma,
+            Peripheral::Sfc,
+            Peripheral::Spi0,
+            Peripheral::Spi1,
+        ];
+        for p in &peripherals {
+            let (reg, bit) = p.cken_info();
+            assert!(reg <= 1, "Peripheral {:?} has invalid reg={}", p, reg);
+            assert!(bit < 32, "Peripheral {:?} has invalid bit={}", p, bit);
+        }
+    }
+
+    #[test]
+    fn test_pwm_cken_info_returns_base_bit() {
+        let (reg, bit) = Peripheral::Pwm.cken_info();
+        assert_eq!(reg, 0);
+        assert_eq!(bit, 2);
+    }
+
+    #[test]
+    fn test_peripheral_variants_are_unique() {
+        let variants: [Peripheral; 17] = [
+            Peripheral::Uart0, Peripheral::Uart1, Peripheral::Uart2,
+            Peripheral::I2c0, Peripheral::I2c1,
+            Peripheral::Spi0, Peripheral::Spi1,
+            Peripheral::Pwm, Peripheral::Timer,
+            Peripheral::Lsadc, Peripheral::Tsensor,
+            Peripheral::I2s, Peripheral::Dma, Peripheral::Sdma,
+            Peripheral::Sfc, Peripheral::Trng, Peripheral::SecurityGroup,
+        ];
+        for i in 0..variants.len() {
+            for j in (i + 1)..variants.len() {
+                assert_ne!(variants[i], variants[j]);
+            }
+        }
     }
 }

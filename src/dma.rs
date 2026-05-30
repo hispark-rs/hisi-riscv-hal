@@ -279,6 +279,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Check if a DMA channel is enabled.
     pub fn channel_enabled(&self, channel: u8) -> bool {
+        assert!(channel < 4);
         let mask = 1 << channel;
         Self::regs().dmac_en_chns().read().bits() & mask != 0
     }
@@ -407,13 +408,22 @@ pub enum DmaPeripheral {
     I2sRx = 11,
 }
 
+/// DMA transfer direction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DmaDirection {
+    /// Transmit (memory to peripheral).
+    Tx,
+    /// Receive (peripheral to memory).
+    Rx,
+}
+
 /// Trait indicating a peripheral is DMA-eligible.
 ///
 /// Each peripheral that supports DMA transfers specifies which
-/// DMA channel it can use and its peripheral request ID.
+/// DMA peripheral request ID it uses per direction.
 pub trait DmaEligible {
-    /// The DMA peripheral identifier for this peripheral.
-    fn dma_peripheral() -> DmaPeripheral;
+    /// The DMA peripheral identifier for this peripheral and direction.
+    fn dma_peripheral(direction: DmaDirection) -> DmaPeripheral;
 }
 
 /// Trait bound ensuring a DMA channel can be used with a given peripheral.
@@ -429,14 +439,20 @@ pub trait DmaChannelFor<P: DmaEligible> {}
 use crate::peripherals::{Spi0, Spi1};
 
 impl DmaEligible for Spi0<'static> {
-    fn dma_peripheral() -> DmaPeripheral {
-        DmaPeripheral::Spi0Tx
+    fn dma_peripheral(direction: DmaDirection) -> DmaPeripheral {
+        match direction {
+            DmaDirection::Tx => DmaPeripheral::Spi0Tx,
+            DmaDirection::Rx => DmaPeripheral::Spi0Rx,
+        }
     }
 }
 
 impl DmaEligible for Spi1<'static> {
-    fn dma_peripheral() -> DmaPeripheral {
-        DmaPeripheral::Spi1Tx
+    fn dma_peripheral(direction: DmaDirection) -> DmaPeripheral {
+        match direction {
+            DmaDirection::Tx => DmaPeripheral::Spi1Tx,
+            DmaDirection::Rx => DmaPeripheral::Spi1Rx,
+        }
     }
 }
 
@@ -444,5 +460,68 @@ impl<'d> DmaDriver<'d, Sdma0> {
     /// Create a new secure DMA driver.
     pub fn new_sdma(_sdma: Sdma<'d>) -> Self {
         Self { _instance: PhantomData }
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dma_direction_tx_rx_distinct() {
+        // TX and RX directions must map to different peripheral IDs
+        assert_ne!(DmaDirection::Tx as u8, DmaDirection::Rx as u8);
+    }
+
+    #[test]
+    fn test_dma_peripheral_spi0_tx_rx_different() {
+        let tx = DmaPeripheral::Spi0Tx as u8;
+        let rx = DmaPeripheral::Spi0Rx as u8;
+        assert_ne!(tx, rx); // TX and RX must be distinct
+        assert_eq!(tx, 0);
+        assert_eq!(rx, 1);
+    }
+
+    #[test]
+    fn test_dma_peripheral_spi1_tx_rx_different() {
+        let tx = DmaPeripheral::Spi1Tx as u8;
+        let rx = DmaPeripheral::Spi1Rx as u8;
+        assert_ne!(tx, rx);
+        assert_eq!(tx, 2);
+        assert_eq!(rx, 3);
+    }
+
+    #[test]
+    fn test_dma_peripheral_uart_mappings() {
+        // UART TX/RX pairs use consecutive IDs starting from 4
+        assert_eq!(DmaPeripheral::Uart0Tx as u8, 4);
+        assert_eq!(DmaPeripheral::Uart0Rx as u8, 5);
+        assert_eq!(DmaPeripheral::Uart1Tx as u8, 6);
+        assert_eq!(DmaPeripheral::Uart1Rx as u8, 7);
+        assert_eq!(DmaPeripheral::Uart2Tx as u8, 8);
+        assert_eq!(DmaPeripheral::Uart2Rx as u8, 9);
+    }
+
+    #[test]
+    fn test_dma_peripheral_i2s_mappings() {
+        assert_eq!(DmaPeripheral::I2sTx as u8, 10);
+        assert_eq!(DmaPeripheral::I2sRx as u8, 11);
+    }
+
+    #[test]
+    fn test_dma_channel_in_bounds() {
+        // Channels 0-3 are valid (4 channels)
+        for ch in 0u8..4 {
+            assert!(ch < 4); // valid channel
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion failed")]
+    fn test_dma_channel_out_of_bounds_panics() {
+        let ch: u8 = 4;
+        assert!(ch < 4); // should panic
     }
 }

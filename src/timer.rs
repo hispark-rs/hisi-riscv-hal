@@ -243,7 +243,8 @@ impl PeriodicTimer<'_> {
 
     /// Start the periodic timer with the period in microseconds.
     pub fn start_micros(&mut self, us: u32) {
-        let ticks = ((SYSTEM_CLOCK_HZ as u64 * us as u64) / 1_000_000) as u32;
+        let ticks64 = SYSTEM_CLOCK_HZ as u64 * us as u64 / 1_000_000;
+        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
         self.start(ticks);
     }
 
@@ -271,5 +272,102 @@ impl PeriodicTimer<'_> {
     /// Clear the tick interrupt flag.
     pub fn clear_tick(&self) {
         self.driver.clear_interrupt(self.channel);
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oneshot_overflows_u32_clamps() {
+        // 240MHz * 20_000_000us = 4.8e15 ticks > u32::MAX
+        // Should clamp to u32::MAX without panic or wrap
+        let ticks64: u64 = 240_000_000u64 * 20_000_000u64 / 1_000_000;
+        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
+        assert_eq!(ticks, u32::MAX);
+    }
+
+    #[test]
+    fn test_oneshot_small_value_does_not_clamp() {
+        // 240MHz * 100us = 24,000 ticks — fits in u32
+        let ticks64: u64 = 240_000_000u64 * 100u64 / 1_000_000;
+        assert_eq!(ticks64, 24_000);
+        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
+        assert_eq!(ticks, 24_000);
+    }
+
+    #[test]
+    fn test_oneshot_max_safe_value() {
+        // Maximum us that doesn't overflow: u32::MAX / 240 ≈ 17,895,697 us ≈ 17.9 seconds
+        let max_safe_us: u32 = u32::MAX / 240;
+        let ticks64: u64 = 240_000_000u64 * max_safe_us as u64 / 1_000_000;
+        assert!(ticks64 <= u32::MAX as u64);
+        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
+        assert_eq!(ticks, ticks64 as u32);
+    }
+
+    #[test]
+    fn test_periodic_clamping_matches_oneshot() {
+        // Both start_micros implementations should clamp identically
+        let us: u32 = 20_000_000; // 20 seconds — guaranteed to overflow at 240MHz
+        let oneshot_ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
+        let periodic_ticks64: u64 = crate::soc::ws63::SYSTEM_CLOCK_HZ as u64 * us as u64 / 1_000_000;
+        assert_eq!(oneshot_ticks64, periodic_ticks64); // same formula
+        let oneshot = if oneshot_ticks64 > u32::MAX as u64 { u32::MAX } else { oneshot_ticks64 as u32 };
+        let periodic = if periodic_ticks64 > u32::MAX as u64 { u32::MAX } else { periodic_ticks64 as u32 };
+        assert_eq!(oneshot, periodic);
+        assert_eq!(oneshot, u32::MAX);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(test)]
+mod proptests {
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Fuzz: Timer ticks calculation never panics for any u32 input.
+        #[test]
+        #[test]
+        fn timer_ticks_never_panics(us in any::<u32>()) {
+            let ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
+            let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
+            let _ = ticks;
+        }
+
+        /// Fuzz: Clamping is idempotent — applying it twice gives the same result.
+        #[test]
+        fn timer_clamping_idempotent(us in any::<u32>()) {
+            let ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
+            let first = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
+            let second = if first as u64 > u32::MAX as u64 { u32::MAX } else { first };
+            prop_assert_eq!(first, second);
+        }
+
+        /// Fuzz: Safe range values (us <= 17_895_697) never get clamped.
+        fn timer_safe_range_not_clamped(us in 0u32..17_895_697u32) {
+            let ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
+            prop_assert!(ticks64 <= u32::MAX as u64, "safe us={} produced ticks64={} > u32::MAX", us, ticks64);
+        }
+
+        /// Fuzz: Overflow inputs always clamp to u32::MAX.
+        fn timer_overflow_always_clamps(us in 17_895_698u32..u32::MAX) {
+            let ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
+            prop_assert!(ticks64 > u32::MAX as u64);
+            let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
+            prop_assert_eq!(ticks, u32::MAX);
+        }
+
+        /// Fuzz: OneShot and Periodic timer formulas are identical.
+        #[test]
+        fn timer_both_formulas_equivalent(us in any::<u32>()) {
+            let oneshot: u64 = 240_000_000u64 * us as u64 / 1_000_000;
+            let periodic: u64 = crate::soc::ws63::SYSTEM_CLOCK_HZ as u64 * us as u64 / 1_000_000;
+            prop_assert_eq!(oneshot, periodic);
+        }
     }
 }

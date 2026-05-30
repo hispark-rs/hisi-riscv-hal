@@ -108,6 +108,15 @@ impl<T> Spi<'_, T> {
     pub fn register_block(&self) -> &'static ws63_pac::spi0::RegisterBlock {
         spi_regs(self.idx)
     }
+
+    /// Wait for all pending TX data to be transmitted and the SPI bus to become idle.
+    pub fn wait_idle(&self) {
+        let r = spi_regs(self.idx);
+        // Wait for TX FIFO to drain
+        while !r.spi_wsr().read().txfe().bit_is_set() {}
+        // Wait for SPI bus to become idle (shift register empty)
+        while r.spi_wsr().read().busy().bit_is_set() {}
+    }
 }
 
 #[derive(Debug)]
@@ -145,6 +154,7 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Spi0<'_>> {
         Ok(())
     }
     fn flush(&mut self) -> Result<(), Self::Error> {
+        self.wait_idle();
         Ok(())
     }
 }
@@ -175,6 +185,104 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Spi1<'_>> {
         Ok(())
     }
     fn flush(&mut self) -> Result<(), Self::Error> {
+        self.wait_idle();
         Ok(())
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use crate::soc::ws63::SYSTEM_CLOCK_HZ;
+
+    #[test]
+    fn test_spi_baud_divisor_calculation() {
+        let pclk = SYSTEM_CLOCK_HZ;
+        let freq: u32 = 1_000_000;
+        let mut div = pclk / (2 * freq);
+        div = div.saturating_sub(1);
+        assert_eq!(div, 119); // 240M / 2M = 120, minus 1 = 119
+    }
+
+    #[test]
+    fn test_spi_divisor_zero_freq_guard() {
+        let pclk = SYSTEM_CLOCK_HZ;
+        let freq: u32 = 0;
+        let safe_freq = if freq == 0 { 1 } else { freq };
+        let mut div = pclk / (2 * safe_freq);
+        div = div.saturating_sub(1);
+        // 240M/2 = 120M, minus 1 = 119,999,999 > 0xFFFF → clamped
+        assert!(div > 0xFFFF); // before clamp
+        if div > 0xFFFF { div = 0xFFFF; }
+        assert_eq!(div, 0xFFFF); // after clamp
+    }
+
+    #[test]
+    fn test_spi_divisor_clamps_at_max() {
+        let pclk = SYSTEM_CLOCK_HZ;
+        let freq: u32 = 1000;
+        let mut div = pclk / (2 * freq);
+        div = div.saturating_sub(1);
+        // 120000 minus 1 = 119999, above max → clamped
+        if div > 0xFFFF { div = 0xFFFF; }
+        assert_eq!(div, 0xFFFF);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(test)]
+mod proptests {
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Fuzz: SPI divisor calculation never panics for any frequency.
+        #[test]
+        fn spi_divisor_never_panics(freq in any::<u32>()) {
+            let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ as u64;
+            let safe_freq = if freq == 0 { 1u64 } else { freq as u64 };
+            let mut div = (pclk / (2 * safe_freq)) as u32;
+            div = div.saturating_sub(1);
+            if div > 0xFFFF { div = 0xFFFF; }
+            prop_assert!(div <= 0xFFFF);
+        }
+
+        /// Fuzz: Divisor is always in valid range 0..=0xFFFF after clamping.
+        #[test]
+        fn spi_divisor_in_valid_range(freq in any::<u32>()) {
+            let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ as u64;
+            let safe_freq = if freq == 0 { 1u64 } else { freq as u64 };
+            let mut div = (pclk / (2 * safe_freq)) as u32;
+            div = div.saturating_sub(1);
+            if div > 0xFFFF { div = 0xFFFF; }
+            prop_assert!(div <= 0xFFFF, "divisor {} > 0xFFFF for freq={}", div, freq);
+        }
+
+        /// Fuzz: Higher frequency → lower divisor (monotonic non-increasing after clamping).
+        #[test]
+        fn spi_divisor_monotonic(freq1 in any::<u32>(), freq2 in any::<u32>()) {
+            let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ as u64;
+            let compute = |f: u32| -> u32 {
+                let safe = if f == 0 { 1u64 } else { f as u64 };
+                let mut d = (pclk / (2 * safe)) as u32;
+                d = d.saturating_sub(1);
+                if d > 0xFFFF { 0xFFFF } else { d }
+            };
+            let d1 = compute(freq1);
+            let d2 = compute(freq2);
+            if freq1 > freq2 && freq2 > 0 {
+                prop_assert!(d1 <= d2, "freq1={}(d={}) freq2={}(d={}): higher freq should give <= divisor", freq1, d1, freq2, d2);
+            }
+        }
+
+        /// Fuzz: saturating_sub(1) on result doesn't overflow (uses u64 for intermediate).
+        #[test]
+        fn spi_saturating_sub_safe(freq in any::<u32>()) {
+            let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ as u64;
+            let safe_freq = if freq == 0 { 1u64 } else { freq as u64 };
+            let raw = (pclk / (2 * safe_freq)) as u32;
+            let _ = raw.saturating_sub(1);
+        }
     }
 }

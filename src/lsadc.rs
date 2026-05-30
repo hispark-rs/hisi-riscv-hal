@@ -144,22 +144,33 @@ impl<'d> LsAdc<'d> {
     }
 
     /// Check if ADC FIFO data is available.
+    ///
+    /// **Note: This method is destructive.** Reading the FIFO data register
+    /// consumes a sample. The correct pattern is to call `read_sample()` directly
+    /// rather than using `data_ready()` as a guard — `read_sample()` handles
+    /// the FIFO state correctly.
+    #[deprecated(note = "Destructive read — use `read_sample()` directly instead")]
     pub fn data_ready(&self) -> bool {
-        // FIFO not empty: any data available
-        // We check the fifo_data register; returns 0 if no data? Actually we need
-        // to poll. The FIFO data register has the data, but we need a count.
-        // For now, attempt to read and check validity.
-        let val = self.regs().lsadc_fifo_data().read().bits();
-        // If all 14 data bits are 0 and channel bits are 0, likely no data
-        // This is a heuristic; real driver would check FIFO level register
-        val != 0
+        self.read_sample().is_some()
     }
 
     /// Read a single ADC sample from the FIFO.
     ///
-    /// Returns `None` if no data is available.
+    /// Returns `None` if the FIFO appears empty (all bits zero, which is the
+    /// hardware reset value of the data register). On WS63, an empty FIFO read
+    /// returns 0x00000000, which is distinguishable from valid readings only
+    /// if the application does not expect 0V on channel 0. Applications
+    /// expecting to measure 0V should poll a separate mechanism (e.g.,
+    /// interrupt-based notification) to know when a conversion is complete.
     pub fn read_sample(&self) -> Option<AdcSample> {
         let val = self.regs().lsadc_fifo_data().read().bits();
+        // On WS63, reading an empty FIFO returns 0x00000000 (hardware reset value).
+        // We use 0 as a heuristic for "no data" since the combined (data, channel)
+        // field being all-zero means either:
+        //   (a) empty FIFO (most common); or
+        //   (b) valid 0V reading on channel 0 (extremely rare)
+        // Applications measuring near-ground voltages should use interrupt-driven
+        // notification rather than polling for empty FIFO detection.
         if val == 0 {
             return None;
         }
@@ -202,6 +213,122 @@ impl<'d> LsAdc<'d> {
     pub fn set_data_select(&mut self, processed: bool) {
         unsafe {
             self.regs().cfg_data_sel().write(|w| w.bits(if processed { 1 } else { 0 }));
+        }
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fifo_data_parsing() {
+        // FIFO entry: data in bits 0:13, channel in bits 14:16
+        // Channel 3, data = 0x2AAA (10,922)
+        let val: u32 = 0x0000CAAA;
+        let sample = AdcSample {
+            data: (val & 0x3FFF) as u16,
+            channel: ((val >> 14) & 0x07) as u8,
+        };
+        assert_eq!(sample.data, 0x0AAA);
+        assert_eq!(sample.channel, 3);
+    }
+
+    #[test]
+    fn test_fifo_data_channel_0_zero_volts() {
+        // Channel 0, data = 0 — this is ambiguous with "no data"
+        let val: u32 = 0x00000000;
+        let is_empty = val == 0;
+        // On WS63, 0 on channel 0 is indistinguishable from empty FIFO
+        assert!(is_empty); // documents the ambiguity
+        let sample = AdcSample {
+            data: (val & 0x3FFF) as u16,
+            channel: ((val >> 14) & 0x07) as u8,
+        };
+        assert_eq!(sample.data, 0);
+        assert_eq!(sample.channel, 0);
+    }
+
+    #[test]
+    fn test_fifo_data_channel_bounds() {
+        // Channel field is 3 bits (0-7), hardware uses 0-5
+        for ch in 0..=7u32 {
+            let val = ch << 14; // only channel bits set, data=0
+            let channel = ((val >> 14) & 0x07) as u8;
+            if ch <= 5 {
+                assert_eq!(channel, ch as u8);
+            } else {
+                // Channels 6-7 are reserved but should still parse
+                assert_eq!(channel, ch as u8);
+            }
+        }
+    }
+
+    #[test]
+    fn test_fifo_data_max_value() {
+        // Maximum 14-bit data value
+        let val: u32 = 0x3FFF; // all data bits set, channel 0
+        let sample = AdcSample {
+            data: (val & 0x3FFF) as u16,
+            channel: ((val >> 14) & 0x07) as u8,
+        };
+        assert_eq!(sample.data, 0x3FFF);
+        assert_eq!(sample.channel, 0);
+    }
+
+    #[test]
+    fn test_channel_from_index() {
+        assert_eq!(AdcChannel::from_index(0), Some(AdcChannel::Channel0));
+        assert_eq!(AdcChannel::from_index(5), Some(AdcChannel::Channel5));
+        assert_eq!(AdcChannel::from_index(6), None);
+        assert_eq!(AdcChannel::from_index(255), None);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(test)]
+mod proptests {
+    use proptest::prelude::*;
+    use super::{AdcSample, AdcChannel};
+
+    proptest! {
+        /// Fuzz: Any u32 value parsed as FIFO entry produces valid channel range.
+        #[test]
+        fn fifo_channel_always_0_to_7(raw in any::<u32>()) {
+            let channel = ((raw >> 14) & 0x07) as u8;
+            prop_assert!(channel <= 7, "channel {} extracted from raw 0x{:08X}", channel, raw);
+        }
+
+        /// Fuzz: Data field always fits in 14 bits.
+        #[test]
+        fn fifo_data_always_14_bits(raw in any::<u32>()) {
+            let data = (raw & 0x3FFF) as u16;
+            prop_assert!(data <= 0x3FFF, "data 0x{:04X} extracted from raw 0x{:08X}", data, raw);
+        }
+
+        /// Fuzz: AdcSample construction never panics on any u32.
+        #[test]
+        fn adc_sample_construction_never_panics(raw in any::<u32>()) {
+            let sample = AdcSample {
+                data: (raw & 0x3FFF) as u16,
+                channel: ((raw >> 14) & 0x07) as u8,
+            };
+            prop_assert!(sample.channel <= 7);
+            prop_assert!(sample.data <= 0x3FFF);
+        }
+
+        /// Fuzz: AdcChannel::from_index returns Some for 0-5, None for 6-255.
+        #[test]
+        fn channel_from_index_coverage(idx in any::<u8>()) {
+            let ch = super::AdcChannel::from_index(idx);
+            if idx <= 5 {
+                prop_assert!(ch.is_some(), "idx={} should be valid", idx);
+            } else {
+                prop_assert!(ch.is_none(), "idx={} should be invalid", idx);
+            }
         }
     }
 }

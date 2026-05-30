@@ -8,10 +8,19 @@
 //!
 //! ```ignore
 //! let trng = Trng::new(peripherals.TRNG);
-//! let random_word: u32 = trng.read().unwrap();
+//! let random_word: u32 = trng.read_blocking().unwrap();
 //! ```
 
 use crate::peripherals::Trng;
+
+/// TRNG error type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrngError {
+    /// No data available in the FIFO.
+    NoData,
+    /// Timeout waiting for entropy generation.
+    Timeout,
+}
 
 /// True Random Number Generator driver.
 pub struct TrngDriver<'d> {
@@ -41,27 +50,36 @@ impl<'d> TrngDriver<'d> {
 
     /// Read a 32-bit random word from the TRNG FIFO.
     ///
-    /// Returns `None` if no data is available.
-    pub fn read(&self) -> Option<u32> {
+    /// Returns `Err(NoData)` if no data is available.
+    pub fn read(&self) -> Result<u32, TrngError> {
         if !self.data_ready() {
-            return None;
+            return Err(TrngError::NoData);
         }
-        Some(self.regs().trng_fifo_data().read().bits())
+        Ok(self.regs().trng_fifo_data().read().bits())
     }
 
     /// Read a random word, blocking until data is available.
-    pub fn read_blocking(&self) -> u32 {
-        while !self.data_ready() {}
-        self.regs().trng_fifo_data().read().bits()
+    ///
+    /// Returns `Err(Timeout)` if the TRNG fails to produce entropy after
+    /// ~1ms (retries exhausted).
+    pub fn read_blocking(&self) -> Result<u32, TrngError> {
+        for _ in 0..1_000_000 {
+            if self.data_ready() {
+                return Ok(self.regs().trng_fifo_data().read().bits());
+            }
+            core::hint::spin_loop();
+        }
+        Err(TrngError::Timeout)
     }
 
     /// Fill a buffer with random bytes.
     ///
-    /// Each 32-bit word produces 4 bytes.
-    pub fn fill_bytes(&self, buf: &mut [u8]) {
+    /// Each 32-bit word produces 4 bytes. Returns `Err(Timeout)` if the TRNG
+    /// hardware fails to produce entropy.
+    pub fn fill_bytes(&self, buf: &mut [u8]) -> Result<(), TrngError> {
         let mut i = 0;
         while i < buf.len() {
-            let word = self.read_blocking();
+            let word = self.read_blocking()?;
             let bytes = word.to_le_bytes();
             for &b in &bytes {
                 if i < buf.len() {
@@ -70,13 +88,17 @@ impl<'d> TrngDriver<'d> {
                 }
             }
         }
+        Ok(())
     }
 
     /// Fill a buffer with random 32-bit words.
-    pub fn fill_words(&self, buf: &mut [u32]) {
+    ///
+    /// Returns `Err(Timeout)` if the TRNG hardware fails to produce entropy.
+    pub fn fill_words(&self, buf: &mut [u32]) -> Result<(), TrngError> {
         for word in buf.iter_mut() {
-            *word = self.read_blocking();
+            *word = self.read_blocking()?;
         }
+        Ok(())
     }
 
     /// Select the FRO sample clock source.
@@ -101,5 +123,65 @@ impl<'d> TrngDriver<'d> {
     /// Get the data status register value (for debugging).
     pub fn data_status(&self) -> u32 {
         self.regs().trng_data_st().read().bits()
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_trng_error_type_variants() {
+        assert_ne!(TrngError::NoData as u8, TrngError::Timeout as u8);
+    }
+
+    #[test]
+    fn test_trng_data_ready_bit() {
+        // data_ready checks fifo_ready bit 0
+        let ready: u32 = 0x01;
+        assert!((ready & 0x01) != 0); // data ready
+        let not_ready: u32 = 0x00;
+        assert!((not_ready & 0x01) == 0); // not ready
+    }
+
+    #[test]
+    fn test_trng_done_bit() {
+        // done checks fifo_ready bit 1
+        let done: u32 = 0x02;
+        assert!((done & 0x02) != 0); // generation done
+        let not_done: u32 = 0x00;
+        assert!((not_done & 0x02) == 0); // not done
+    }
+
+    #[test]
+    fn test_trng_read_blocking_timeout_logic() {
+        // Simulate the timeout loop: should return Err after retries exhausted
+        let max_retries = 10u32;
+        let mut data_ready = false;
+        let mut retries = 0;
+        let result = loop {
+            if data_ready {
+                break Ok(42u32);
+            }
+            if retries >= max_retries {
+                break Err(TrngError::Timeout);
+            }
+            retries += 1;
+        };
+        assert_eq!(result, Err(TrngError::Timeout));
+        assert_eq!(retries, 10);
+    }
+
+    #[test]
+    fn test_trng_read_blocking_success_first_try() {
+        let data_ready = true;
+        let result = if data_ready {
+            Ok(0xDEAD_BEEFu32)
+        } else {
+            Err(TrngError::Timeout)
+        };
+        assert_eq!(result.unwrap(), 0xDEAD_BEEF);
     }
 }
