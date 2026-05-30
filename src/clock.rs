@@ -80,7 +80,10 @@ static REF_COUNTS: [AtomicU8; 17] = {
 /// the disable bit.
 pub struct PeripheralGuard<'d> {
     peripheral: Peripheral,
-    cldo_crg: *const (), // raw pointer to CLDO_CRG register block (static MMIO, always valid)
+    // raw pointer to CLDO_CRG register block (static MMIO @ 0x4400_1100)
+    // Provenance: captured from &CldoCrg via register_block() in peripheral_guard().
+    // Verified: 0x4400_1100 ∈ [MMIO_LOW=0x4000_0000, MMIO_HIGH=0x5704_0000] (see safety.rs).
+    cldo_crg: *const (),
     _marker: PhantomData<&'d ()>,
 }
 

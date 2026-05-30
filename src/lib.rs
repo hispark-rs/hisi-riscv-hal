@@ -38,6 +38,7 @@ pub mod prelude;
 pub mod private;
 pub mod pwm;
 pub mod rtc;
+pub mod safety;
 pub mod sfc;
 pub mod spi;
 pub mod system;
