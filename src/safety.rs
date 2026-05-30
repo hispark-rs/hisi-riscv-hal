@@ -31,10 +31,10 @@ const MMIO_LOW: usize = 0x4000_0000;
 const MMIO_HIGH: usize = 0x5704_0000; // ULP_GPIO at 0x5703_0000
 
 // Verify key peripheral addresses are within range
-const_assert!(0x4400_0100 >= MMIO_LOW && 0x4401_0000 <= MMIO_HIGH,
-    "UART0 base out of MMIO range");
-const_assert!(0x4400_8000 >= MMIO_LOW && 0x4400_8000 <= MMIO_HIGH,
-    "WDT base out of MMIO range");
+const_assert!(0x4401_0000 >= MMIO_LOW && 0x4401_2000 <= MMIO_HIGH,
+    "UART region (UART0@0x4401_0000..UART2@0x4401_2000) out of MMIO range");
+const_assert!(0x4000_6000 >= MMIO_LOW && 0x4000_6100 <= MMIO_HIGH,
+    "WDT region (0x4000_6000) out of MMIO range");
 const_assert!(0x4800_0000 >= MMIO_LOW && 0x4800_0100 <= MMIO_HIGH,
     "SFC base out of MMIO range");
 const_assert!(0x4A00_0000 >= MMIO_LOW && 0x4A00_0000 <= MMIO_HIGH,
