@@ -8,6 +8,7 @@
 #![allow(rustdoc::broken_intra_doc_links)]
 
 pub mod clock;
+pub mod clock_init;
 pub mod delay;
 pub mod dma;
 pub mod efuse;

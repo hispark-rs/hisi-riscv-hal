@@ -15,7 +15,6 @@ pub use ws63_pac::interrupt::ExternalInterrupt as Interrupt;
 /// To configure the PLL manually, use the CLDO_CRG clock divider and PLL
 /// configuration registers before creating any peripheral drivers.
 pub const SYSTEM_CLOCK_HZ: u32 = 240_000_000;
-pub const SYSTEM_CLOCK_HZ: u32 = 240_000_000;
 
 /// Number of GPIO pins (19: GPIO0[7:0] + GPIO1[15:8] + GPIO2[18:16]).
 pub const GPIO_COUNT: usize = 19;
