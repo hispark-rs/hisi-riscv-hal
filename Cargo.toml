@@ -15,7 +15,6 @@ embedded-hal-nb = "1.0"
 embedded-io = "0.6"
 nb = "1"
 cfg-if = "1"
-paste = "1"
 # The WS63 core has no atomic extension; on the no-atomic target portable-atomic
 # uses a critical-section polyfill instead of native lr.w/sc.w (which would trap).
 portable-atomic = { version = "1", default-features = false, features = ["critical-section"] }
