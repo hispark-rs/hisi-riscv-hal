@@ -17,7 +17,7 @@ pub use crate::efuse::EfuseDriver;
 pub use crate::gpio::{AnyPin, Flex, GpioPin, Input, InputConfig, InputMode, Output, OutputConfig, OutputMode, Pull};
 pub use crate::i2c::I2c;
 pub use crate::i2s::I2sDriver;
-pub use crate::interrupt::{InterruptConfigurable, Priority};
+pub use crate::interrupt::{Interrupt, Priority};
 pub use crate::io_config::IoConfigDriver;
 pub use crate::lsadc::LsAdc;
 pub use crate::pwm::PwmChannel;
