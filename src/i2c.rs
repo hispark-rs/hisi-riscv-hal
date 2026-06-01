@@ -52,11 +52,29 @@ fn configure_i2c(idx: u8, freq: u32) {
     });
 }
 
+/// Bounded busy-wait. Returns [`I2cError::Timeout`] instead of hanging the CPU
+/// forever when the bus or a peer never drives the expected status bit (mirrors
+/// the bounded waits in `spi.rs`). Previously these were unbounded `while !..{}`
+/// loops that would deadlock the core on a stuck/absent slave.
+const I2C_WAIT_LOOPS: u32 = 1_000_000;
+
+#[inline]
+fn wait_until(mut ready: impl FnMut() -> bool) -> Result<(), I2cError> {
+    let mut n = I2C_WAIT_LOOPS;
+    while !ready() {
+        n -= 1;
+        if n == 0 {
+            return Err(I2cError::Timeout);
+        }
+    }
+    Ok(())
+}
+
 impl<T> I2c<'_, T> {
     #[allow(dead_code)]
-    fn wait_not_busy(&self) {
+    fn wait_not_busy(&self) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
-        while r.i2c_sr().read().bus_busy().bit_is_set() {}
+        wait_until(|| !r.i2c_sr().read().bus_busy().bit_is_set())
     }
 
     fn clear_interrupts(&self) {
@@ -77,7 +95,7 @@ impl<T> I2c<'_, T> {
     /// Wait for TX ready and check for ACK error.
     fn wait_tx_ack(&self) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
-        while !r.i2c_sr().read().int_tx().bit_is_set() {}
+        wait_until(|| r.i2c_sr().read().int_tx().bit_is_set())?;
         // Check ACK after each TX (address and data bytes)
         self.check_ack()
     }
@@ -127,7 +145,7 @@ impl<T> I2c<'_, T> {
 
         // Stop
         r.i2c_com().write(|w| w.op_stop().set_bit());
-        while !r.i2c_sr().read().int_stop().bit_is_set() {}
+        wait_until(|| r.i2c_sr().read().int_stop().bit_is_set())?;
         self.clear_interrupts();
 
         Ok(())
@@ -150,14 +168,14 @@ impl<T> I2c<'_, T> {
             }
             unsafe { r.i2c_com().write(|w| w.bits(com)) };
 
-            while !r.i2c_sr().read().int_rx().bit_is_set() {}
+            wait_until(|| r.i2c_sr().read().int_rx().bit_is_set())?;
             *byte = r.i2c_rxr().read().bits() as u8;
             self.clear_interrupts();
         }
 
         // Stop
         r.i2c_com().write(|w| w.op_stop().set_bit());
-        while !r.i2c_sr().read().int_stop().bit_is_set() {}
+        wait_until(|| r.i2c_sr().read().int_stop().bit_is_set())?;
         self.clear_interrupts();
 
         Ok(())
@@ -194,7 +212,7 @@ impl<T> I2c<'_, T> {
                     com |= 1 << 4; // op_ack (NACK on last)
                 }
                 unsafe { r.i2c_com().write(|w| w.bits(com)) };
-                while !r.i2c_sr().read().int_rx().bit_is_set() {}
+                wait_until(|| r.i2c_sr().read().int_rx().bit_is_set())?;
                 *byte = r.i2c_rxr().read().bits() as u8;
                 self.clear_interrupts();
             }
@@ -202,7 +220,7 @@ impl<T> I2c<'_, T> {
 
         // Stop (at end of combined transaction)
         r.i2c_com().write(|w| w.op_stop().set_bit());
-        while !r.i2c_sr().read().int_stop().bit_is_set() {}
+        wait_until(|| r.i2c_sr().read().int_stop().bit_is_set())?;
         self.clear_interrupts();
 
         Ok(())
@@ -247,7 +265,7 @@ impl<T> I2c<'_, T> {
                             com |= 1 << 4; // op_ack (host sends NACK on last byte)
                         }
                         unsafe { r.i2c_com().write(|w| w.bits(com)) };
-                        while !r.i2c_sr().read().int_rx().bit_is_set() {}
+                        wait_until(|| r.i2c_sr().read().int_rx().bit_is_set())?;
                         *byte = r.i2c_rxr().read().bits() as u8;
                         self.clear_interrupts();
                     }
@@ -258,7 +276,7 @@ impl<T> I2c<'_, T> {
 
         // STOP at end of all operations
         r.i2c_com().write(|w| w.op_stop().set_bit());
-        while !r.i2c_sr().read().int_stop().bit_is_set() {}
+        wait_until(|| r.i2c_sr().read().int_stop().bit_is_set())?;
         self.clear_interrupts();
 
         Ok(())

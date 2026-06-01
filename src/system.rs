@@ -35,38 +35,64 @@ pub enum ResetReason {
     Unknown,
 }
 
+// Reset registers, from fbb_ws63 drivers/chips/ws63/porting/reboot/reboot_porting.c:
+//   chip-reset trigger:  GLB_CTL_M (0x4000_2000) + 0x110, set bit 2 (HAL_CHIP_RESET_REG)
+//   reset-reason record: GLB_CTL   (0x4000_0000) + 0xA0    (SYS_RST_RECORD_0)
+//   reason-clear:        GLB_CTL   (0x4000_0000) + 0xA4    (SYS_DIAG_CLR_1)
+const CHIP_RESET_REG: *mut u32 = 0x4000_2110 as *mut u32;
+const CHIP_RESET_ENABLE_BIT: u32 = 1 << 2;
+const SYS_RST_RECORD_0: *mut u32 = 0x4000_00A0 as *mut u32;
+const SYS_DIAG_CLR_1: *mut u32 = 0x4000_00A4 as *mut u32;
+// History bits in SYS_RST_RECORD_0.
+const SYS_WDT_RST_HIS: u32 = 0x1;
+const SYS_SOFT_RST_HIS: u32 = 0x2;
+const POR_RST_FILTER_HIS: u32 = 0x8;
+
 impl System<'_> {
-    /// Read the reset reason from the SYS_CTL0 status register.
+    /// Read (and clear) the last reset reason from `SYS_RST_RECORD_0`.
     ///
-    /// After reading, the reset reason may be cleared depending on
-    /// the hardware implementation.
+    /// Decodes the WS63 reset-history record (`reboot_port_get_rst_reason`):
+    /// watchdog takes precedence over software over power-on. The matched bit is
+    /// cleared via `SYS_DIAG_CLR_1` so the next boot reports its own cause.
+    /// Reasons this SoC's record does not distinguish (`ExternalPin`, `BrownOut`)
+    /// are never returned here. An empty record reads back as [`ResetReason::Unknown`].
     pub fn reset_reason(&self) -> ResetReason {
-        // SYS_CTL0 reset status register - read and interpret
-        // This maps the raw status bits to ResetReason variants
-        let _regs = self.sys_ctl0.register_block();
-        // The exact register depends on the SYS_CTL0 layout
-        // Use a reasonable default based on common patterns
-        ResetReason::PowerOn
+        let val = unsafe { core::ptr::read_volatile(SYS_RST_RECORD_0) };
+        let (reason, clr) = if val & SYS_WDT_RST_HIS != 0 {
+            (ResetReason::Watchdog, SYS_WDT_RST_HIS)
+        } else if val & SYS_SOFT_RST_HIS != 0 {
+            (ResetReason::Software, SYS_SOFT_RST_HIS)
+        } else if val & POR_RST_FILTER_HIS != 0 {
+            (ResetReason::PowerOn, POR_RST_FILTER_HIS)
+        } else {
+            (ResetReason::Unknown, 0)
+        };
+        if clr != 0 {
+            unsafe { core::ptr::write_volatile(SYS_DIAG_CLR_1, clr) };
+        }
+        reason
     }
 
-    /// Trigger a software reset of the entire system.
+    /// Trigger a full software reset of the chip and never return.
+    ///
+    /// Sets the chip-reset enable bit (bit 2) of `GLB_CTL_M + 0x110`, the same
+    /// register `reboot_port_reboot_chip` uses. The CPU is reset before the
+    /// following spin loop completes.
     pub fn software_reset(&self) -> ! {
-        // Trigger software reset via SYS_CTL0 or GLB_CTL_M
-        // The exact mechanism is chip-specific
-        let _regs = self.sys_ctl0.register_block();
-        // Write reset bit (implementation-specific)
         unsafe {
-            // Use a known reset pattern
-            core::arch::asm!("ebreak");
+            let v = core::ptr::read_volatile(CHIP_RESET_REG);
+            core::ptr::write_volatile(CHIP_RESET_REG, v | CHIP_RESET_ENABLE_BIT);
         }
         loop {
             core::hint::spin_loop();
         }
     }
 
-    /// Trigger a software reset of the CPU only.
+    /// Trigger a software reset and never return.
+    ///
+    /// WS63's porting layer exposes only a whole-chip reset, so this is an alias
+    /// of [`software_reset`](Self::software_reset).
     pub fn software_reset_cpu(&self) -> ! {
-        // Trigger CPU reset via GLB_CTL_M
         self.software_reset()
     }
 }
