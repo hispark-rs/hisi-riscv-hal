@@ -22,6 +22,19 @@ pub enum Pull {
     Down,
 }
 
+/// GPIO interrupt trigger condition (sets `GPIO_INT_TYPE` + `GPIO_INT_POLARITY`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterruptTrigger {
+    /// Edge-sensitive, low→high transition.
+    RisingEdge,
+    /// Edge-sensitive, high→low transition.
+    FallingEdge,
+    /// Level-sensitive, asserted while high.
+    HighLevel,
+    /// Level-sensitive, asserted while low.
+    LowLevel,
+}
+
 /// Digital input configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct InputConfig {
@@ -104,8 +117,11 @@ impl<'d> AnyPin<'d> {
     }
 
     /// Initialize this pin as a GPIO input.
+    ///
+    /// Applies `config.pull` to the pad via IO_CONFIG (see [`apply_pull`]).
     pub fn init_input(self, config: InputConfig) -> Input<'d> {
         self.set_oen(true);
+        apply_pull(self.number(), config.pull);
         Input { pin: self, config }
     }
 
@@ -167,6 +183,23 @@ impl<'d> Input<'d> {
 
     pub fn clear_interrupt(&self) {
         unsafe { regs(self.pin.block).gpio_int_eoi().write(|w| w.bits(1 << self.pin.bit)) };
+    }
+
+    /// Set the interrupt trigger condition for this pin (edge/level + polarity).
+    ///
+    /// Configures `GPIO_INT_TYPE` (edge vs level) and `GPIO_INT_POLARITY`
+    /// (rising/high vs falling/low). Call before [`enable_interrupt`](Self::enable_interrupt).
+    pub fn set_interrupt_trigger(&self, trigger: InterruptTrigger) {
+        let r = regs(self.pin.block);
+        let mask = 1u32 << self.pin.bit;
+        let (edge, high) = match trigger {
+            InterruptTrigger::RisingEdge => (true, true),
+            InterruptTrigger::FallingEdge => (true, false),
+            InterruptTrigger::HighLevel => (false, true),
+            InterruptTrigger::LowLevel => (false, false),
+        };
+        r.gpio_int_type().modify(|r, w| unsafe { w.bits(if edge { r.bits() | mask } else { r.bits() & !mask }) });
+        r.gpio_int_polarity().modify(|r, w| unsafe { w.bits(if high { r.bits() | mask } else { r.bits() & !mask }) });
     }
 
     pub fn interrupt_pending(&self) -> bool {
@@ -355,6 +388,45 @@ fn regs(block: u8) -> &'static ws63_pac::gpio0::RegisterBlock {
             2 => &*Gpio2::ptr(),
             _ => unreachable!(),
         }
+    }
+}
+
+// ── Pad pull-resistor control (IO_CONFIG) ─────────────────────────
+// The pull resistor lives in the per-pad IO_CONFIG control register, not the
+// GPIO block. `pad_gpio_NN_ctrl` is at IO_CONFIG + 0x800 + N*4 (PAC layout) with
+// PE = bit 9 (pull enable), PS = bit 10 (pull select); per the SVD the {PE,PS}
+// pair encodes 00 = none, 11 = pull-up, 10 = pull-down (matches
+// `io_config::build_pad_ctrl`). Only GPIO pads 0..=14 have a control register.
+const IO_CONFIG_BASE: usize = 0x4400_D000;
+const PAD_GPIO_CTRL_OFF: usize = 0x800;
+const PAD_PE_BIT: u32 = 1 << 9;
+const PAD_PS_BIT: u32 = 1 << 10;
+
+/// Apply a pull-resistor setting to a GPIO pad via IO_CONFIG.
+///
+/// Read-modify-write so drive strength / Schmitt / input-enable bits are kept.
+/// A no-op for pins 15..=18, which have no `pad_gpio_NN_ctrl` register in this
+/// layout (their pull is configured through other pads / the ROM pin map).
+fn apply_pull(pin: u8, pull: Pull) {
+    if pin > 14 {
+        return;
+    }
+    let reg = (IO_CONFIG_BASE + PAD_GPIO_CTRL_OFF + (pin as usize) * 4) as *mut u32;
+    let (pe, ps) = match pull {
+        Pull::None => (false, false),
+        Pull::Up => (true, true),
+        Pull::Down => (true, false),
+    };
+    unsafe {
+        let mut v = core::ptr::read_volatile(reg);
+        v &= !(PAD_PE_BIT | PAD_PS_BIT);
+        if pe {
+            v |= PAD_PE_BIT;
+        }
+        if ps {
+            v |= PAD_PS_BIT;
+        }
+        core::ptr::write_volatile(reg, v);
     }
 }
 

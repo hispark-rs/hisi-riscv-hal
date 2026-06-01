@@ -421,44 +421,11 @@ pub enum DmaDirection {
     Rx,
 }
 
-/// Trait indicating a peripheral is DMA-eligible.
-///
-/// Each peripheral that supports DMA transfers specifies which
-/// DMA peripheral request ID it uses per direction.
-pub trait DmaEligible {
-    /// The DMA peripheral identifier for this peripheral and direction.
-    fn dma_peripheral(direction: DmaDirection) -> DmaPeripheral;
-}
-
-/// Trait bound ensuring a DMA channel can be used with a given peripheral.
-///
-/// To be useful, this needs per-peripheral impls that bind specific
-/// `DmaChannel` types to specific `DmaEligible` peripherals (e.g.,
-/// `impl DmaChannelFor<Spi0> for Channel0`). The blanket impl is omitted
-/// intentionally — it would defeat compile-time channel safety.
-pub trait DmaChannelFor<P: DmaEligible> {}
-
-// ── DmaEligible implementations ──────────────────────────────────
-
-use crate::peripherals::{Spi0, Spi1};
-
-impl DmaEligible for Spi0<'static> {
-    fn dma_peripheral(direction: DmaDirection) -> DmaPeripheral {
-        match direction {
-            DmaDirection::Tx => DmaPeripheral::Spi0Tx,
-            DmaDirection::Rx => DmaPeripheral::Spi0Rx,
-        }
-    }
-}
-
-impl DmaEligible for Spi1<'static> {
-    fn dma_peripheral(direction: DmaDirection) -> DmaPeripheral {
-        match direction {
-            DmaDirection::Tx => DmaPeripheral::Spi1Tx,
-            DmaDirection::Rx => DmaPeripheral::Spi1Rx,
-        }
-    }
-}
+// The `DmaEligible` / `DmaChannelFor` traits were removed: `DmaEligible` was
+// impl'd for Spi0/Spi1 but never called, `DmaChannelFor` had no impls and no
+// uses, and no driver wired peripheral-paced DMA through them. The
+// [`DmaPeripheral`] request-ID enum is retained as the request-ID reference.
+// Re-introduce the binding traits alongside a real peripheral-DMA driver.
 
 impl<'d> DmaDriver<'d, Sdma0> {
     /// Create a new secure DMA driver.

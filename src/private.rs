@@ -26,26 +26,8 @@ pub trait PeripheralOutput: Sealed {}
 /// Types that can serve as peripheral outputs (signals from peripherals towards GPIO matrix).
 pub trait PeripheralInput: Sealed {}
 
-// ── Driver mode sealed traits ─────────────────────────────────────
-
-/// Trait for driver operation mode (blocking or async).
-pub trait DriverMode: Sealed + Sized {
-    /// Convert a blocking-mode driver instance to async mode.
-    type Async<D>;
-}
-
-/// Marker type for blocking (synchronous) driver operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Blocking;
-impl Sealed for Blocking {}
-impl DriverMode for Blocking {
-    type Async<D> = D;
-}
-
-/// Marker type for async driver operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Async;
-impl Sealed for Async {}
-impl DriverMode for Async {
-    type Async<D> = D;
-}
+// The `DriverMode` / `Blocking` / `Async` marker traits were removed: every
+// associated type was the identity (`type Async<D> = D`), nothing referenced
+// them, and they advertised an async capability that does not exist. Re-add a
+// real driver-mode distinction only when an async executor actually backs it
+// (ROADMAP phase 6).

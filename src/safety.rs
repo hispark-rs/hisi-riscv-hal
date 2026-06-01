@@ -1,9 +1,13 @@
-//! Compile-time safety verification for ws63-hal.
+//! Compile-time safety checks for ws63-hal.
 //!
 //! Provides:
-//! 1. Const assertions for pointer alignment and register offset soundness
-//! 2. Type-level proofs that MMIO addresses are within the valid peripheral range
-//! 3. Formal safety contracts used in SAFETY doc comments
+//! 1. Const assertions that key peripheral MMIO addresses are within range and
+//!    that timer-tick arithmetic cannot overflow at 240 MHz
+//! 2. Newtype helpers (`PeripheralIndex`, `GpioPinIndex`) for bounds-checked indices
+//!
+//! Tautological `const X == <literal>` count assertions were removed: pinning a
+//! `soc` constant to a duplicated magic number verifies nothing about the code
+//! that indexes with it.
 
 // ── Compile-time assertions ──────────────────────────────────────
 
@@ -43,36 +47,8 @@ const_assert!(0x4800_0000 >= MMIO_LOW && 0x4800_0100 <= MMIO_HIGH, "SFC base out
 const_assert!(0x4A00_0000 >= MMIO_LOW && 0x4A00_0000 <= MMIO_HIGH, "DMA base out of MMIO range");
 const_assert!(0x4410_0000 >= MMIO_LOW && 0x4411_4000 <= MMIO_HIGH, "Crypto base out of MMIO range");
 
-// ── Verify PeripheralGuard ref-count array bounds ─────────────────
-
-// PERIPHERAL_COUNT is defined in clock.rs next to the Peripheral enum.
-// Reference it here so the const_assert below breaks if anyone changes
-// the count in one place but not the other.
+// PERIPHERAL_COUNT (clock.rs) bounds the PeripheralIndex newtype below.
 use crate::clock::PERIPHERAL_COUNT;
-
-// Verify that the Peripheral enum still has 17 variants.
-// If adding a new peripheral variant, update clock.rs PERIPHERAL_COUNT
-// and this assertion value.
-const_assert!(PERIPHERAL_COUNT == 17, "clock.rs PERIPHERAL_COUNT must match Peripheral enum variant count");
-
-// Verify Peripheral enum discriminant fits in AtomicU8 index
-#[allow(dead_code)]
-fn verify_peripheral_count() {
-    // If this compiles, all peripheral discriminants fit in 0..17
-    let _: [(); 17] = [(); PERIPHERAL_COUNT];
-}
-
-// ── Verify timer channel count ───────────────────────────────────
-
-const_assert!(crate::soc::ws63::TIMER_COUNT == 3, "TIMER_COUNT must be 3 for timer0_eoi(0..2) indexing");
-const_assert!(crate::soc::ws63::PWM_CHANNEL_COUNT == 8, "PWM_CHANNEL_COUNT must be 8 for PWM register indexing");
-
-// ── Verify DMA channel count ─────────────────────────────────────
-
-const_assert!(crate::soc::ws63::DMA_CHANNEL_COUNT == 4, "DMA_CHANNEL_COUNT must be 4 for DmaDriver channel indexing");
-const_assert!(crate::soc::ws63::SPI_COUNT == 2, "SPI_COUNT must be 2 for SPI0/SPI1 instance indexing");
-const_assert!(crate::soc::ws63::UART_COUNT == 3, "UART_COUNT must be 3 for UART0/1/2 instance indexing");
-const_assert!(crate::soc::ws63::I2C_COUNT == 2, "I2C_COUNT must be 2 for I2C0/1 instance indexing");
 
 // ── Verify timer tick arithmetic doesn't overflow at compile time ─
 
@@ -83,12 +59,6 @@ const_assert!(
 // Verify that the maximum safe us value for timer is computable at 240MHz
 const MAX_SAFE_TIMER_US: u64 = u32::MAX as u64 / 240;
 const_assert!(MAX_SAFE_TIMER_US > 17_000_000, "Timer max safe period must cover at least 17 seconds");
-
-// ── Verify flash memory constants ─────────────────────────────────
-
-const_assert!(crate::soc::ws63::GPIO_COUNT == 19, "GPIO_COUNT must be 19 for GPIO pin 0-18 indexing");
-const_assert!(crate::soc::ws63::ULP_GPIO_COUNT == 8, "ULP_GPIO_COUNT must be 8 for ULP GPIO pin indexing");
-const_assert!(crate::soc::ws63::LSADC_CHANNEL_COUNT == 6, "LSADC_CHANNEL_COUNT must be 6 for ADC channel indexing");
 
 // ── Type-level safety invariant helpers ──────────────────────────
 

@@ -7,10 +7,10 @@
 //! ## Clock gating
 //!
 //! Most peripherals need their CLDO_CRG clock gate enabled before register
-//! access. Constructors like `I2c::new_i2c0()`, `Uart::new_uart0()`, and
-//! `Watchdog::new()` write configuration registers immediately — the caller
-//! must ensure the clock is enabled first (via `ClockControl` or
-//! `clock_init::init_clocks()`). WDT/RTC/TCXO are always-on and exempt.
+//! access. The gates default to enabled out of reset; `clock_init::init_clocks()`
+//! sets up the system clocks for firmware that does not boot through flashboot.
+//! Constructors like `I2c::new_i2c0()`, `Uart::new_uart0()`, and `Watchdog::new()`
+//! write configuration registers immediately. WDT/RTC/TCXO are always-on.
 //!
 //! ```ignore
 //! let clocks = clock_init::init_clocks(&system.sys_ctl0, &system.cldo_crg);
