@@ -38,3 +38,11 @@ lto = true
 
 [profile.dev]
 opt-level = "s"
+
+# Standalone builds (this repo's own CI) pull ws63-pac from crates.io, where the
+# published version lags the generated PAC (e.g. missing KM registers / the host
+# riscv-gating), breaking the build. Patch to the git PAC so standalone CI builds
+# against the current source. IGNORED inside the ws63-rs workspace, whose root
+# manifest patches ws63-pac to the local path (only the workspace-root [patch] applies).
+[patch.crates-io]
+ws63-pac = { git = "https://github.com/sanchuanhehe/ws63-pac" }
