@@ -20,6 +20,10 @@
 //! (`ws63-rt`); the `timer_irq` (mie path) and `gpio_irq` (LOCIEN + LOCIPCLR
 //! path) examples drive this API end-to-end and are exercised on ws63-qemu.
 
+// On non-riscv (host) builds the CSR access compiles to no-op stubs, leaving the
+// surrounding `unsafe` blocks empty — silence the resulting lints there.
+#![cfg_attr(not(target_arch = "riscv32"), allow(unused_unsafe, unused_variables, unused_mut))]
+
 pub use crate::soc::ws63::Interrupt;
 
 // --- model constants (fbb_ws63 vectors.h / riscv_interrupt.h) ---------------
@@ -44,27 +48,57 @@ const LOCIPRI_DEFAULT_VAL: u32 = 0x1111_1111;
 // Pseudo-ops (`csrs`/`csrc`/`csrw`/`csrr`) with a numeric CSR are accepted by the
 // assembler (same forms the examples already use).
 
+// Two macro sets: real CSR asm on riscv32, and no-op/zero stubs elsewhere so the
+// crate (and its host unit tests) build on x86. The interrupt-controller functions
+// are not exercised by host tests; the stubs only need to compile.
+#[cfg(target_arch = "riscv32")]
 macro_rules! csr_set {
     ($csr:literal, $v:expr) => {
         core::arch::asm!(concat!("csrs ", $csr, ", {0}"), in(reg) $v, options(nomem, nostack))
     };
 }
+#[cfg(target_arch = "riscv32")]
 macro_rules! csr_clear {
     ($csr:literal, $v:expr) => {
         core::arch::asm!(concat!("csrc ", $csr, ", {0}"), in(reg) $v, options(nomem, nostack))
     };
 }
+#[cfg(target_arch = "riscv32")]
 macro_rules! csr_write {
     ($csr:literal, $v:expr) => {
         core::arch::asm!(concat!("csrw ", $csr, ", {0}"), in(reg) $v, options(nomem, nostack))
     };
 }
+#[cfg(target_arch = "riscv32")]
 macro_rules! csr_read {
     ($csr:literal) => {{
         let v: u32;
         core::arch::asm!(concat!("csrr {0}, ", $csr), out(reg) v, options(nomem, nostack));
         v
     }};
+}
+
+#[cfg(not(target_arch = "riscv32"))]
+macro_rules! csr_set {
+    ($csr:literal, $v:expr) => {{
+        let _ = $v;
+    }};
+}
+#[cfg(not(target_arch = "riscv32"))]
+macro_rules! csr_clear {
+    ($csr:literal, $v:expr) => {{
+        let _ = $v;
+    }};
+}
+#[cfg(not(target_arch = "riscv32"))]
+macro_rules! csr_write {
+    ($csr:literal, $v:expr) => {{
+        let _ = $v;
+    }};
+}
+#[cfg(not(target_arch = "riscv32"))]
+macro_rules! csr_read {
+    ($csr:literal) => {{ 0u32 }};
 }
 
 /// Set/clear a bit-mask in `LOCIEN{idx}` (idx 0..=2 cover IRQ 32..=127).
@@ -315,8 +349,10 @@ pub fn threshold() -> u8 {
 pub fn clear_pending(irq: Interrupt) {
     let n = irq_num(irq) as u32;
     unsafe {
+        #[cfg(target_arch = "riscv32")]
         core::arch::asm!("fence", options(nostack));
         csr_write!("0xbf0", n);
+        #[cfg(target_arch = "riscv32")]
         core::arch::asm!("fence", options(nostack));
     }
 }
@@ -369,12 +405,18 @@ pub fn init() {
 /// After this, any enabled-and-ready source can preempt. Configure sources and
 /// their handlers first.
 pub unsafe fn enable_global() {
-    unsafe { core::arch::asm!("csrsi mstatus, 0x8", options(nomem, nostack)) };
+    #[cfg(target_arch = "riscv32")]
+    unsafe {
+        core::arch::asm!("csrsi mstatus, 0x8", options(nomem, nostack))
+    };
 }
 
 /// Clear the global machine-interrupt enable (`mstatus.MIE`).
 pub fn disable_global() {
-    unsafe { core::arch::asm!("csrci mstatus, 0x8", options(nomem, nostack)) };
+    #[cfg(target_arch = "riscv32")]
+    unsafe {
+        core::arch::asm!("csrci mstatus, 0x8", options(nomem, nostack))
+    };
 }
 
 /// Run `f` with machine interrupts globally masked, restoring the previous
@@ -383,9 +425,14 @@ pub fn free<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
+    #[cfg(target_arch = "riscv32")]
     let prev: usize;
-    unsafe { core::arch::asm!("csrrci {0}, mstatus, 0x8", out(reg) prev, options(nomem, nostack)) };
+    #[cfg(target_arch = "riscv32")]
+    unsafe {
+        core::arch::asm!("csrrci {0}, mstatus, 0x8", out(reg) prev, options(nomem, nostack))
+    };
     let r = f();
+    #[cfg(target_arch = "riscv32")]
     if prev & 0x8 != 0 {
         unsafe { core::arch::asm!("csrsi mstatus, 0x8", options(nomem, nostack)) };
     }

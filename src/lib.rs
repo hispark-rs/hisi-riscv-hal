@@ -17,7 +17,9 @@
 //! // Now safe to construct peripheral drivers
 //! let uart = Uart::new_uart0(peripherals.UART0, Config::default());
 //! ```
-#![no_std]
+// `no_std` for firmware builds; `std` is linked under `cfg(test)` so the host
+// unit tests can use the standard test harness (run via `cargo test --target x86_64`).
+#![cfg_attr(not(test), no_std)]
 #![allow(non_camel_case_types)]
 #![allow(rustdoc::broken_intra_doc_links)]
 

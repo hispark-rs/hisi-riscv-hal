@@ -20,10 +20,13 @@ cfg-if = "1"
 portable-atomic = { version = "1", default-features = false, features = ["critical-section"] }
 
 critical-section = { version = "1", optional = true }
-riscv = "0.13"
 
 [dev-dependencies]
 proptest = "1"
+# Host unit tests (`cargo test --target x86_64`) compile the whole lib, including
+# ws63-pac's `critical-section`-gated `Peripherals::take()`; pull a real
+# critical-section impl (std) so the test binary links. Not in the firmware graph.
+critical-section = { version = "1", features = ["std"] }
 
 [features]
 default = ["rt", "dep:critical-section"]
