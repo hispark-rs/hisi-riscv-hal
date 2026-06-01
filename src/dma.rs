@@ -381,35 +381,57 @@ impl<'d> DmaDriver<'d, Dma0> {
     }
 }
 
-// ── DMA peripheral binding traits ─────────────────────────────────
+// ── DMA peripheral handshaking request IDs ────────────────────────
 
-/// Enumeration of DMA peripheral request sources.
+/// DMA peripheral hardware-handshaking request ID.
+///
+/// Values are the `HAL_DMA_HANDSHAKING_*` indices from fbb_ws63
+/// `drivers/chips/ws63/porting/dma/dma_porting.h` — the hardware request line a
+/// channel uses for peripheral-paced flow control. They go into the channel
+/// config's `src_peripheral` / `dst_peripheral` field (a 4-bit field; all the
+/// IDs below fit). UART bus mapping per `platform_core.h`: UART0 = UART_L,
+/// UART1 = UART_H0, UART2 = UART_H1.
+///
+/// (These superseded the earlier fabricated sequential 0..11 values; only the
+/// main-DMA (MDMA) sources ws63-hal models are listed — the SDMA-group I2C IDs
+/// (≥29) don't fit the 4-bit field and aren't modelled here.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum DmaPeripheral {
-    /// SPI0 TX
-    Spi0Tx = 0,
-    /// SPI0 RX
-    Spi0Rx = 1,
-    /// SPI1 TX
-    Spi1Tx = 2,
-    /// SPI1 RX
-    Spi1Rx = 3,
-    /// UART0 TX
-    Uart0Tx = 4,
-    /// UART0 RX
-    Uart0Rx = 5,
-    /// UART1 TX
-    Uart1Tx = 6,
-    /// UART1 RX
-    Uart1Rx = 7,
-    /// UART2 TX
-    Uart2Tx = 8,
-    /// UART2 RX
-    Uart2Rx = 9,
-    /// I2S TX
-    I2sTx = 10,
-    /// I2S RX
-    I2sRx = 11,
+    /// No handshaking (tie-off) — used for memory-to-memory transfers.
+    Tie0 = 0,
+    /// UART0 (UART_L) transmit.
+    Uart0Tx = 1,
+    /// UART0 (UART_L) receive.
+    Uart0Rx = 2,
+    /// UART1 (UART_H0) transmit.
+    Uart1Tx = 3,
+    /// UART1 (UART_H0) receive.
+    Uart1Rx = 4,
+    /// UART2 (UART_H1) transmit.
+    Uart2Tx = 5,
+    /// UART2 (UART_H1) receive.
+    Uart2Rx = 6,
+    /// SPI0 (SPI_MS0) transmit.
+    Spi0Tx = 7,
+    /// SPI0 (SPI_MS0) receive.
+    Spi0Rx = 8,
+    /// I2S transmit.
+    I2sTx = 11,
+    /// I2S receive.
+    I2sRx = 12,
+    /// SPI1 (SPI_MS1) transmit.
+    Spi1Tx = 13,
+    /// SPI1 (SPI_MS1) receive.
+    Spi1Rx = 14,
+}
+
+impl DmaPeripheral {
+    /// The hardware handshaking request ID (the `dma_porting.h` index), as
+    /// programmed into the channel config's peripheral-select field.
+    pub const fn request_id(self) -> u8 {
+        self as u8
+    }
 }
 
 /// DMA transfer direction.
@@ -421,11 +443,33 @@ pub enum DmaDirection {
     Rx,
 }
 
-// The `DmaEligible` / `DmaChannelFor` traits were removed: `DmaEligible` was
-// impl'd for Spi0/Spi1 but never called, `DmaChannelFor` had no impls and no
-// uses, and no driver wired peripheral-paced DMA through them. The
-// [`DmaPeripheral`] request-ID enum is retained as the request-ID reference.
-// Re-introduce the binding traits alongside a real peripheral-DMA driver.
+impl DmaChannelConfig {
+    /// Configure this channel for a **memory → peripheral** transfer to `peri`:
+    /// sets `MemToPeripheral` flow control, the destination handshaking ID, and
+    /// holds the destination address fixed (a peripheral data register).
+    pub fn mem_to_peripheral(mut self, peri: DmaPeripheral) -> Self {
+        self.flow_control = FlowControl::MemToPeripheral;
+        self.dst_peripheral = peri.request_id();
+        self.dst_inc = false;
+        self
+    }
+
+    /// Configure this channel for a **peripheral → memory** transfer from `peri`:
+    /// sets `PeripheralToMem` flow control, the source handshaking ID, and holds
+    /// the source address fixed (a peripheral data register).
+    pub fn peripheral_to_mem(mut self, peri: DmaPeripheral) -> Self {
+        self.flow_control = FlowControl::PeripheralToMem;
+        self.src_peripheral = peri.request_id();
+        self.src_inc = false;
+        self
+    }
+}
+
+// The `DmaEligible` / `DmaChannelFor` binding traits were removed (dead — impl'd
+// for Spi0/Spi1 but never called; no DmaChannelFor impls). Peripheral-paced DMA
+// is now wired through [`DmaPeripheral`] + [`DmaChannelConfig::mem_to_peripheral`]
+// / [`peripheral_to_mem`](DmaChannelConfig::peripheral_to_mem), which feed the
+// correct handshaking ID + flow control into `configure_channel`.
 
 impl<'d> DmaDriver<'d, Sdma0> {
     /// Create a new secure DMA driver.
@@ -446,39 +490,63 @@ mod tests {
         assert_ne!(DmaDirection::Tx as u8, DmaDirection::Rx as u8);
     }
 
+    // The request IDs below are the HAL_DMA_HANDSHAKING_* indices from fbb_ws63
+    // dma_porting.h (the single source of truth) — NOT a fabricated 0..11 run.
+
     #[test]
-    fn test_dma_peripheral_spi0_tx_rx_different() {
-        let tx = DmaPeripheral::Spi0Tx as u8;
-        let rx = DmaPeripheral::Spi0Rx as u8;
-        assert_ne!(tx, rx); // TX and RX must be distinct
-        assert_eq!(tx, 0);
-        assert_eq!(rx, 1);
+    fn test_dma_peripheral_spi_handshaking_ids() {
+        // SPI_MS0 = 7/8, SPI_MS1 = 13/14.
+        assert_eq!(DmaPeripheral::Spi0Tx.request_id(), 7);
+        assert_eq!(DmaPeripheral::Spi0Rx.request_id(), 8);
+        assert_eq!(DmaPeripheral::Spi1Tx.request_id(), 13);
+        assert_eq!(DmaPeripheral::Spi1Rx.request_id(), 14);
     }
 
     #[test]
-    fn test_dma_peripheral_spi1_tx_rx_different() {
-        let tx = DmaPeripheral::Spi1Tx as u8;
-        let rx = DmaPeripheral::Spi1Rx as u8;
-        assert_ne!(tx, rx);
-        assert_eq!(tx, 2);
-        assert_eq!(rx, 3);
+    fn test_dma_peripheral_uart_handshaking_ids() {
+        // UART0=UART_L (1/2), UART1=UART_H0 (3/4), UART2=UART_H1 (5/6).
+        assert_eq!(DmaPeripheral::Uart0Tx.request_id(), 1);
+        assert_eq!(DmaPeripheral::Uart0Rx.request_id(), 2);
+        assert_eq!(DmaPeripheral::Uart1Tx.request_id(), 3);
+        assert_eq!(DmaPeripheral::Uart1Rx.request_id(), 4);
+        assert_eq!(DmaPeripheral::Uart2Tx.request_id(), 5);
+        assert_eq!(DmaPeripheral::Uart2Rx.request_id(), 6);
     }
 
     #[test]
-    fn test_dma_peripheral_uart_mappings() {
-        // UART TX/RX pairs use consecutive IDs starting from 4
-        assert_eq!(DmaPeripheral::Uart0Tx as u8, 4);
-        assert_eq!(DmaPeripheral::Uart0Rx as u8, 5);
-        assert_eq!(DmaPeripheral::Uart1Tx as u8, 6);
-        assert_eq!(DmaPeripheral::Uart1Rx as u8, 7);
-        assert_eq!(DmaPeripheral::Uart2Tx as u8, 8);
-        assert_eq!(DmaPeripheral::Uart2Rx as u8, 9);
+    fn test_dma_peripheral_i2s_handshaking_ids() {
+        assert_eq!(DmaPeripheral::I2sTx.request_id(), 11);
+        assert_eq!(DmaPeripheral::I2sRx.request_id(), 12);
     }
 
     #[test]
-    fn test_dma_peripheral_i2s_mappings() {
-        assert_eq!(DmaPeripheral::I2sTx as u8, 10);
-        assert_eq!(DmaPeripheral::I2sRx as u8, 11);
+    fn test_dma_peripheral_ids_fit_4bit_field() {
+        // src/dst_peripheral is a 4-bit channel-config field.
+        for p in [
+            DmaPeripheral::Uart0Tx,
+            DmaPeripheral::Uart2Rx,
+            DmaPeripheral::Spi0Tx,
+            DmaPeripheral::Spi1Rx,
+            DmaPeripheral::I2sTx,
+            DmaPeripheral::I2sRx,
+        ] {
+            assert!(p.request_id() <= 0x0F, "{:?} id {} > 4 bits", p, p.request_id());
+        }
+    }
+
+    #[test]
+    fn test_dma_channel_config_peripheral_wiring() {
+        // mem_to_peripheral / peripheral_to_mem set flow control + the handshaking
+        // ID on the correct side, and hold the peripheral-register address fixed.
+        let tx = DmaChannelConfig::default().mem_to_peripheral(DmaPeripheral::Spi0Tx);
+        assert_eq!(tx.flow_control, FlowControl::MemToPeripheral);
+        assert_eq!(tx.dst_peripheral, 7);
+        assert!(!tx.dst_inc);
+
+        let rx = DmaChannelConfig::default().peripheral_to_mem(DmaPeripheral::Uart1Rx);
+        assert_eq!(rx.flow_control, FlowControl::PeripheralToMem);
+        assert_eq!(rx.src_peripheral, 4);
+        assert!(!rx.src_inc);
     }
 
     #[test]
