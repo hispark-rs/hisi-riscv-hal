@@ -118,7 +118,8 @@ impl<'d> AnyPin<'d> {
 
     /// Initialize this pin as a GPIO input.
     ///
-    /// Applies `config.pull` to the pad via IO_CONFIG (see [`apply_pull`]).
+    /// Applies `config.pull` to the pad via the IO_CONFIG pad register
+    /// (`apply_pull`; pins 0..=14 have a pad-control register).
     pub fn init_input(self, config: InputConfig) -> Input<'d> {
         self.set_oen(true);
         apply_pull(self.number(), config.pull);
