@@ -13,8 +13,15 @@
 //!
 //! # Channel addressing
 //!
-//! - DMA channels: 0-3
-//! - SDMA channels: 0-3 (logically mapped as 8-11 by the hardware)
+//! The WS63 numbers DMA channels in a single **logical** space:
+//! - **MDMA** (`Dma0`) owns logical channels **0-3**
+//! - **SDMA** (`Sdma0`) owns logical channels **8-11**
+//!
+//! Both are backed by physical channels 0-3 on their own register block, so
+//! `DmaDriver<Sdma0>` accepts channel numbers 8-11 and translates them to the
+//! controller-local 0-3 internally (matching the C SDK `hal_dma_ch_get` /
+//! `hal_dma_type_get` convention in fbb_ws63 `hal_dmac_v151.c`). Passing a
+//! channel outside a controller's logical range panics.
 
 use crate::peripherals::{Dma, Sdma};
 use core::marker::PhantomData;
@@ -25,22 +32,39 @@ use core::marker::PhantomData;
 pub trait DmaInstance {
     /// Returns the PAC pointer for this DMA controller.
     fn ptr() -> *const ws63_pac::dma::RegisterBlock;
+
+    /// Logical channel number of this controller's first physical channel.
+    ///
+    /// MDMA exposes logical channels `CHANNEL_BASE..CHANNEL_BASE+4` (0-3); SDMA
+    /// exposes 8-11. The driver subtracts this base to index the controller's
+    /// physical channels 0-3 — see the module-level "Channel addressing" docs.
+    const CHANNEL_BASE: u8;
 }
 
-/// Marker type for the primary DMA controller.
+/// Marker type for the primary DMA controller (logical channels 0-3).
 pub struct Dma0;
 impl DmaInstance for Dma0 {
     fn ptr() -> *const ws63_pac::dma::RegisterBlock {
         Dma::ptr()
     }
+    const CHANNEL_BASE: u8 = 0;
 }
 
-/// Marker type for the secure DMA controller.
+/// Marker type for the secure DMA controller (logical channels 8-11).
 pub struct Sdma0;
 impl DmaInstance for Sdma0 {
     fn ptr() -> *const ws63_pac::dma::RegisterBlock {
         Sdma::ptr()
     }
+    const CHANNEL_BASE: u8 = 8;
+}
+
+/// Translate a logical channel number to this controller's physical channel
+/// index (0-3), validating it falls in the controller's logical range.
+#[inline]
+fn physical_channel_index(base: u8, channel: u8) -> usize {
+    assert!(channel >= base && channel < base + 4, "DMA channel out of range for this controller");
+    (channel - base) as usize
 }
 
 // ── Configuration types ───────────────────────────────────────────
@@ -156,6 +180,13 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         unsafe { &*T::ptr() }
     }
 
+    /// Translate a logical channel number (0-3 for MDMA, 8-11 for SDMA) to this
+    /// controller's physical channel index (0-3). Panics if out of range.
+    #[inline]
+    fn physical_channel(channel: u8) -> usize {
+        physical_channel_index(T::CHANNEL_BASE, channel)
+    }
+
     /// Enable the DMA controller.
     pub fn enable_controller(&mut self) {
         let r = Self::regs();
@@ -173,7 +204,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Configure a DMA channel.
     ///
-    /// * `channel` — Channel index (0-3).
+    /// * `channel` — Logical channel number (0-3 for MDMA, 8-11 for SDMA).
     /// * `src_addr` — Source address.
     /// * `dst_addr` — Destination address.
     /// * `transfer_size` — Number of source-width beats to transfer.
@@ -186,8 +217,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         transfer_size: u16,
         config: &DmaChannelConfig,
     ) {
-        assert!(channel < 4);
-        let ch = channel as usize;
+        let ch = Self::physical_channel(channel);
         let r = Self::regs();
 
         // Disable channel before configuration
@@ -257,8 +287,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Enable a specific DMA channel.
     pub fn enable_channel(&mut self, channel: u8) {
-        assert!(channel < 4);
-        let ch = channel as usize;
+        let ch = Self::physical_channel(channel);
         let r = Self::regs();
         let cfg = r.dmac_chn_config_0(ch).read().bits();
         unsafe {
@@ -268,8 +297,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Disable a specific DMA channel.
     pub fn disable_channel(&mut self, channel: u8) {
-        assert!(channel < 4);
-        let ch = channel as usize;
+        let ch = Self::physical_channel(channel);
         let r = Self::regs();
         let cfg = r.dmac_chn_config_0(ch).read().bits();
         unsafe {
@@ -279,22 +307,20 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Check if a DMA channel is enabled.
     pub fn channel_enabled(&self, channel: u8) -> bool {
-        assert!(channel < 4);
-        let mask = 1 << channel;
+        let ch = Self::physical_channel(channel);
+        let mask = 1u32 << ch;
         Self::regs().dmac_en_chns().read().bits() & mask != 0
     }
 
     /// Check if a channel has data in its FIFO (active transfer).
     pub fn channel_active(&self, channel: u8) -> bool {
-        assert!(channel < 4);
-        let ch = channel as usize;
+        let ch = Self::physical_channel(channel);
         Self::regs().dmac_chn_config_0(ch).read().bits() & (1 << 15) != 0
     }
 
     /// Halt a DMA channel (ignore further DMA requests).
     pub fn halt_channel(&mut self, channel: u8) {
-        assert!(channel < 4);
-        let ch = channel as usize;
+        let ch = Self::physical_channel(channel);
         let r = Self::regs();
         let cfg = r.dmac_chn_config_0(ch).read().bits();
         unsafe {
@@ -304,8 +330,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Resume a halted DMA channel.
     pub fn resume_channel(&mut self, channel: u8) {
-        assert!(channel < 4);
-        let ch = channel as usize;
+        let ch = Self::physical_channel(channel);
         let r = Self::regs();
         let cfg = r.dmac_chn_config_0(ch).read().bits();
         unsafe {
@@ -315,23 +340,26 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Issue a software burst request for a channel.
     pub fn burst_request(&mut self, channel: u8) {
-        assert!(channel < 4);
+        let ch = Self::physical_channel(channel);
         unsafe {
-            Self::regs().dmac_burst_req().write(|w| w.bits(1 << channel));
+            Self::regs().dmac_burst_req().write(|w| w.bits(1 << ch));
         }
     }
 
     /// Issue a software single request for a channel.
     pub fn single_request(&mut self, channel: u8) {
-        assert!(channel < 4);
+        let ch = Self::physical_channel(channel);
         unsafe {
-            Self::regs().dmac_single_req().write(|w| w.bits(1 << channel));
+            Self::regs().dmac_single_req().write(|w| w.bits(1 << ch));
         }
     }
 
     /// Get the raw interrupt status.
     ///
-    /// Returns `(transfer_done_mask, error_mask)`.
+    /// Returns `(transfer_done_mask, error_mask)`. Bit `n` of each mask is the
+    /// **physical** channel `n` of this controller — i.e. logical channel
+    /// `CHANNEL_BASE + n`. For SDMA, logical channel 8 is bit 0, channel 9 is
+    /// bit 1, etc. (the controller's per-channel status registers are local).
     pub fn raw_interrupt_status(&self) -> (u8, u8) {
         let sts = Self::regs().dmac_ori_int_st().read().bits();
         ((sts & 0xFF) as u8, ((sts >> 8) & 0xFF) as u8)
@@ -339,7 +367,9 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Get the masked interrupt status.
     ///
-    /// Returns `(transfer_done_mask, error_mask)`.
+    /// Returns `(transfer_done_mask, error_mask)`, with the same **physical**
+    /// channel bit indexing as [`raw_interrupt_status`](Self::raw_interrupt_status)
+    /// (bit `n` = physical channel `n` = logical `CHANNEL_BASE + n`).
     pub fn interrupt_status(&self) -> (u8, u8) {
         let sts = Self::regs().dmac_int_st().read().bits();
         ((sts & 0xFF) as u8, ((sts >> 16) & 0xFF) as u8)
@@ -347,17 +377,17 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
     /// Clear transfer complete interrupt for a channel.
     pub fn clear_transfer_interrupt(&mut self, channel: u8) {
-        assert!(channel < 4);
+        let ch = Self::physical_channel(channel);
         unsafe {
-            Self::regs().dmac_int_clr().write(|w| w.bits(1 << channel));
+            Self::regs().dmac_int_clr().write(|w| w.bits(1 << ch));
         }
     }
 
     /// Clear error interrupt for a channel.
     pub fn clear_error_interrupt(&mut self, channel: u8) {
-        assert!(channel < 4);
+        let ch = Self::physical_channel(channel);
         unsafe {
-            Self::regs().dmac_int_clr().write(|w| w.bits(1 << (channel + 8)));
+            Self::regs().dmac_int_clr().write(|w| w.bits(1 << (ch + 8)));
         }
     }
 
@@ -550,17 +580,49 @@ mod tests {
     }
 
     #[test]
-    fn test_dma_channel_in_bounds() {
-        // Channels 0-3 are valid (4 channels)
+    fn test_channel_base_consts() {
+        // MDMA owns logical channels 0-3; SDMA owns 8-11.
+        assert_eq!(Dma0::CHANNEL_BASE, 0);
+        assert_eq!(Sdma0::CHANNEL_BASE, 8);
+    }
+
+    #[test]
+    fn test_mdma_logical_to_physical() {
+        // MDMA: logical channel n == physical channel n.
         for ch in 0u8..4 {
-            assert!(ch < 4); // valid channel
+            assert_eq!(physical_channel_index(Dma0::CHANNEL_BASE, ch), ch as usize);
         }
     }
 
     #[test]
-    #[should_panic(expected = "assertion failed")]
-    fn test_dma_channel_out_of_bounds_panics() {
-        let ch: u8 = 4;
-        assert!(ch < 4); // should panic
+    fn test_sdma_logical_to_physical() {
+        // SDMA: logical channels 8-11 map to physical 0-3 on the secure block
+        // (matches fbb_ws63 hal_dma_ch_get: ch % 4 with the SDMA base).
+        assert_eq!(physical_channel_index(Sdma0::CHANNEL_BASE, 8), 0);
+        assert_eq!(physical_channel_index(Sdma0::CHANNEL_BASE, 9), 1);
+        assert_eq!(physical_channel_index(Sdma0::CHANNEL_BASE, 10), 2);
+        assert_eq!(physical_channel_index(Sdma0::CHANNEL_BASE, 11), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range")]
+    fn test_mdma_channel_4_panics() {
+        // 4 is out of MDMA's logical range (0-3).
+        physical_channel_index(Dma0::CHANNEL_BASE, 4);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range")]
+    fn test_sdma_channel_7_panics() {
+        // 7 is below SDMA's logical range (8-11) — passing an MDMA-style index
+        // to the secure controller must not silently alias physical channel 0.
+        physical_channel_index(Sdma0::CHANNEL_BASE, 7);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range")]
+    fn test_sdma_channel_12_panics() {
+        // 12 is above SDMA's logical range (8-11).
+        physical_channel_index(Sdma0::CHANNEL_BASE, 12);
     }
 }
