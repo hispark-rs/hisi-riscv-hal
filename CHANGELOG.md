@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Async HAL** (`async` feature): interrupt + waker driven `embedded-hal-async` /
+  `embedded-io-async` drivers, runnable on the no-atomics WS63 via the existing
+  portable-atomic + critical-section polyfill.
+  - `asynch`: a minimal `wfi`-based `block_on` + `IrqSignal` (the const-constructible
+    ISR→future bridge) shared by all async drivers.
+  - `timer::AsyncDelay`: `embedded_hal_async::delay::DelayNs` on a TIMER one-shot.
+  - `gpio`: `embedded_hal_async::digital::Wait` for `Input` (edge/level via the GPIO IRQ).
+  - `uart`: `embedded_io_async::{Read, Write}` for Uart0/1/2 (RX via the UART IRQ).
+  - Drivers expose `on_interrupt` hooks instead of installing ISRs, so enabling the
+    feature never changes non-async firmware (safe under workspace feature unification).
+- **embassy support** (`embassy` feature): an `embassy-time` `Driver` for WS63 —
+  `now()` from the TCXO 64-bit counter, alarms from a TIMER channel +
+  `embassy-time-queue-utils`. With `embassy-executor` (platform-riscv32) this runs
+  `Timer::after`, multi-task scheduling, and the async drivers above. Validated on
+  ws63-qemu (`embassy_multitask`, `embassy_async_io`).
+
 ## [0.2.1] - 2026-06-02
 
 ### Changed
