@@ -24,9 +24,9 @@ use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::{self, Interrupt};
 use crate::peripherals::{Tcxo, Timer};
-use crate::soc::ws63::SYSTEM_CLOCK_HZ;
+use crate::soc::ws63::TIMER_CLOCK_HZ;
 
-const TCXO_HZ: u64 = 24_000_000;
+const TCXO_HZ: u64 = crate::soc::ws63::TCXO_HZ as u64;
 /// embassy-time tick rate — MUST match the app's `embassy-time/tick-hz-*` feature.
 const TICK_HZ: u64 = 1_000_000;
 /// TIMER channel reserved for embassy-time alarms (its IRQ is TIMER_INT0 = 26).
@@ -73,8 +73,8 @@ impl Ws63Driver {
 
         let now = now_ticks();
         let delta_ticks = at.saturating_sub(now).max(1);
-        // ticks(µs) -> TIMER counts at SYSTEM_CLOCK_HZ, clamped to u32.
-        let mut counts = delta_ticks * SYSTEM_CLOCK_HZ as u64 / TICK_HZ;
+        // ticks(µs) -> TIMER counts at the TIMER clock (TCXO crystal), clamped to u32.
+        let mut counts = delta_ticks * TIMER_CLOCK_HZ as u64 / TICK_HZ;
         if counts == 0 {
             counts = 1;
         }

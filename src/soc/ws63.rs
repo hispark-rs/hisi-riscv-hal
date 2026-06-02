@@ -24,6 +24,29 @@ pub use ws63_pac::interrupt::ExternalInterrupt as Interrupt;
 /// Call `clock_init::probe_clocks()` to verify.
 pub const SYSTEM_CLOCK_HZ: u32 = 240_000_000;
 
+/// TCXO crystal frequency (24 MHz on standard WS63 modules).
+///
+/// This is the **counting clock of the Timer and Watchdog peripherals and the
+/// TCXO time base** — NOT the 240 MHz CPU/PLL clock ([`SYSTEM_CLOCK_HZ`]).
+///
+/// The vendor SDK programs both the timer and the WDT to the TCXO crystal in
+/// `clock_init` — `timer_porting_clock_value_set(REQ_24M)` and
+/// `watchdog_port_set_clock(REQ_24M)` (fbb_ws63 `clock_init.c`), where
+/// `REQ_24M = 24_000_000`. The 32 MHz `CONFIG_TIMER_CLOCK_VALUE` Kconfig default
+/// and the 24 MHz "FPGA" WDT note are placeholders the silicon path overrides to
+/// this value. ch2 of ws63-guide lists Timer = "晶体分频" (crystal-derived).
+///
+/// 40 MHz-crystal boards run the timer/WDT at 40 MHz instead; override there.
+pub const TCXO_HZ: u32 = 24_000_000;
+
+/// Timer / Watchdog counting clock (= [`TCXO_HZ`], 24 MHz).
+///
+/// Use this — **not** [`SYSTEM_CLOCK_HZ`] — to convert microseconds/milliseconds
+/// to Timer or WDT counter ticks. The timer is clocked by the crystal, so at
+/// 24 MHz one microsecond is 24 ticks (the vendor `timer_porting_us_2_cycle`
+/// computes `us * (clock / 1_000_000)` = `us * 24`).
+pub const TIMER_CLOCK_HZ: u32 = TCXO_HZ;
+
 /// Number of GPIO pins (19: GPIO0[7:0] + GPIO1[15:8] + GPIO2[18:16]).
 pub const GPIO_COUNT: usize = 19;
 

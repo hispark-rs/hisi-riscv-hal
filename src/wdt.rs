@@ -17,14 +17,18 @@
 //!
 //! # Clock source
 //!
-//! The WDT uses a 32.768 kHz clock. Timeout = load_value / 32768 seconds.
+//! The WDT counts at the **TCXO crystal clock** ([`WDT_CLOCK_HZ`] = 24 MHz on
+//! 24 MHz-crystal boards) — NOT a 32.768 kHz RTC clock — programmed by the vendor
+//! `watchdog_port_set_clock(REQ_24M)` in `clock_init`. The 24-bit `WDT_LOAD` field
+//! lives in bits [31:8], so the effective counter has 256-cycle resolution
+//! (`WDT_LOAD_RESEV = 8`) and the maximum timeout is `(0xFFFFFF << 8) / 24 MHz ≈ 178 s`.
 
 use crate::peripherals::Wdt;
 
 /// WDT reset pulse length in clock cycles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetPulseLength {
-    /// 2 clock cycles (~61 µs at 32.768 kHz)
+    /// 2 clock cycles (~83 ns at 24 MHz)
     Cycles2 = 0,
     /// 4 clock cycles
     Cycles4 = 1,
@@ -38,7 +42,7 @@ pub enum ResetPulseLength {
     Cycles64 = 5,
     /// 128 clock cycles
     Cycles128 = 6,
-    /// 256 clock cycles (~7.8 ms at 32.768 kHz)
+    /// 256 clock cycles (~10.7 µs at 24 MHz)
     Cycles256 = 7,
 }
 
@@ -56,11 +60,16 @@ pub struct Watchdog<'d> {
     _wdt: Wdt<'d>,
 }
 
-/// WDT clock frequency (32.768 kHz typical).
-pub const WDT_CLOCK_HZ: u32 = 32_768;
+/// WDT counting clock = the TCXO crystal ([`crate::soc::ws63::TCXO_HZ`], 24 MHz).
+pub const WDT_CLOCK_HZ: u32 = crate::soc::ws63::TCXO_HZ;
 
-/// Maximum WDT timeout value (24-bit).
+/// Maximum `WDT_LOAD` field value (24-bit; the field occupies `WDT_LOAD` bits [31:8]).
 pub const WDT_MAX_LOAD: u32 = 0x00FF_FFFF;
+
+/// Reserved low bits of `WDT_LOAD`: the 24-bit load field sits in bits [31:8], so
+/// the total timeout cycle count is shifted right by this to form the field value
+/// (matches the vendor `LOAD_RESEV = 8` in `hal_watchdog_v151`).
+const WDT_LOAD_RESEV: u32 = 8;
 
 impl<'d> Watchdog<'d> {
     /// Create a new watchdog driver from the WDT peripheral.
@@ -98,15 +107,17 @@ impl<'d> Watchdog<'d> {
     /// * `reset_enable` - Whether to enable system reset on timeout.
     /// * `reset_pulse` - Reset pulse length if reset is enabled.
     pub fn configure(&mut self, timeout_ms: u32, mode: WdtMode, reset_enable: bool, reset_pulse: ResetPulseLength) {
-        // Calculate load value from timeout in ms
-        let load = ((timeout_ms as u64 * WDT_CLOCK_HZ as u64) / 1000) as u32;
-        let load = load.min(WDT_MAX_LOAD);
+        // Timeout(ms) → total WDT clock cycles, then shift out the reserved low
+        // 8 bits to form the 24-bit WDT_LOAD field. Matches the vendor
+        // hal_watchdog_v151_set_attr: `cycles = timeout_s * clock; field = cycles >> LOAD_RESEV`.
+        let cycles = (timeout_ms as u64 * WDT_CLOCK_HZ as u64) / 1000;
+        let load = ((cycles >> WDT_LOAD_RESEV) as u32).min(WDT_MAX_LOAD);
 
         self.unlock();
 
-        // Write load value (bits 8:31, 24-bit)
+        // Write the 24-bit load field into WDT_LOAD bits [31:8].
         unsafe {
-            self.regs().wdt_load().write(|w| w.bits(load << 8));
+            self.regs().wdt_load().write(|w| w.bits(load << WDT_LOAD_RESEV));
         }
 
         // Configure control register

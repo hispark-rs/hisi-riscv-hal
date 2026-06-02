@@ -1,19 +1,21 @@
 //! Timer driver for WS63 (3 independent 32-bit timers).
 //!
 //! Each timer can operate in one-shot or periodic mode.
-//! The timer clock source is the system peripheral clock (PCLK = 240MHz).
+//! The timer counts at the **TCXO crystal clock** ([`TIMER_CLOCK_HZ`] = 24 MHz on
+//! 24 MHz-crystal boards) — NOT the 240 MHz CPU/PLL clock. The vendor SDK programs
+//! the timer to the crystal via `timer_porting_clock_value_set(REQ_24M)`.
 //!
 //! # Usage
 //!
 //! ```ignore
 //! let timer = TimerDriver::new(peripherals.TIMER);
 //! let mut oneshot = timer.oneshot(0);
-//! oneshot.start(240_000); // 1ms at 240MHz
+//! oneshot.start(24_000); // 1ms at 24MHz
 //! while !oneshot.expired() {}
 //! ```
 
 use crate::peripherals::Timer;
-use crate::soc::ws63::SYSTEM_CLOCK_HZ;
+use crate::soc::ws63::TIMER_CLOCK_HZ;
 
 /// Timer operating mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,7 +157,7 @@ pub struct OneShotTimer<'a> {
 impl OneShotTimer<'_> {
     /// Start the one-shot timer with a count value.
     ///
-    /// `count` is in timer clock ticks (PCLK = 240MHz → 1 tick ≈ 4.17ns).
+    /// `count` is in timer clock ticks (TCXO = 24MHz → 1 tick ≈ 41.7ns).
     pub fn start(&mut self, count: u32) {
         self.driver.configure(self.channel, TimerMode::OneShot, count);
         self.driver.enable(self.channel);
@@ -163,21 +165,21 @@ impl OneShotTimer<'_> {
 
     /// Start the timer for the given duration in microseconds.
     ///
-    /// Max duration: ~17.9 seconds at 240MHz (u32 ticks limit).
+    /// Max duration: ~178 seconds at 24MHz (u32 ticks limit).
     /// For longer durations, use `start_millis()` or loop `start_micros()`.
     pub fn start_micros(&mut self, us: u32) {
-        let ticks64 = SYSTEM_CLOCK_HZ as u64 * us as u64 / 1_000_000;
-        // Clamp to u32 max — delays longer than ~17.9s at 240MHz
+        let ticks64 = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
+        // Clamp to u32 max — delays longer than ~178s at 24MHz
         let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
         self.start(ticks);
     }
 
     /// Start the timer for the given duration in milliseconds.
     ///
-    /// Max duration: ~17,895ms (~17.9s) at 240MHz.
+    /// Max duration: ~178,956ms (~178s) at 24MHz.
     /// For longer durations, repeat this call in a loop.
     pub fn start_millis(&mut self, ms: u32) {
-        let ticks64 = SYSTEM_CLOCK_HZ as u64 * ms as u64 / 1_000;
+        let ticks64 = TIMER_CLOCK_HZ as u64 * ms as u64 / 1_000;
         let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
         self.start(ticks);
     }
@@ -211,7 +213,7 @@ impl OneShotTimer<'_> {
 
 impl embedded_hal::delay::DelayNs for OneShotTimer<'_> {
     fn delay_ns(&mut self, ns: u32) {
-        let ticks64 = (SYSTEM_CLOCK_HZ as u64 * ns as u64) / 1_000_000_000;
+        let ticks64 = (TIMER_CLOCK_HZ as u64 * ns as u64) / 1_000_000_000;
         let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
         if ticks > 0 {
             self.start(ticks);
@@ -249,7 +251,7 @@ impl PeriodicTimer<'_> {
 
     /// Start the periodic timer with the period in microseconds.
     pub fn start_micros(&mut self, us: u32) {
-        let ticks64 = SYSTEM_CLOCK_HZ as u64 * us as u64 / 1_000_000;
+        let ticks64 = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
         let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
         self.start(ticks);
     }
@@ -285,47 +287,36 @@ impl PeriodicTimer<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::soc::ws63::TIMER_CLOCK_HZ;
 
-    #[test]
-    fn test_oneshot_overflows_u32_clamps() {
-        // 240MHz * 20_000_000us = 4.8e15 ticks > u32::MAX
-        // Should clamp to u32::MAX without panic or wrap
-        let ticks64: u64 = 240_000_000u64 * 20_000_000u64 / 1_000_000;
-        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-        assert_eq!(ticks, u32::MAX);
+    // The timer counts at the TCXO crystal clock (TIMER_CLOCK_HZ = 24 MHz), so
+    // there are TICKS_PER_US ticks per microsecond and the u32 one-shot caps at
+    // MAX_SAFE_US (≈178 s at 24 MHz) before the conversion saturates.
+    const TICKS_PER_US: u64 = TIMER_CLOCK_HZ as u64 / 1_000_000;
+    const MAX_SAFE_US: u64 = u32::MAX as u64 / TICKS_PER_US;
+
+    fn ticks_for_us(us: u64) -> u32 {
+        let t = TIMER_CLOCK_HZ as u64 * us / 1_000_000;
+        if t > u32::MAX as u64 { u32::MAX } else { t as u32 }
     }
 
     #[test]
-    fn test_oneshot_small_value_does_not_clamp() {
-        // 240MHz * 100us = 24,000 ticks — fits in u32
-        let ticks64: u64 = 240_000_000u64 * 100u64 / 1_000_000;
-        assert_eq!(ticks64, 24_000);
-        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-        assert_eq!(ticks, 24_000);
+    fn oneshot_overflow_clamps() {
+        // µs beyond the safe range saturates to u32::MAX (no wrap, no panic).
+        assert_eq!(ticks_for_us(MAX_SAFE_US + 1_000_000), u32::MAX);
     }
 
     #[test]
-    fn test_oneshot_max_safe_value() {
-        // Maximum us that doesn't overflow: u32::MAX / 240 ≈ 17,895,697 us ≈ 17.9 seconds
-        let max_safe_us: u32 = u32::MAX / 240;
-        let ticks64: u64 = 240_000_000u64 * max_safe_us as u64 / 1_000_000;
+    fn small_value_does_not_clamp() {
+        // 100 µs → 100 * TICKS_PER_US ticks, well within u32.
+        assert_eq!(ticks_for_us(100), (100 * TICKS_PER_US) as u32);
+    }
+
+    #[test]
+    fn max_safe_value_not_clamped() {
+        let ticks64 = TIMER_CLOCK_HZ as u64 * MAX_SAFE_US / 1_000_000;
         assert!(ticks64 <= u32::MAX as u64);
-        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-        assert_eq!(ticks, ticks64 as u32);
-    }
-
-    #[test]
-    fn test_periodic_clamping_matches_oneshot() {
-        // Both start_micros implementations should clamp identically
-        let us: u32 = 20_000_000; // 20 seconds — guaranteed to overflow at 240MHz
-        let oneshot_ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
-        let periodic_ticks64: u64 = crate::soc::ws63::SYSTEM_CLOCK_HZ as u64 * us as u64 / 1_000_000;
-        assert_eq!(oneshot_ticks64, periodic_ticks64); // same formula
-        let oneshot = if oneshot_ticks64 > u32::MAX as u64 { u32::MAX } else { oneshot_ticks64 as u32 };
-        let periodic = if periodic_ticks64 > u32::MAX as u64 { u32::MAX } else { periodic_ticks64 as u32 };
-        assert_eq!(oneshot, periodic);
-        assert_eq!(oneshot, u32::MAX);
+        assert_eq!(ticks_for_us(MAX_SAFE_US), ticks64 as u32);
     }
 }
 
@@ -333,46 +324,33 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
+    use crate::soc::ws63::TIMER_CLOCK_HZ;
     use proptest::prelude::*;
 
+    const MAX_SAFE_US: u64 = u32::MAX as u64 / (TIMER_CLOCK_HZ as u64 / 1_000_000);
+
+    fn ticks64(us: u64) -> u64 {
+        TIMER_CLOCK_HZ as u64 * us / 1_000_000
+    }
+
     proptest! {
-        /// Fuzz: Timer ticks calculation never panics for any u32 input.
+        /// Fuzz: ticks calculation + clamp never panics for any u32 µs input.
         #[test]
-        fn timer_ticks_never_panics(us in any::<u32>()) {
-            let ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
-            let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-            let _ = ticks;
+        fn ticks_never_panics(us in any::<u32>()) {
+            let t = ticks64(us as u64);
+            let _ = if t > u32::MAX as u64 { u32::MAX } else { t as u32 };
         }
 
-        /// Fuzz: Clamping is idempotent — applying it twice gives the same result.
+        /// Fuzz: µs within the safe range never overflow u32.
         #[test]
-        fn timer_clamping_idempotent(us in any::<u32>()) {
-            let ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
-            let first = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-            let second = if first as u64 > u32::MAX as u64 { u32::MAX } else { first };
-            prop_assert_eq!(first, second);
+        fn safe_range_not_clamped(us in 0u64..=MAX_SAFE_US) {
+            prop_assert!(ticks64(us) <= u32::MAX as u64, "safe us={} -> ticks64={}", us, ticks64(us));
         }
 
-        /// Fuzz: Safe range values (us <= 17_895_697) never get clamped.
-        fn timer_safe_range_not_clamped(us in 0u32..17_895_697u32) {
-            let ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
-            prop_assert!(ticks64 <= u32::MAX as u64, "safe us={} produced ticks64={} > u32::MAX", us, ticks64);
-        }
-
-        /// Fuzz: Overflow inputs always clamp to u32::MAX.
-        fn timer_overflow_always_clamps(us in 17_895_698u32..u32::MAX) {
-            let ticks64: u64 = 240_000_000u64 * us as u64 / 1_000_000;
-            prop_assert!(ticks64 > u32::MAX as u64);
-            let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-            prop_assert_eq!(ticks, u32::MAX);
-        }
-
-        /// Fuzz: OneShot and Periodic timer formulas are identical.
+        /// Fuzz: µs beyond the safe range always overflow u32 (and thus clamp).
         #[test]
-        fn timer_both_formulas_equivalent(us in any::<u32>()) {
-            let oneshot: u64 = 240_000_000u64 * us as u64 / 1_000_000;
-            let periodic: u64 = crate::soc::ws63::SYSTEM_CLOCK_HZ as u64 * us as u64 / 1_000_000;
-            prop_assert_eq!(oneshot, periodic);
+        fn overflow_always_clamps(us in (MAX_SAFE_US + 1)..=u32::MAX as u64) {
+            prop_assert!(ticks64(us) > u32::MAX as u64);
         }
     }
 }
@@ -380,7 +358,7 @@ mod proptests {
 // ── Async (embedded-hal-async) ──────────────────────────────────────────────
 #[cfg(feature = "async")]
 mod asynch_impl {
-    use super::{SYSTEM_CLOCK_HZ, Timer, TimerDriver, TimerMode};
+    use super::{TIMER_CLOCK_HZ, Timer, TimerDriver, TimerMode};
     use crate::asynch::IrqSignal;
     use crate::interrupt::{self, Interrupt};
     use core::future::Future;
@@ -472,7 +450,7 @@ mod asynch_impl {
 
     impl embedded_hal_async::delay::DelayNs for AsyncDelay<'_> {
         async fn delay_ns(&mut self, ns: u32) {
-            let ticks = (SYSTEM_CLOCK_HZ as u64 * ns as u64 / 1_000_000_000) as u32;
+            let ticks = (TIMER_CLOCK_HZ as u64 * ns as u64 / 1_000_000_000) as u32;
             self.delay_ticks(ticks).await;
         }
     }
