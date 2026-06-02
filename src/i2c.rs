@@ -377,11 +377,7 @@ mod asynch_impl {
     macro_rules! async_i2c {
         ($inst:ty) => {
             impl embedded_hal_async::i2c::I2c for I2c<'_, $inst> {
-                async fn transaction(
-                    &mut self,
-                    addr: u8,
-                    ops: &mut [Operation<'_>],
-                ) -> Result<(), Self::Error> {
+                async fn transaction(&mut self, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), Self::Error> {
                     embedded_hal::i2c::I2c::transaction(self, addr, ops)
                 }
             }

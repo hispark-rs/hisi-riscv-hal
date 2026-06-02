@@ -380,7 +380,7 @@ mod proptests {
 // ── Async (embedded-hal-async) ──────────────────────────────────────────────
 #[cfg(feature = "async")]
 mod asynch_impl {
-    use super::{Timer, TimerDriver, TimerMode, SYSTEM_CLOCK_HZ};
+    use super::{SYSTEM_CLOCK_HZ, Timer, TimerDriver, TimerMode};
     use crate::asynch::IrqSignal;
     use crate::interrupt::{self, Interrupt};
     use core::future::Future;
@@ -439,10 +439,7 @@ mod asynch_impl {
     impl<'d> AsyncDelay<'d> {
         /// Create an async delay on `channel` (0..=2).
         pub fn new(timer: Timer<'d>, channel: usize) -> Self {
-            Self {
-                driver: TimerDriver::new(timer),
-                channel,
-            }
+            Self { driver: TimerDriver::new(timer), channel }
         }
 
         async fn delay_ticks(&mut self, ticks: u32) {

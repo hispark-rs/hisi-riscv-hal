@@ -594,7 +594,7 @@ impl<'d> Io<'d> {
 // ── Async (embedded-hal-async) ──────────────────────────────────────────────
 #[cfg(feature = "async")]
 mod asynch_impl {
-    use super::{regs, Input, InterruptTrigger};
+    use super::{Input, InterruptTrigger, regs};
     use crate::asynch::IrqSignal;
     use crate::interrupt::{self, Interrupt};
     use core::future::Future;
@@ -620,8 +620,7 @@ mod asynch_impl {
         let r = regs(bank);
         let fired = r.gpio_int_raw().read().bits();
         // Mask the fired pins (a fresh wait re-enables) + clear the edge latch.
-        r.gpio_int_en()
-            .modify(|v, w| unsafe { w.bits(v.bits() & !fired) });
+        r.gpio_int_en().modify(|v, w| unsafe { w.bits(v.bits() & !fired) });
         unsafe { r.gpio_int_eoi().write(|w| w.bits(fired)) };
         GPIO_SIGNAL[bank as usize].signal();
         interrupt::clear_pending(bank_irq(bank as usize));
@@ -681,11 +680,7 @@ mod asynch_impl {
             Ok(())
         }
         async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            let trig = if self.is_high() {
-                InterruptTrigger::FallingEdge
-            } else {
-                InterruptTrigger::RisingEdge
-            };
+            let trig = if self.is_high() { InterruptTrigger::FallingEdge } else { InterruptTrigger::RisingEdge };
             arm_and_wait(self, trig).await;
             Ok(())
         }
