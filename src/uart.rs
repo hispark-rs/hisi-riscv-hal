@@ -291,3 +291,104 @@ macro_rules! impl_nb_serial {
 impl_nb_serial!(Uart0<'_>, 0);
 impl_nb_serial!(Uart1<'_>, 1);
 impl_nb_serial!(Uart2<'_>, 2);
+
+// ── Async UART (embedded-io-async) ──────────────────────────────────────────
+#[cfg(feature = "async")]
+mod asynch_impl {
+    use super::{Uart, uart_regs};
+    use crate::asynch::IrqSignal;
+    use crate::peripherals::{Uart0, Uart1, Uart2};
+    use core::cell::Cell;
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+    use critical_section::Mutex;
+    use embedded_io_async::{Read, Write};
+
+    static UART_RX: [IrqSignal; 3] = [IrqSignal::new(), IrqSignal::new(), IrqSignal::new()];
+    static UART_BYTE: [Mutex<Cell<u8>>; 3] = [const { Mutex::new(Cell::new(0)) }; 3];
+
+    fn uart_base(idx: u8) -> usize {
+        match idx {
+            0 => 0x4401_0000,
+            1 => 0x4401_1000,
+            _ => 0x4401_2000,
+        }
+    }
+
+    /// UART trap hook: read the received byte (which de-asserts the RX IRQ) and
+    /// wake the awaiting reader. Call from the trap when `mcause` is UART0..2_INT
+    /// (IRQ 53..55). Reading in the ISR avoids a level-triggered RX storm.
+    pub fn on_interrupt(idx: u8) {
+        let r = uart_regs(idx);
+        if !r.fifo_status().read().rx_fifo_empty().bit_is_set() {
+            let b = r.data().read().bits() as u8;
+            critical_section::with(|cs| UART_BYTE[idx as usize].borrow(cs).set(b));
+            UART_RX[idx as usize].signal();
+        }
+    }
+
+    struct RxFuture {
+        idx: u8,
+    }
+    impl Future for RxFuture {
+        type Output = ();
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            if UART_RX[self.idx as usize].take_fired() {
+                Poll::Ready(())
+            } else {
+                UART_RX[self.idx as usize].register(cx.waker());
+                Poll::Pending
+            }
+        }
+    }
+
+    async fn read_one(uart: &Uart<'_, impl Sized>, idx: u8) -> u8 {
+        let r = uart_regs(idx);
+        if !r.fifo_status().read().rx_fifo_empty().bit_is_set() {
+            return r.data().read().bits() as u8; // byte already waiting
+        }
+        UART_RX[idx as usize].reset();
+        // Enable the UART RX interrupt (INTR_EN @ +0x18) so a byte raises the IRQ.
+        unsafe { core::ptr::write_volatile((uart_base(idx) + 0x18) as *mut u32, 1) };
+        let _ = uart; // keep the &Uart borrow for the await's lifetime
+        RxFuture { idx }.await;
+        critical_section::with(|cs| UART_BYTE[idx as usize].borrow(cs).get())
+    }
+
+    macro_rules! async_uart {
+        ($uart:ty, $idx:expr) => {
+            // embedded_io::ErrorType is already implemented for the blocking impls;
+            // the async Read/Write traits reuse it.
+            impl Write for Uart<'_, $uart> {
+                async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+                    // WS63 UART TX drains immediately on this model; write_byte polls
+                    // tx_fifo_full, so this completes without parking.
+                    for &b in buf {
+                        self.write_byte($idx, b);
+                    }
+                    Ok(buf.len())
+                }
+                async fn flush(&mut self) -> Result<(), Self::Error> {
+                    self.flush_tx($idx);
+                    Ok(())
+                }
+            }
+            impl Read for Uart<'_, $uart> {
+                async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+                    if buf.is_empty() {
+                        return Ok(0);
+                    }
+                    buf[0] = read_one(self, $idx).await;
+                    Ok(1)
+                }
+            }
+        };
+    }
+    async_uart!(Uart0<'_>, 0);
+    async_uart!(Uart1<'_>, 1);
+    async_uart!(Uart2<'_>, 2);
+}
+
+#[cfg(feature = "async")]
+pub use asynch_impl::on_interrupt;
