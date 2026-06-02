@@ -26,6 +26,8 @@
 #[cfg(feature = "async")]
 pub mod asynch;
 pub mod clock;
+#[cfg(feature = "embassy")]
+pub mod embassy;
 pub mod clock_init;
 pub mod delay;
 pub mod dma;
