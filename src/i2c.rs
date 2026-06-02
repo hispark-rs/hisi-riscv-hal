@@ -366,3 +366,27 @@ mod tests {
         assert_eq!(addr_w, 0xF0); // Address fits in 7 bits
     }
 }
+
+// ── Async I2C (embedded-hal-async) ──────────────────────────────────────────
+// Reuses the blocking transaction (FIFO-paced; synchronous loopback on ws63-qemu).
+#[cfg(feature = "async")]
+mod asynch_impl {
+    use super::{I2c, I2c0, I2c1};
+    use embedded_hal::i2c::Operation;
+
+    macro_rules! async_i2c {
+        ($inst:ty) => {
+            impl embedded_hal_async::i2c::I2c for I2c<'_, $inst> {
+                async fn transaction(
+                    &mut self,
+                    addr: u8,
+                    ops: &mut [Operation<'_>],
+                ) -> Result<(), Self::Error> {
+                    embedded_hal::i2c::I2c::transaction(self, addr, ops)
+                }
+            }
+        };
+    }
+    async_i2c!(I2c0<'_>);
+    async_i2c!(I2c1<'_>);
+}

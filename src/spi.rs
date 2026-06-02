@@ -271,3 +271,38 @@ mod proptests {
         }
     }
 }
+
+// ── Async SPI (embedded-hal-async) ──────────────────────────────────────────
+// WS63 SPI transfers are FIFO-paced (and the ws63-qemu model loops back
+// synchronously), so the async SpiBus methods complete promptly by reusing the
+// blocking transfer logic — valid `async fn`s usable from embassy/async tasks. A
+// genuinely IRQ-parking variant would add an on_interrupt + IrqSignal once the
+// SPI completion IRQ (43/52) is modelled.
+#[cfg(feature = "async")]
+mod asynch_impl {
+    use super::{Spi, Spi0, Spi1};
+
+    macro_rules! async_spi {
+        ($inst:ty) => {
+            impl embedded_hal_async::spi::SpiBus<u8> for Spi<'_, $inst> {
+                async fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
+                    embedded_hal::spi::SpiBus::read(self, buf)
+                }
+                async fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+                    embedded_hal::spi::SpiBus::write(self, buf)
+                }
+                async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+                    embedded_hal::spi::SpiBus::transfer(self, read, write)
+                }
+                async fn transfer_in_place(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
+                    embedded_hal::spi::SpiBus::transfer_in_place(self, buf)
+                }
+                async fn flush(&mut self) -> Result<(), Self::Error> {
+                    embedded_hal::spi::SpiBus::flush(self)
+                }
+            }
+        };
+    }
+    async_spi!(Spi0<'_>);
+    async_spi!(Spi1<'_>);
+}
