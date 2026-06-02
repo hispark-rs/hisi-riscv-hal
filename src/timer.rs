@@ -376,3 +376,110 @@ mod proptests {
         }
     }
 }
+
+// ── Async (embedded-hal-async) ──────────────────────────────────────────────
+#[cfg(feature = "async")]
+mod asynch_impl {
+    use super::{Timer, TimerDriver, TimerMode, SYSTEM_CLOCK_HZ};
+    use crate::asynch::IrqSignal;
+    use crate::interrupt::{self, Interrupt};
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    static TIMER_SIGNAL: [IrqSignal; 3] = [IrqSignal::new(), IrqSignal::new(), IrqSignal::new()];
+
+    fn ch_irq(ch: usize) -> Interrupt {
+        match ch {
+            0 => Interrupt::TIMER_INT0,
+            1 => Interrupt::TIMER_INT1,
+            _ => Interrupt::TIMER_INT2,
+        }
+    }
+
+    /// Timer trap-handler hook: stop channel `ch`'s one-shot, clear its
+    /// interrupt, and wake the awaiting [`AsyncDelay`] future. Call this from the
+    /// machine-interrupt trap when `mcause` is TIMER_INT0..2 (IRQ 26..28). The
+    /// EOI clears `mip`, so no `LOCIPCLR` is needed for these MIE-class lines.
+    pub fn on_interrupt(ch: usize) {
+        // SAFETY: RMW of the timer MMIO block. The AsyncDelay owns the peripheral
+        // handle, but the ISR uses raw register access (the standard ISR pattern).
+        let r = unsafe { &*Timer::ptr() };
+        match ch {
+            0 => {
+                let prev = r.timer0_control(0).read().bits();
+                r.timer0_control(0).write(|w| unsafe { w.bits(prev & !1) }); // stop (clear EN)
+                let _ = r.timer0_eoi(0).read().bits(); // EOI (read-clear)
+            }
+            1 => {
+                let prev = r.timer0_control(1).read().bits();
+                r.timer0_control(1).write(|w| unsafe { w.bits(prev & !1) });
+                let _ = r.timer0_eoi(1).read().bits();
+            }
+            _ => {
+                let prev = r.timer0_control(2).read().bits();
+                r.timer0_control(2).write(|w| unsafe { w.bits(prev & !1) });
+                let _ = r.timer0_eoi(2).read().bits();
+            }
+        }
+        TIMER_SIGNAL[ch].signal();
+    }
+
+    /// Async delay backed by one WS63 TIMER channel (one-shot + completion IRQ).
+    ///
+    /// Implements [`embedded_hal_async::delay::DelayNs`]: each `delay_*().await`
+    /// arms the channel one-shot, parks the task until the channel's IRQ fires,
+    /// then returns. The app must route the timer trap to [`on_interrupt`] and
+    /// have enabled global interrupts (see `ws63-examples/async_delay`).
+    pub struct AsyncDelay<'d> {
+        driver: TimerDriver<'d>,
+        channel: usize,
+    }
+
+    impl<'d> AsyncDelay<'d> {
+        /// Create an async delay on `channel` (0..=2).
+        pub fn new(timer: Timer<'d>, channel: usize) -> Self {
+            Self {
+                driver: TimerDriver::new(timer),
+                channel,
+            }
+        }
+
+        async fn delay_ticks(&mut self, ticks: u32) {
+            let ch = self.channel;
+            TIMER_SIGNAL[ch].reset();
+            self.driver.clear_interrupt(ch);
+            self.driver.configure(ch, TimerMode::OneShot, ticks.max(1));
+            // SAFETY: enabling a known, fixed WS63 timer IRQ line.
+            unsafe { interrupt::enable(ch_irq(ch)) };
+            self.driver.enable(ch);
+            DelayFuture { ch }.await;
+        }
+    }
+
+    struct DelayFuture {
+        ch: usize,
+    }
+
+    impl Future for DelayFuture {
+        type Output = ();
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            if TIMER_SIGNAL[self.ch].take_fired() {
+                Poll::Ready(())
+            } else {
+                TIMER_SIGNAL[self.ch].register(cx.waker());
+                Poll::Pending
+            }
+        }
+    }
+
+    impl embedded_hal_async::delay::DelayNs for AsyncDelay<'_> {
+        async fn delay_ns(&mut self, ns: u32) {
+            let ticks = (SYSTEM_CLOCK_HZ as u64 * ns as u64 / 1_000_000_000) as u32;
+            self.delay_ticks(ticks).await;
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+pub use asynch_impl::{AsyncDelay, on_interrupt};

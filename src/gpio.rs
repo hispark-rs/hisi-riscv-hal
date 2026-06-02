@@ -590,3 +590,107 @@ impl<'d> Io<'d> {
         self.io_config.register_block()
     }
 }
+
+// ── Async (embedded-hal-async) ──────────────────────────────────────────────
+#[cfg(feature = "async")]
+mod asynch_impl {
+    use super::{regs, Input, InterruptTrigger};
+    use crate::asynch::IrqSignal;
+    use crate::interrupt::{self, Interrupt};
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+    use embedded_hal_async::digital::Wait;
+
+    static GPIO_SIGNAL: [IrqSignal; 3] = [IrqSignal::new(), IrqSignal::new(), IrqSignal::new()];
+
+    fn bank_irq(bank: usize) -> Interrupt {
+        match bank {
+            0 => Interrupt::GPIO_INT0,
+            1 => Interrupt::GPIO_INT1,
+            _ => Interrupt::GPIO_INT2,
+        }
+    }
+
+    /// GPIO trap-handler hook for `bank` (0..2 → IRQ 33..35, custom local). Masks
+    /// the fired pins (so they don't storm), clears their edge latch, wakes the
+    /// awaiting [`Wait`] future, and clears the `LOCIPCLR` pending bit. Call this
+    /// from the trap when `mcause` is GPIO_INT0..2.
+    pub fn on_interrupt(bank: u8) {
+        let r = regs(bank);
+        let fired = r.gpio_int_raw().read().bits();
+        // Mask the fired pins (a fresh wait re-enables) + clear the edge latch.
+        r.gpio_int_en()
+            .modify(|v, w| unsafe { w.bits(v.bits() & !fired) });
+        unsafe { r.gpio_int_eoi().write(|w| w.bits(fired)) };
+        GPIO_SIGNAL[bank as usize].signal();
+        interrupt::clear_pending(bank_irq(bank as usize));
+    }
+
+    async fn arm_and_wait(input: &mut Input<'_>, trig: InterruptTrigger) {
+        let bank = input.pin.block as usize;
+        input.set_interrupt_trigger(trig);
+        input.clear_interrupt();
+        GPIO_SIGNAL[bank].reset();
+        input.enable_interrupt();
+        // SAFETY: enabling a known, fixed WS63 GPIO IRQ line.
+        unsafe { interrupt::enable(bank_irq(bank)) };
+        GpioWaitFuture { bank }.await;
+    }
+
+    struct GpioWaitFuture {
+        bank: usize,
+    }
+
+    impl Future for GpioWaitFuture {
+        type Output = ();
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            if GPIO_SIGNAL[self.bank].take_fired() {
+                Poll::Ready(())
+            } else {
+                GPIO_SIGNAL[self.bank].register(cx.waker());
+                Poll::Pending
+            }
+        }
+    }
+
+    /// Interrupt-driven async edge/level waiting on a GPIO input. Requires the
+    /// app to route the GPIO trap to [`on_interrupt`] and enable global
+    /// interrupts. Level waits return immediately if the pin already matches.
+    impl Wait for Input<'_> {
+        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+            if self.is_high() {
+                return Ok(());
+            }
+            arm_and_wait(self, InterruptTrigger::HighLevel).await;
+            Ok(())
+        }
+        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+            if self.is_low() {
+                return Ok(());
+            }
+            arm_and_wait(self, InterruptTrigger::LowLevel).await;
+            Ok(())
+        }
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+            arm_and_wait(self, InterruptTrigger::RisingEdge).await;
+            Ok(())
+        }
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+            arm_and_wait(self, InterruptTrigger::FallingEdge).await;
+            Ok(())
+        }
+        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+            let trig = if self.is_high() {
+                InterruptTrigger::FallingEdge
+            } else {
+                InterruptTrigger::RisingEdge
+            };
+            arm_and_wait(self, trig).await;
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+pub use asynch_impl::on_interrupt;

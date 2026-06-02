@@ -12,6 +12,8 @@ categories = ["embedded", "no-std", "hardware-support"]
 ws63-pac = { version = "0.1", features = ["critical-section", "rt"] }
 embedded-hal = "1.0.0"
 embedded-hal-nb = "1.0"
+# Async trait impls (interrupt + waker driven), gated behind the `async` feature.
+embedded-hal-async = { version = "1.0", optional = true }
 embedded-io = "0.6"
 nb = "1"
 cfg-if = "1"
@@ -31,6 +33,12 @@ critical-section = { version = "1", features = ["std"] }
 [features]
 default = ["rt", "dep:critical-section"]
 rt = ["ws63-pac/rt", "dep:critical-section"]
+# `async`: interrupt + waker driven embedded-hal-async impls (DelayNs on a TIMER,
+# digital::Wait on GPIO) + a minimal WFI `block_on`. Needs critical-section for
+# the waker registry. Drivers do NOT auto-install ISRs — the app routes its trap
+# to `timer::on_interrupt` / `gpio::on_interrupt` (see ws63-examples/async_delay),
+# so enabling this feature never changes non-async firmware behaviour.
+async = ["dep:embedded-hal-async", "dep:critical-section"]
 
 [profile.release]
 opt-level = "s"

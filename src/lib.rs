@@ -23,6 +23,8 @@
 #![allow(non_camel_case_types)]
 #![allow(rustdoc::broken_intra_doc_links)]
 
+#[cfg(feature = "async")]
+pub mod asynch;
 pub mod clock;
 pub mod clock_init;
 pub mod delay;
