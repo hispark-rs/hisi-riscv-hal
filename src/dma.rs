@@ -626,3 +626,56 @@ mod tests {
         physical_channel_index(Sdma0::CHANNEL_BASE, 12);
     }
 }
+
+// ── Async DMA completion (bespoke; DMA_INT = IRQ 59) ────────────────────────
+#[cfg(feature = "async")]
+mod asynch_impl {
+    use super::{Dma0, DmaDriver};
+    use crate::asynch::IrqSignal;
+    use crate::interrupt::{self, Interrupt};
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    static DMA_SIGNAL: IrqSignal = IrqSignal::new();
+
+    /// DMA trap hook (IRQ 59): wake the awaiting transfer.
+    pub fn on_interrupt() {
+        DMA_SIGNAL.signal();
+        interrupt::clear_pending(Interrupt::DMA_INT);
+    }
+
+    struct DmaDoneFuture;
+    impl Future for DmaDoneFuture {
+        type Output = ();
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            if DMA_SIGNAL.take_fired() {
+                Poll::Ready(())
+            } else {
+                DMA_SIGNAL.register(cx.waker());
+                Poll::Pending
+            }
+        }
+    }
+
+    impl DmaDriver<'_, Dma0> {
+        /// Await transfer-complete for `channel` (after configuring + enabling it),
+        /// then clear its interrupt. Parks on the DMA IRQ on hardware; the WS63
+        /// model completes the copy synchronously, so the fast path returns at once.
+        pub async fn wait_transfer_done(&mut self, channel: u8) {
+            let bit = 1u8 << channel; // Dma0: physical channel == logical channel
+            if self.raw_interrupt_status().0 & bit == 0 {
+                DMA_SIGNAL.reset();
+                // SAFETY: enabling a known, fixed WS63 IRQ line.
+                unsafe { interrupt::enable(Interrupt::DMA_INT) };
+                if self.raw_interrupt_status().0 & bit == 0 {
+                    DmaDoneFuture.await;
+                }
+            }
+            self.clear_transfer_interrupt(channel);
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+pub use asynch_impl::on_interrupt;

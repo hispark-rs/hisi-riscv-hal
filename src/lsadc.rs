@@ -301,3 +301,55 @@ mod proptests {
         }
     }
 }
+
+// ── Async LSADC (bespoke; LSADC_INTR = IRQ 72) ──────────────────────────────
+#[cfg(feature = "async")]
+mod asynch_impl {
+    use super::{AdcSample, LsAdc};
+    use crate::asynch::IrqSignal;
+    use crate::interrupt::{self, Interrupt};
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll};
+
+    static LSADC_SIGNAL: IrqSignal = IrqSignal::new();
+
+    /// LSADC trap hook (IRQ 72): wake the awaiting conversion. The sample is
+    /// read-cleared by `read_sample`, so the ISR just signals + clears pending.
+    pub fn on_interrupt() {
+        LSADC_SIGNAL.signal();
+        interrupt::clear_pending(Interrupt::LSADC_INTR);
+    }
+
+    struct ConvFuture;
+    impl Future for ConvFuture {
+        type Output = ();
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            if LSADC_SIGNAL.take_fired() {
+                Poll::Ready(())
+            } else {
+                LSADC_SIGNAL.register(cx.waker());
+                Poll::Pending
+            }
+        }
+    }
+
+    impl LsAdc<'_> {
+        /// Start a scan and await conversion-complete (IRQ 72), returning a sample.
+        /// On hardware this parks until the IRQ; the WS63 model fills the FIFO
+        /// synchronously, so the fast path returns without parking.
+        pub async fn read_async(&mut self) -> Option<AdcSample> {
+            LSADC_SIGNAL.reset();
+            // SAFETY: enabling a known, fixed WS63 IRQ line.
+            unsafe { interrupt::enable(Interrupt::LSADC_INTR) };
+            self.start_scan();
+            if !self.data_ready() {
+                ConvFuture.await;
+            }
+            self.read_sample()
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+pub use asynch_impl::on_interrupt;
