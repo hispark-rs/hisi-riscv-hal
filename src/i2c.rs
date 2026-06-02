@@ -1,6 +1,9 @@
 //! I2C master driver for WS63 (I2C0/1, FIFO-capable).
 //!
-//! I2C clock = PCLK / (scl_h + scl_l) where each value*2 = actual period.
+//! SCL = I2C_CLK / (2 * (scl_h + scl_l) * 2) where each scl value*2 = actual period.
+//! The I2C clock is the **24 MHz TCXO crystal** ([`crate::soc::ws63::I2C_CLOCK_HZ`]),
+//! NOT the 240 MHz CPU clock: unlike UART/SPI, the vendor `clock_init` leaves I2C on
+//! the crystal (`i2c_port_set_clock_value(REQ_24M)`).
 
 use crate::peripherals::{I2c0, I2c1};
 use core::marker::PhantomData;
@@ -36,7 +39,7 @@ impl<'d> I2c<'d, I2c1<'d>> {
 
 fn configure_i2c(idx: u8, freq: u32) {
     let r = i2c_regs(idx);
-    let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ;
+    let pclk = crate::soc::ws63::I2C_CLOCK_HZ;
     let freq = if freq == 0 { 1 } else { freq };
     let period = pclk / (2 * freq);
     let half = period / 2;

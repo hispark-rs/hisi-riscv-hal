@@ -1,5 +1,6 @@
 //! SPI master driver for WS63 (SPI0/1, SSI v151).
-//! DesignWare SSI: SCK = SSI_CLK / SCKDV, default SSI_CLK = 240MHz (SCKDV is even, >= 2).
+//! DesignWare SSI: SCK = SSI_CLK / SCKDV, SSI_CLK = 160MHz PLL-derived
+//! ([`crate::soc::ws63::SPI_CLOCK_HZ`], NOT the 240MHz CPU clock; SCKDV is even, >= 2).
 
 use crate::peripherals::{Spi0, Spi1};
 use core::marker::PhantomData;
@@ -85,7 +86,7 @@ impl<'d> Spi<'d, Spi1<'d>> {
 fn configure_spi(idx: u8, config: &Config) {
     let r = spi_regs(idx);
     r.spi_er().write(|w| unsafe { w.bits(0) });
-    let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ;
+    let pclk = crate::soc::ws63::SPI_CLOCK_HZ;
     r.spi_brs().write(|w| unsafe { w.bits(sckdv(pclk, config.frequency)) });
 
     let mut ctra = 0u32;
@@ -214,32 +215,32 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Spi1<'_>> {
 #[cfg(test)]
 mod tests {
     use super::sckdv;
-    use crate::soc::ws63::SYSTEM_CLOCK_HZ;
+    use crate::soc::ws63::SPI_CLOCK_HZ;
 
     #[test]
     fn test_sckdv_basic() {
-        // 240 MHz / 1 MHz = 240 (SDK writes the divisor directly, no /2, no -1).
-        assert_eq!(sckdv(SYSTEM_CLOCK_HZ, 1_000_000), 240);
+        // 160 MHz / 1 MHz = 160 (SDK writes the divisor directly, no /2, no -1).
+        assert_eq!(sckdv(SPI_CLOCK_HZ, 1_000_000), 160);
     }
 
     #[test]
     fn test_sckdv_is_even_and_min_two() {
         // SCKDV bit0 is read-only 0 → result always even.
-        assert_eq!(sckdv(SYSTEM_CLOCK_HZ, 1_000_000) & 1, 0);
+        assert_eq!(sckdv(SPI_CLOCK_HZ, 1_000_000) & 1, 0);
         // freq >= pclk clamps to the minimum divisor of 2.
-        assert_eq!(sckdv(SYSTEM_CLOCK_HZ, SYSTEM_CLOCK_HZ), 2);
-        assert_eq!(sckdv(SYSTEM_CLOCK_HZ, u32::MAX), 2);
+        assert_eq!(sckdv(SPI_CLOCK_HZ, SPI_CLOCK_HZ), 2);
+        assert_eq!(sckdv(SPI_CLOCK_HZ, u32::MAX), 2);
     }
 
     #[test]
     fn test_sckdv_zero_freq_guard() {
         // freq == 0 is treated as 1 Hz → very large divisor, clamped to even max.
-        assert_eq!(sckdv(SYSTEM_CLOCK_HZ, 0), 0xFFFE);
+        assert_eq!(sckdv(SPI_CLOCK_HZ, 0), 0xFFFE);
     }
 
     #[test]
     fn test_sckdv_clamps_at_max() {
-        assert_eq!(sckdv(SYSTEM_CLOCK_HZ, 1000), 0xFFFE);
+        assert_eq!(sckdv(SPI_CLOCK_HZ, 1000), 0xFFFE);
     }
 }
 
@@ -254,7 +255,7 @@ mod proptests {
         /// Fuzz: sckdv never panics and is always a valid even divisor in [2, 0xFFFE].
         #[test]
         fn sckdv_in_valid_range(freq in any::<u32>()) {
-            let d = sckdv(crate::soc::ws63::SYSTEM_CLOCK_HZ, freq);
+            let d = sckdv(crate::soc::ws63::SPI_CLOCK_HZ, freq);
             prop_assert!((2..=0xFFFE).contains(&d), "divisor {} out of range for freq={}", d, freq);
             prop_assert_eq!(d & 1, 0, "divisor {} not even for freq={}", d, freq);
         }
@@ -262,7 +263,7 @@ mod proptests {
         /// Fuzz: higher frequency → lower-or-equal divisor (monotonic non-increasing).
         #[test]
         fn sckdv_monotonic(freq1 in 1u32.., freq2 in 1u32..) {
-            let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ;
+            let pclk = crate::soc::ws63::SPI_CLOCK_HZ;
             let d1 = sckdv(pclk, freq1);
             let d2 = sckdv(pclk, freq2);
             if freq1 > freq2 {

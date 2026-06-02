@@ -47,6 +47,32 @@ pub const TCXO_HZ: u32 = 24_000_000;
 /// computes `us * (clock / 1_000_000)` = `us * 24`).
 pub const TIMER_CLOCK_HZ: u32 = TCXO_HZ;
 
+/// UART baud-base clock (160 MHz, PLL-derived).
+///
+/// After boot, `clock_init` switches the UART clock from TCXO to PLL and sets the
+/// baud base to `UART_PLL_CLOCK = 160_000_000` (fbb_ws63 `clock_init.c`); ch2 of
+/// ws63-guide also lists UART = 160 MHz. The baud divisor is `clock / (16 * baud)`,
+/// so this — not the 240 MHz CPU clock — is the divisor base.
+pub const UART_CLOCK_HZ: u32 = 160_000_000;
+
+/// SPI controller input clock / SSI_CLK (160 MHz, PLL-derived).
+///
+/// SCK = SSI_CLK / SCKDV. WS63 derives the SPI clock from the PLL (ch2 of ws63-guide
+/// lists SPI = 160 MHz; the QEMU model uses the same 160 MHz). NOTE: the vendor SDK
+/// actually programs a two-stage divider (a CLDO_CRG divider off the 480 MHz PLL,
+/// then the in-controller SCKDV); this HAL models only SCKDV against a fixed 160 MHz
+/// SSI_CLK and does not configure the CRG divider — revisit at hardware bring-up.
+pub const SPI_CLOCK_HZ: u32 = 160_000_000;
+
+/// I2C peripheral clock (= [`TCXO_HZ`], 24 MHz).
+///
+/// Unlike UART/SPI, the I2C clock is **not** switched to the PLL: `clock_init` sets
+/// it to the TCXO crystal via `i2c_port_set_clock_value(REQ_24M)` (fbb_ws63
+/// `clock_init.c`), and the SCL divisor math (`SCL = clock / (2*(scl_h+scl_l)*2)`)
+/// is computed against this value. (ch2's nominal "I2C = 80 MHz" is the bus-capability
+/// figure, not the divisor base the SDK uses.)
+pub const I2C_CLOCK_HZ: u32 = TCXO_HZ;
+
 /// Number of GPIO pins (19: GPIO0[7:0] + GPIO1[15:8] + GPIO2[18:16]).
 pub const GPIO_COUNT: usize = 19;
 

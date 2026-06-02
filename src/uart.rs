@@ -1,7 +1,8 @@
 //! UART driver for WS63 (UART0/1/2, 16C550-compatible with FIFO).
 //!
 //! Baud rate: div = (div_h << 8 | div_l) + div_fra / 64.
-//! Clock source: 240MHz system clock.
+//! Clock source: the 160 MHz PLL-derived UART clock ([`crate::soc::ws63::UART_CLOCK_HZ`]),
+//! NOT the 240 MHz CPU clock (vendor `clock_init` sets the baud base to 160 MHz).
 
 use crate::peripherals::{Uart0, Uart1, Uart2};
 use core::marker::PhantomData;
@@ -93,10 +94,10 @@ fn configure_uart(idx: u8, config: &Config) {
     r.uart_ctl().modify(|_, w| unsafe { w.bits(0) });
     r.uart_ctl().write(|w| w.div_en().set_bit());
 
-    // Set baud rate: div = PCLK / (16 * baudrate)
+    // Set baud rate: div = UART_CLK / (16 * baudrate)
     // Valid range: div ∈ [1, 65535] (16-bit divider).
-    // At 240MHz PCLK, valid baud ∈ [229, 15_000_000].
-    let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ;
+    // At 160MHz UART clock, valid baud ∈ [153, 10_000_000].
+    let pclk = crate::soc::ws63::UART_CLOCK_HZ;
     let min_baud = (pclk / (16 * 65535)) + 1;
     let baudrate = if config.baudrate < min_baud { min_baud } else { config.baudrate };
     let div = pclk / (16 * baudrate);
