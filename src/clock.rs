@@ -13,9 +13,9 @@
 //!   `CKEN_CTL1` bit 25 (`spi_porting.c` + SVD `spi_cken[25]`).
 //! - **Not individually gated by the SDK** (rely on the reset-default clock; the
 //!   bit is not attested by the SVD or porting code): I2C, Timer, LSADC, Tsensor,
-//!   TRNG, Security, DMA, SDMA, SFC, SPI1 — the bits below are placeholders, not
-//!   verified against silicon. WiFi/BT entry gates (`CKEN_CTL1` 13 / 8–12 / 29)
-//!   are owned by the radio blobs and are not in this enum.
+//!   TRNG, Security, DMA, SDMA, SFC, SPI1 — `cken_info` returns `None` for these
+//!   rather than fabricating a bit. WiFi/BT entry gates (`CKEN_CTL1` 13 / 8–12 /
+//!   29) are owned by the radio blobs and are not in this enum.
 //!
 //! The earlier `ClockControl` / `PeripheralGuard` RAII layer was removed: it had
 //! zero consumers (the drivers rely on the reset-default clocks) and was dead
@@ -48,31 +48,35 @@ impl Peripheral {
     /// The CLDO_CRG clock-gate register index (0 = `CKEN_CTL0`, 1 = `CKEN_CTL1`)
     /// and bit position for this peripheral.
     ///
-    /// PWM occupies 9 contiguous gates (`CKEN_CTL0` bits 2..=10); this returns
-    /// its base bit (2), and a bulk write would be needed to gate all nine.
-    /// I2S returns its clk gate (bit 12); it also has a bus gate at bit 11.
-    /// See the module docs for which entries are SDK/SVD-confirmed vs placeholders.
-    pub fn cken_info(&self) -> (u8, u8) {
+    /// The CLDO_CRG clock-gate register index (0 = `CKEN_CTL0`, 1 = `CKEN_CTL1`)
+    /// and bit position for this peripheral, or `None` if the SDK does **not**
+    /// individually gate it (it relies on the reset-default clock; no bit is
+    /// attested by the SVD or porting code).
+    ///
+    /// PWM occupies 9 contiguous gates (`CKEN_CTL0` bits 2..=10); this returns its
+    /// base bit (2). I2S returns its clk gate (bit 12); it also has a bus gate at
+    /// bit 11. See the module docs for the provenance of each.
+    pub fn cken_info(&self) -> Option<(u8, u8)> {
         match self {
             // ── SDK/SVD-confirmed gates ──
-            Peripheral::Pwm => (0, 2),    // CKEN_CTL0 [10:2], base bit 2 (pwm_porting.c)
-            Peripheral::I2s => (0, 12),   // CKEN_CTL0 bit 12 (clk); bit 11 = bus (sio_porting.c)
-            Peripheral::Uart0 => (1, 18), // SVD uart_cken[20:18] + clock_init.c
-            Peripheral::Uart1 => (1, 19),
-            Peripheral::Uart2 => (1, 20),
-            Peripheral::Spi0 => (1, 25), // SVD spi_cken[25] + spi_porting.c
-            // ── Not individually gated by the SDK (default-on); placeholders, unverified ──
-            Peripheral::I2c0 => (0, 18),
-            Peripheral::I2c1 => (0, 19),
-            Peripheral::Timer => (0, 21),
-            Peripheral::Lsadc => (0, 22),
-            Peripheral::Tsensor => (0, 23),
-            Peripheral::Trng => (0, 25),
-            Peripheral::SecurityGroup => (0, 26),
-            Peripheral::Dma => (1, 22),
-            Peripheral::Sdma => (1, 23),
-            Peripheral::Sfc => (1, 24),
-            Peripheral::Spi1 => (1, 26),
+            Peripheral::Pwm => Some((0, 2)), // CKEN_CTL0 [10:2], base bit 2 (pwm_porting.c)
+            Peripheral::I2s => Some((0, 12)), // CKEN_CTL0 bit 12 (clk); bit 11 = bus (sio_porting.c)
+            Peripheral::Uart0 => Some((1, 18)), // SVD uart_cken[20:18] + clock_init.c
+            Peripheral::Uart1 => Some((1, 19)),
+            Peripheral::Uart2 => Some((1, 20)),
+            Peripheral::Spi0 => Some((1, 25)), // SVD spi_cken[25] + spi_porting.c
+            // ── Not individually gated by the SDK (default-on) — no authoritative bit ──
+            Peripheral::I2c0
+            | Peripheral::I2c1
+            | Peripheral::Timer
+            | Peripheral::Lsadc
+            | Peripheral::Tsensor
+            | Peripheral::Trng
+            | Peripheral::SecurityGroup
+            | Peripheral::Dma
+            | Peripheral::Sdma
+            | Peripheral::Sfc
+            | Peripheral::Spi1 => None,
         }
     }
 }
@@ -98,38 +102,49 @@ mod tests {
     }
 
     #[test]
-    fn test_peripheral_cken_info_coverage() {
-        let peripherals = [
+    fn test_peripheral_cken_info_bounds_and_gating() {
+        // SDK/SVD-confirmed gates return Some with in-range (reg, bit).
+        let gated = [
             Peripheral::Pwm,
+            Peripheral::I2s,
+            Peripheral::Uart0,
+            Peripheral::Uart1,
+            Peripheral::Uart2,
+            Peripheral::Spi0,
+        ];
+        for p in &gated {
+            let (reg, bit) = p.cken_info().unwrap_or_else(|| panic!("{:?} should be gated", p));
+            assert!(reg <= 1, "Peripheral {:?} has invalid reg={}", p, reg);
+            assert!(bit < 32, "Peripheral {:?} has invalid bit={}", p, bit);
+        }
+        // Peripherals the SDK does not individually gate return None (not a fake bit).
+        let ungated = [
             Peripheral::I2c0,
             Peripheral::I2c1,
             Peripheral::Timer,
             Peripheral::Lsadc,
             Peripheral::Tsensor,
-            Peripheral::I2s,
             Peripheral::Trng,
             Peripheral::SecurityGroup,
-            Peripheral::Uart0,
-            Peripheral::Uart1,
-            Peripheral::Uart2,
             Peripheral::Dma,
             Peripheral::Sdma,
             Peripheral::Sfc,
-            Peripheral::Spi0,
             Peripheral::Spi1,
         ];
-        for p in &peripherals {
-            let (reg, bit) = p.cken_info();
-            assert!(reg <= 1, "Peripheral {:?} has invalid reg={}", p, reg);
-            assert!(bit < 32, "Peripheral {:?} has invalid bit={}", p, bit);
+        for p in &ungated {
+            assert_eq!(p.cken_info(), None, "Peripheral {:?} should not be gated", p);
         }
     }
 
     #[test]
     fn test_pwm_cken_info_returns_base_bit() {
-        let (reg, bit) = Peripheral::Pwm.cken_info();
-        assert_eq!(reg, 0);
-        assert_eq!(bit, 2);
+        assert_eq!(Peripheral::Pwm.cken_info(), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_i2s_cken_info_is_clk_gate() {
+        // I2S clk gate is CKEN_CTL0 bit 12 (was wrongly bit 24 before the SDK audit).
+        assert_eq!(Peripheral::I2s.cken_info(), Some((0, 12)));
     }
 
     #[test]
