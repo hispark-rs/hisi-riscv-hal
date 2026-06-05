@@ -29,6 +29,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `embassy-time-queue-utils`. With `embassy-executor` (platform-riscv32) this runs
   `Timer::after`, multi-task scheduling, and the async drivers above. Validated on
   ws63-qemu (`embassy_multitask`, `embassy_async_io`).
+- **Two-stage SPI clock**: `spi.rs::configure_spi_source_clock` programs the CLDO_CRG
+  divider (480 MHz PLL → 160 MHz SSI_CLK) and switches the SPI source TCXO→PLL on init
+  (mirrors the vendor `spi_porting_clock_init`), so `SCK = SSI_CLK / SCKDV` holds on
+  silicon rather than assuming an unconfigured SSI_CLK.
+- New `soc::ws63` clock constants: `TCXO_HZ`, `TIMER_CLOCK_HZ`, `UART_CLOCK_HZ`,
+  `SPI_CLOCK_HZ`, `I2C_CLOCK_HZ`.
+
+### Fixed
+
+- **Peripheral clocks corrected to the real silicon clocks** (all were wrongly the
+  240 MHz CPU/PLL clock; verified against fbb_ws63 `clock_init.c`):
+  - Timer & WDT count at the **24 MHz TCXO crystal** (was 240 MHz → ~10× mistiming);
+    WDT also gained the missing `>>8` load-field conversion (was doubly wrong/saturated).
+  - UART baud base = **160 MHz** PLL; SPI SSI_CLK = **160 MHz** PLL; I2C SCL clock =
+    **24 MHz** TCXO crystal (ch2's nominal 80 MHz is the bus-capability figure, not the
+    divisor base the SDK uses).
+  - The embassy-time alarm conversion uses the 24 MHz timer clock.
+- **I2S clock-gate bit** in `Peripheral::cken_info`: corrected to `CKEN_CTL0` bit 12
+  (clk) + bit 11 (bus); was wrongly bit 24 (SDK audit vs `sio_porting.c`).
+
+### Changed
+
+- **`Peripheral::cken_info` now returns `Option<(u8, u8)>`** (was `(u8, u8)`) — `None`
+  for peripherals the SDK does not individually gate (was a fabricated bit), `Some` for
+  the SDK/SVD-confirmed gates (PWM, I2S, UART0/1/2, SPI0). *Breaking* for external
+  callers of `cken_info`.
 
 ## [0.2.1] - 2026-06-02
 
