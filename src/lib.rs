@@ -36,16 +36,14 @@ compile_error!(
 pub mod delay;
 pub mod gpio;
 pub mod interrupt;
-pub mod io_config;
 pub mod macros;
 pub mod peripherals;
 pub mod prelude;
 pub mod private;
 pub mod soc;
-pub mod system;
+pub mod tcxo;
 pub mod time;
 pub mod timer;
-pub mod tcxo;
 pub mod uart;
 
 // ── WS63-specific / not-yet-ported-to-BS21 drivers ──────────────────────────
@@ -70,7 +68,13 @@ pub mod i2c;
 #[cfg(feature = "chip-ws63")]
 pub mod i2s;
 #[cfg(feature = "chip-ws63")]
+pub mod io_config;
+#[cfg(feature = "chip-ws63")]
+pub mod km;
+#[cfg(feature = "chip-ws63")]
 pub mod lsadc;
+#[cfg(feature = "chip-ws63")]
+pub mod pke;
 #[cfg(feature = "chip-ws63")]
 pub mod pwm;
 #[cfg(feature = "chip-ws63")]
@@ -80,7 +84,11 @@ pub mod safety;
 #[cfg(feature = "chip-ws63")]
 pub mod sfc;
 #[cfg(feature = "chip-ws63")]
+pub mod spacc;
+#[cfg(feature = "chip-ws63")]
 pub mod spi;
+#[cfg(feature = "chip-ws63")]
+pub mod system;
 #[cfg(feature = "chip-ws63")]
 pub mod trng;
 #[cfg(feature = "chip-ws63")]
@@ -89,12 +97,7 @@ pub mod tsensor;
 pub mod ulp_gpio;
 #[cfg(feature = "chip-ws63")]
 pub mod wdt;
-#[cfg(feature = "chip-ws63")]
-pub mod km;
-#[cfg(feature = "chip-ws63")]
-pub mod pke;
-#[cfg(feature = "chip-ws63")]
-pub mod spacc;
 
 pub use peripherals::Peripherals;
+#[cfg(feature = "chip-ws63")]
 pub use system::System;

@@ -10,19 +10,19 @@
 //! (the active `soc/<chip>.rs` description: memory map, clock constants, instance
 //! counts, the `Interrupt` enum). Adding a chip = a new `soc/<chip>.rs` + a PAC.
 
-#[cfg(feature = "chip-ws63")]
-pub mod ws63;
 #[cfg(feature = "chip-bs21")]
 pub mod bs21;
+#[cfg(feature = "chip-ws63")]
+pub mod ws63;
 
+#[cfg(feature = "chip-bs21")]
+pub use bs21 as chip;
 /// The active chip's SoC description (`soc/ws63.rs` or `soc/bs21.rs`).
 #[cfg(feature = "chip-ws63")]
 pub use ws63 as chip;
-#[cfg(feature = "chip-bs21")]
-pub use bs21 as chip;
 
+#[cfg(feature = "chip-bs21")]
+pub(crate) use bs21_pac as pac;
 /// The active chip's Peripheral Access Crate (`ws63_pac` or `bs21_pac`).
 #[cfg(feature = "chip-ws63")]
 pub(crate) use ws63_pac as pac;
-#[cfg(feature = "chip-bs21")]
-pub(crate) use bs21_pac as pac;

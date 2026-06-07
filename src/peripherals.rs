@@ -86,11 +86,8 @@ macro_rules! peripherals {
     };
 }
 
-peripheral!(SysCtl0, crate::soc::pac::SysCtl0);
-peripheral!(SysCtl1, crate::soc::pac::SysCtl1);
+// ── Wrappers for PAC types present in EVERY chip (shared) ───────────────────
 peripheral!(GlbCtlM, crate::soc::pac::GlbCtlM);
-peripheral!(CldoCrg, crate::soc::pac::CldoCrg);
-peripheral!(IoConfig, crate::soc::pac::IoConfig);
 peripheral!(Gpio0, crate::soc::pac::Gpio0);
 peripheral!(Gpio1, crate::soc::pac::Gpio1);
 peripheral!(Gpio2, crate::soc::pac::Gpio2);
@@ -103,25 +100,49 @@ peripheral!(I2c1, crate::soc::pac::I2c1);
 peripheral!(Spi0, crate::soc::pac::Spi0);
 peripheral!(Spi1, crate::soc::pac::Spi1);
 peripheral!(Pwm, crate::soc::pac::Pwm);
-peripheral!(I2s, crate::soc::pac::I2s);
-peripheral!(Lsadc, crate::soc::pac::Lsadc);
 peripheral!(Dma, crate::soc::pac::Dma);
 peripheral!(Sdma, crate::soc::pac::Sdma);
-peripheral!(SfcCfg, crate::soc::pac::SfcCfg);
 peripheral!(Timer, crate::soc::pac::Timer);
 peripheral!(Wdt, crate::soc::pac::Wdt);
 peripheral!(Rtc, crate::soc::pac::Rtc);
 peripheral!(Tcxo, crate::soc::pac::Tcxo);
-peripheral!(Tsensor, crate::soc::pac::Tsensor);
-peripheral!(Efuse, crate::soc::pac::Efuse);
-peripheral!(Spacc, crate::soc::pac::Spacc);
-peripheral!(Pke, crate::soc::pac::Pke);
-peripheral!(Km, crate::soc::pac::Km);
 peripheral!(Trng, crate::soc::pac::Trng);
-peripheral!(RfWbCtl, crate::soc::pac::RfWbCtl);
-peripheral!(ShareMemCtl, crate::soc::pac::ShareMemCtl);
-peripheral!(FamaRemap, crate::soc::pac::FamaRemap);
 
+// ── WS63-only PAC types ─────────────────────────────────────────────────────
+#[cfg(feature = "chip-ws63")]
+mod ws63_only {
+    use super::PhantomData;
+    peripheral!(SysCtl0, crate::soc::pac::SysCtl0);
+    peripheral!(SysCtl1, crate::soc::pac::SysCtl1);
+    peripheral!(CldoCrg, crate::soc::pac::CldoCrg);
+    peripheral!(IoConfig, crate::soc::pac::IoConfig);
+    peripheral!(I2s, crate::soc::pac::I2s);
+    peripheral!(Lsadc, crate::soc::pac::Lsadc);
+    peripheral!(SfcCfg, crate::soc::pac::SfcCfg);
+    peripheral!(Tsensor, crate::soc::pac::Tsensor);
+    peripheral!(Efuse, crate::soc::pac::Efuse);
+    peripheral!(Spacc, crate::soc::pac::Spacc);
+    peripheral!(Pke, crate::soc::pac::Pke);
+    peripheral!(Km, crate::soc::pac::Km);
+    peripheral!(RfWbCtl, crate::soc::pac::RfWbCtl);
+    peripheral!(ShareMemCtl, crate::soc::pac::ShareMemCtl);
+    peripheral!(FamaRemap, crate::soc::pac::FamaRemap);
+}
+#[cfg(feature = "chip-ws63")]
+pub use ws63_only::*;
+
+// ── BS21-only PAC types (extra GPIO banks + SPI bus) ────────────────────────
+#[cfg(feature = "chip-bs21")]
+mod bs21_only {
+    use super::PhantomData;
+    peripheral!(Gpio3, crate::soc::pac::Gpio3);
+    peripheral!(Gpio4, crate::soc::pac::Gpio4);
+    peripheral!(Spi2, crate::soc::pac::Spi2);
+}
+#[cfg(feature = "chip-bs21")]
+pub use bs21_only::*;
+
+#[cfg(feature = "chip-ws63")]
 peripherals!(
     SYS_CTL0 => SysCtl0,
     SYS_CTL1 => SysCtl1,
@@ -158,4 +179,31 @@ peripherals!(
     RF_WB_CTL => RfWbCtl,
     SHARE_MEM_CTL => ShareMemCtl,
     FAMA_REMAP => FamaRemap,
+);
+
+#[cfg(feature = "chip-bs21")]
+peripherals!(
+    GLB_CTL_M => GlbCtlM,
+    GPIO0 => Gpio0,
+    GPIO1 => Gpio1,
+    GPIO2 => Gpio2,
+    GPIO3 => Gpio3,
+    GPIO4 => Gpio4,
+    ULP_GPIO => UlpGpio,
+    UART0 => Uart0,
+    UART1 => Uart1,
+    UART2 => Uart2,
+    I2C0 => I2c0,
+    I2C1 => I2c1,
+    SPI0 => Spi0,
+    SPI1 => Spi1,
+    SPI2 => Spi2,
+    PWM => Pwm,
+    DMA => Dma,
+    SDMA => Sdma,
+    TIMER => Timer,
+    WDT => Wdt,
+    RTC => Rtc,
+    TCXO => Tcxo,
+    TRNG => Trng,
 );

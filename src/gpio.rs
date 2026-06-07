@@ -9,7 +9,9 @@
 //! - [`Flex`] — combined input + output driver
 //! - [`AnyPin`] — type-erased pin
 
-use crate::peripherals::{Gpio0, Gpio1, Gpio2, IoConfig};
+#[cfg(feature = "chip-ws63")]
+use crate::peripherals::IoConfig;
+use crate::peripherals::{Gpio0, Gpio1, Gpio2};
 use core::marker::PhantomData;
 
 // ── Configuration types ───────────────────────────────────────────
@@ -577,11 +579,13 @@ impl crate::private::Sealed for GpioPin<'_, InputMode> {}
 
 // ── IO MUX configuration ──────────────────────────────────────────
 
-/// IO MUX configuration.
+/// IO MUX configuration (WS63 pinmux; BS21's IO_CONFIG differs — ported later).
+#[cfg(feature = "chip-ws63")]
 pub struct Io<'d> {
     pub io_config: IoConfig<'d>,
 }
 
+#[cfg(feature = "chip-ws63")]
 impl<'d> Io<'d> {
     pub fn new(io_config: IoConfig<'d>) -> Self {
         Self { io_config }
