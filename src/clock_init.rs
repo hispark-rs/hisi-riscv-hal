@@ -73,7 +73,7 @@
 //! | Crystal | 40/24 MHz | TCXO |
 
 use crate::peripherals::{CldoCrg, SysCtl0};
-use crate::soc::ws63::SYSTEM_CLOCK_HZ;
+use crate::soc::chip::SYSTEM_CLOCK_HZ;
 
 // ── Register addresses (from fbb_ws63 soc_porting.c / pm_porting.c) ──
 

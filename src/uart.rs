@@ -1,7 +1,7 @@
 //! UART driver for WS63 (UART0/1/2, 16C550-compatible with FIFO).
 //!
 //! Baud rate: div = (div_h << 8 | div_l) + div_fra / 64.
-//! Clock source: the 160 MHz PLL-derived UART clock ([`crate::soc::ws63::UART_CLOCK_HZ`]),
+//! Clock source: the 160 MHz PLL-derived UART clock ([`crate::soc::chip::UART_CLOCK_HZ`]),
 //! NOT the 240 MHz CPU clock (vendor `clock_init` sets the baud base to 160 MHz).
 
 use crate::peripherals::{Uart0, Uart1, Uart2};
@@ -47,12 +47,12 @@ pub struct Uart<'d, T> {
 }
 
 #[allow(dead_code)]
-fn regs() -> &'static ws63_pac::uart0::RegisterBlock {
+fn regs() -> &'static crate::soc::pac::uart0::RegisterBlock {
     // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
     unsafe { &*Uart0::ptr() }
 }
 
-fn uart_ptr(idx: u8) -> *const ws63_pac::uart0::RegisterBlock {
+fn uart_ptr(idx: u8) -> *const crate::soc::pac::uart0::RegisterBlock {
     match idx {
         0 => Uart0::ptr(),
         1 => Uart1::ptr(),
@@ -61,7 +61,7 @@ fn uart_ptr(idx: u8) -> *const ws63_pac::uart0::RegisterBlock {
     }
 }
 
-fn uart_regs(idx: u8) -> &'static ws63_pac::uart0::RegisterBlock {
+fn uart_regs(idx: u8) -> &'static crate::soc::pac::uart0::RegisterBlock {
     // SAFETY: uart_ptr(idx) returns valid PAC MMIO addresses (UART0/1/2 at 0x4401_0000/1000/2000)
     unsafe { &*uart_ptr(idx) }
 }
@@ -97,7 +97,7 @@ fn configure_uart(idx: u8, config: &Config) {
     // Set baud rate: div = UART_CLK / (16 * baudrate)
     // Valid range: div ∈ [1, 65535] (16-bit divider).
     // At 160MHz UART clock, valid baud ∈ [153, 10_000_000].
-    let pclk = crate::soc::ws63::UART_CLOCK_HZ;
+    let pclk = crate::soc::chip::UART_CLOCK_HZ;
     let min_baud = (pclk / (16 * 65535)) + 1;
     let baudrate = if config.baudrate < min_baud { min_baud } else { config.baudrate };
     let div = pclk / (16 * baudrate);
@@ -165,7 +165,7 @@ impl<T> Uart<'_, T> {
         }
     }
 
-    pub fn uart_regs(&self, idx: u8) -> &'static ws63_pac::uart0::RegisterBlock {
+    pub fn uart_regs(&self, idx: u8) -> &'static crate::soc::pac::uart0::RegisterBlock {
         uart_regs(idx)
     }
 }

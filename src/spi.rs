@@ -2,7 +2,7 @@
 //! DesignWare SSI: SCK = SSI_CLK / SCKDV. Two-stage clock: a CLDO_CRG divider sets
 //! SSI_CLK = 160MHz off the 480MHz PLL (`configure_spi_source_clock`, mirrors the
 //! vendor `spi_porting_clock_init`), then SCKDV divides to SCK. SSI_CLK =
-//! [`crate::soc::ws63::SPI_CLOCK_HZ`] (NOT the 240MHz CPU clock; SCKDV is even, >= 2).
+//! [`crate::soc::chip::SPI_CLOCK_HZ`] (NOT the 240MHz CPU clock; SCKDV is even, >= 2).
 
 use crate::peripherals::{Spi0, Spi1};
 use core::marker::PhantomData;
@@ -33,7 +33,7 @@ pub struct Spi<'d, T> {
     _peripheral: PhantomData<&'d T>,
 }
 
-fn spi_regs(idx: u8) -> &'static ws63_pac::spi0::RegisterBlock {
+fn spi_regs(idx: u8) -> &'static crate::soc::pac::spi0::RegisterBlock {
     unsafe {
         match idx {
             0 => &*Spi0::ptr(),
@@ -98,14 +98,14 @@ const CLDO_SUB_CRG_CKEN_CTL1: usize = 0x4400_1104; // bit 25 = SPI clock gate
 const SPI_PLL_ROOT_MHZ: u32 = 480; // FNPLL SPI/QSPI tap (2880 / 6)
 
 /// Establish the two-stage SPI clock: program the CLDO_CRG divider so the SPI
-/// controller input clock (SSI_CLK) = [`crate::soc::ws63::SPI_CLOCK_HZ`] off the
+/// controller input clock (SSI_CLK) = [`crate::soc::chip::SPI_CLOCK_HZ`] off the
 /// 480 MHz PLL, then switch the SPI clock source from TCXO to PLL
 /// (gate-close → switch → gate-open). Bus-agnostic (one divider/select/gate for
 /// the whole SPI domain) and idempotent. Requires the PLL to already be locked
 /// (the app's `clock_init` does this before any driver init).
 fn configure_spi_source_clock() {
     // CRG divider output = 480 MHz / div → div = 480 / SSI_CLK_MHz (e.g. 3 for 160 MHz).
-    let ssi_mhz = (crate::soc::ws63::SPI_CLOCK_HZ / 1_000_000).max(1);
+    let ssi_mhz = (crate::soc::chip::SPI_CLOCK_HZ / 1_000_000).max(1);
     let div = (SPI_PLL_ROOT_MHZ / ssi_mhz).clamp(1, 0x1F);
     // SAFETY: fixed CLDO_CRG MMIO registers (0x4400_11xx, within the SYS_CTL1
     // range). Word-aligned 32-bit RMW; the load-bit handshake matches the SDK.
@@ -131,7 +131,7 @@ fn configure_spi(idx: u8, config: &Config) {
     configure_spi_source_clock();
     let r = spi_regs(idx);
     r.spi_er().write(|w| unsafe { w.bits(0) });
-    let pclk = crate::soc::ws63::SPI_CLOCK_HZ;
+    let pclk = crate::soc::chip::SPI_CLOCK_HZ;
     r.spi_brs().write(|w| unsafe { w.bits(sckdv(pclk, config.frequency)) });
 
     let mut ctra = 0u32;
@@ -175,7 +175,7 @@ impl<T> Spi<'_, T> {
         Ok(())
     }
 
-    pub fn register_block(&self) -> &'static ws63_pac::spi0::RegisterBlock {
+    pub fn register_block(&self) -> &'static crate::soc::pac::spi0::RegisterBlock {
         spi_regs(self.idx)
     }
 
@@ -260,7 +260,7 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Spi1<'_>> {
 #[cfg(test)]
 mod tests {
     use super::sckdv;
-    use crate::soc::ws63::SPI_CLOCK_HZ;
+    use crate::soc::chip::SPI_CLOCK_HZ;
 
     #[test]
     fn test_sckdv_basic() {
@@ -300,7 +300,7 @@ mod proptests {
         /// Fuzz: sckdv never panics and is always a valid even divisor in [2, 0xFFFE].
         #[test]
         fn sckdv_in_valid_range(freq in any::<u32>()) {
-            let d = sckdv(crate::soc::ws63::SPI_CLOCK_HZ, freq);
+            let d = sckdv(crate::soc::chip::SPI_CLOCK_HZ, freq);
             prop_assert!((2..=0xFFFE).contains(&d), "divisor {} out of range for freq={}", d, freq);
             prop_assert_eq!(d & 1, 0, "divisor {} not even for freq={}", d, freq);
         }
@@ -308,7 +308,7 @@ mod proptests {
         /// Fuzz: higher frequency → lower-or-equal divisor (monotonic non-increasing).
         #[test]
         fn sckdv_monotonic(freq1 in 1u32.., freq2 in 1u32..) {
-            let pclk = crate::soc::ws63::SPI_CLOCK_HZ;
+            let pclk = crate::soc::chip::SPI_CLOCK_HZ;
             let d1 = sckdv(pclk, freq1);
             let d2 = sckdv(pclk, freq2);
             if freq1 > freq2 {

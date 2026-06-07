@@ -108,6 +108,6 @@ pub struct Clocks {
 
 impl Default for Clocks {
     fn default() -> Self {
-        Self { sysclk: crate::soc::ws63::SYSTEM_CLOCK_HZ, pclk: crate::soc::ws63::SYSTEM_CLOCK_HZ }
+        Self { sysclk: crate::soc::chip::SYSTEM_CLOCK_HZ, pclk: crate::soc::chip::SYSTEM_CLOCK_HZ }
     }
 }

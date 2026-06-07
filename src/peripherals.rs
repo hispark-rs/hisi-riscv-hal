@@ -4,7 +4,7 @@
 //! the underlying hardware registers. The [`Peripherals`] struct is obtained
 //! once via [`Peripherals::take()`].
 
-pub use crate::soc::ws63::Interrupt;
+pub use crate::soc::chip::Interrupt;
 use core::marker::PhantomData;
 
 macro_rules! peripheral {
@@ -59,7 +59,7 @@ macro_rules! peripherals {
 
         impl Peripherals {
             pub fn take() -> Option<Self> {
-                let pac = ws63_pac::Peripherals::take()?;
+                let pac = crate::soc::pac::Peripherals::take()?;
                 Some(Self::from_pac(pac))
             }
 
@@ -69,11 +69,11 @@ macro_rules! peripherals {
             ///
             /// Each peripheral must be used at most once.
             pub unsafe fn steal() -> Self {
-                let pac = unsafe { ws63_pac::Peripherals::steal() };
+                let pac = unsafe { crate::soc::pac::Peripherals::steal() };
                 Self::from_pac(pac)
             }
 
-            fn from_pac(_pac: ws63_pac::Peripherals) -> Self {
+            fn from_pac(_pac: crate::soc::pac::Peripherals) -> Self {
                 unsafe {
                     Self {
                         $(
@@ -86,41 +86,41 @@ macro_rules! peripherals {
     };
 }
 
-peripheral!(SysCtl0, ws63_pac::SysCtl0);
-peripheral!(SysCtl1, ws63_pac::SysCtl1);
-peripheral!(GlbCtlM, ws63_pac::GlbCtlM);
-peripheral!(CldoCrg, ws63_pac::CldoCrg);
-peripheral!(IoConfig, ws63_pac::IoConfig);
-peripheral!(Gpio0, ws63_pac::Gpio0);
-peripheral!(Gpio1, ws63_pac::Gpio1);
-peripheral!(Gpio2, ws63_pac::Gpio2);
-peripheral!(UlpGpio, ws63_pac::UlpGpio);
-peripheral!(Uart0, ws63_pac::Uart0);
-peripheral!(Uart1, ws63_pac::Uart1);
-peripheral!(Uart2, ws63_pac::Uart2);
-peripheral!(I2c0, ws63_pac::I2c0);
-peripheral!(I2c1, ws63_pac::I2c1);
-peripheral!(Spi0, ws63_pac::Spi0);
-peripheral!(Spi1, ws63_pac::Spi1);
-peripheral!(Pwm, ws63_pac::Pwm);
-peripheral!(I2s, ws63_pac::I2s);
-peripheral!(Lsadc, ws63_pac::Lsadc);
-peripheral!(Dma, ws63_pac::Dma);
-peripheral!(Sdma, ws63_pac::Sdma);
-peripheral!(SfcCfg, ws63_pac::SfcCfg);
-peripheral!(Timer, ws63_pac::Timer);
-peripheral!(Wdt, ws63_pac::Wdt);
-peripheral!(Rtc, ws63_pac::Rtc);
-peripheral!(Tcxo, ws63_pac::Tcxo);
-peripheral!(Tsensor, ws63_pac::Tsensor);
-peripheral!(Efuse, ws63_pac::Efuse);
-peripheral!(Spacc, ws63_pac::Spacc);
-peripheral!(Pke, ws63_pac::Pke);
-peripheral!(Km, ws63_pac::Km);
-peripheral!(Trng, ws63_pac::Trng);
-peripheral!(RfWbCtl, ws63_pac::RfWbCtl);
-peripheral!(ShareMemCtl, ws63_pac::ShareMemCtl);
-peripheral!(FamaRemap, ws63_pac::FamaRemap);
+peripheral!(SysCtl0, crate::soc::pac::SysCtl0);
+peripheral!(SysCtl1, crate::soc::pac::SysCtl1);
+peripheral!(GlbCtlM, crate::soc::pac::GlbCtlM);
+peripheral!(CldoCrg, crate::soc::pac::CldoCrg);
+peripheral!(IoConfig, crate::soc::pac::IoConfig);
+peripheral!(Gpio0, crate::soc::pac::Gpio0);
+peripheral!(Gpio1, crate::soc::pac::Gpio1);
+peripheral!(Gpio2, crate::soc::pac::Gpio2);
+peripheral!(UlpGpio, crate::soc::pac::UlpGpio);
+peripheral!(Uart0, crate::soc::pac::Uart0);
+peripheral!(Uart1, crate::soc::pac::Uart1);
+peripheral!(Uart2, crate::soc::pac::Uart2);
+peripheral!(I2c0, crate::soc::pac::I2c0);
+peripheral!(I2c1, crate::soc::pac::I2c1);
+peripheral!(Spi0, crate::soc::pac::Spi0);
+peripheral!(Spi1, crate::soc::pac::Spi1);
+peripheral!(Pwm, crate::soc::pac::Pwm);
+peripheral!(I2s, crate::soc::pac::I2s);
+peripheral!(Lsadc, crate::soc::pac::Lsadc);
+peripheral!(Dma, crate::soc::pac::Dma);
+peripheral!(Sdma, crate::soc::pac::Sdma);
+peripheral!(SfcCfg, crate::soc::pac::SfcCfg);
+peripheral!(Timer, crate::soc::pac::Timer);
+peripheral!(Wdt, crate::soc::pac::Wdt);
+peripheral!(Rtc, crate::soc::pac::Rtc);
+peripheral!(Tcxo, crate::soc::pac::Tcxo);
+peripheral!(Tsensor, crate::soc::pac::Tsensor);
+peripheral!(Efuse, crate::soc::pac::Efuse);
+peripheral!(Spacc, crate::soc::pac::Spacc);
+peripheral!(Pke, crate::soc::pac::Pke);
+peripheral!(Km, crate::soc::pac::Km);
+peripheral!(Trng, crate::soc::pac::Trng);
+peripheral!(RfWbCtl, crate::soc::pac::RfWbCtl);
+peripheral!(ShareMemCtl, crate::soc::pac::ShareMemCtl);
+peripheral!(FamaRemap, crate::soc::pac::FamaRemap);
 
 peripherals!(
     SYS_CTL0 => SysCtl0,

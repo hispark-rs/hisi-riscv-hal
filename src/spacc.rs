@@ -57,7 +57,7 @@ impl<'d> SpaccDriver<'d> {
     }
 
     #[allow(dead_code)]
-    fn regs(&self) -> &'static ws63_pac::spacc::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::spacc::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Spacc::ptr() }
     }

@@ -23,7 +23,7 @@ impl<'d> TcxoDriver<'d> {
         Self { _tcxo: tcxo }
     }
 
-    fn regs(&self) -> &'static ws63_pac::tcxo::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::tcxo::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Tcxo::ptr() }
     }

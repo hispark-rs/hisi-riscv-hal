@@ -31,7 +31,7 @@ use core::marker::PhantomData;
 /// DMA instance trait.
 pub trait DmaInstance {
     /// Returns the PAC pointer for this DMA controller.
-    fn ptr() -> *const ws63_pac::dma::RegisterBlock;
+    fn ptr() -> *const crate::soc::pac::dma::RegisterBlock;
 
     /// Logical channel number of this controller's first physical channel.
     ///
@@ -44,7 +44,7 @@ pub trait DmaInstance {
 /// Marker type for the primary DMA controller (logical channels 0-3).
 pub struct Dma0;
 impl DmaInstance for Dma0 {
-    fn ptr() -> *const ws63_pac::dma::RegisterBlock {
+    fn ptr() -> *const crate::soc::pac::dma::RegisterBlock {
         Dma::ptr()
     }
     const CHANNEL_BASE: u8 = 0;
@@ -53,7 +53,7 @@ impl DmaInstance for Dma0 {
 /// Marker type for the secure DMA controller (logical channels 8-11).
 pub struct Sdma0;
 impl DmaInstance for Sdma0 {
-    fn ptr() -> *const ws63_pac::dma::RegisterBlock {
+    fn ptr() -> *const crate::soc::pac::dma::RegisterBlock {
         Sdma::ptr()
     }
     const CHANNEL_BASE: u8 = 8;
@@ -175,7 +175,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         Self { _instance: PhantomData }
     }
 
-    fn regs() -> &'static ws63_pac::dma::RegisterBlock {
+    fn regs() -> &'static crate::soc::pac::dma::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*T::ptr() }
     }

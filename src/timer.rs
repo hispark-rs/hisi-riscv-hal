@@ -15,7 +15,7 @@
 //! ```
 
 use crate::peripherals::Timer;
-use crate::soc::ws63::TIMER_CLOCK_HZ;
+use crate::soc::chip::TIMER_CLOCK_HZ;
 
 /// Timer operating mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,7 @@ impl<'d> TimerDriver<'d> {
         Self { _timer: timer }
     }
 
-    fn regs(&self) -> &'static ws63_pac::timer::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::timer::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Timer::ptr() }
     }
@@ -287,7 +287,7 @@ impl PeriodicTimer<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::soc::ws63::TIMER_CLOCK_HZ;
+    use crate::soc::chip::TIMER_CLOCK_HZ;
 
     // The timer counts at the TCXO crystal clock (TIMER_CLOCK_HZ = 24 MHz), so
     // there are TICKS_PER_US ticks per microsecond and the u32 one-shot caps at
@@ -324,7 +324,7 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
-    use crate::soc::ws63::TIMER_CLOCK_HZ;
+    use crate::soc::chip::TIMER_CLOCK_HZ;
     use proptest::prelude::*;
 
     const MAX_SAFE_US: u64 = u32::MAX as u64 / (TIMER_CLOCK_HZ as u64 / 1_000_000);

@@ -20,7 +20,7 @@ pub struct UlpGpioPin<'d, MODE> {
     _mode: PhantomData<&'d MODE>,
 }
 
-fn regs() -> &'static ws63_pac::gpio0::RegisterBlock {
+fn regs() -> &'static crate::soc::pac::gpio0::RegisterBlock {
     // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
     unsafe { &*UlpGpio::ptr() }
 }

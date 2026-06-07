@@ -13,7 +13,7 @@ impl<'d> PwmChannel<'d> {
         Self { channel, _marker: PhantomData }
     }
 
-    fn regs(&self) -> &'static ws63_pac::pwm::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::pwm::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Pwm::ptr() }
     }
@@ -21,7 +21,7 @@ impl<'d> PwmChannel<'d> {
     pub fn configure(&mut self, freq: u32, duty_percent: u8) {
         assert!(freq > 0, "PWM frequency must be non-zero");
         let r = self.regs();
-        let pclk = crate::soc::ws63::SYSTEM_CLOCK_HZ;
+        let pclk = crate::soc::chip::SYSTEM_CLOCK_HZ;
         let period = pclk / freq;
         let duty = (period as u64 * duty_percent as u64 / 100) as u32;
         match self.channel {
