@@ -12,7 +12,7 @@ categories = ["embedded", "no-std", "hardware-support"]
 # Exactly one PAC is linked, selected by the chip feature below. Optional so the
 # inactive one is never compiled.
 ws63-pac = { version = "0.1", default-features = false, features = ["critical-section"], optional = true }
-bs21-pac = { version = "0.1", default-features = false, features = ["critical-section"], optional = true }
+bs2x-pac = { version = "0.1", default-features = false, features = ["critical-section"], optional = true }
 embedded-hal = "1.0.0"
 embedded-hal-nb = "1.0"
 # Async trait impls (interrupt + waker driven), gated behind the `async` feature.
@@ -43,10 +43,10 @@ default = ["chip-ws63", "rt", "dep:critical-section"]
 # Chip selection (exactly one; enforced by a compile_error in lib.rs). Each pulls
 # its Peripheral Access Crate.
 chip-ws63 = ["dep:ws63-pac"]
-chip-bs21 = ["dep:bs21-pac"]
+chip-bs21 = ["dep:bs2x-pac"]
 # `rt`: riscv-rt integration. The weak `pac?/rt` enables the rt feature of whichever
 # PAC is active (its device.x interrupt vectors), without forcing the inactive one.
-rt = ["dep:critical-section", "ws63-pac?/rt", "bs21-pac?/rt"]
+rt = ["dep:critical-section", "ws63-pac?/rt", "bs2x-pac?/rt"]
 # `async`: interrupt + waker driven embedded-hal-async impls (DelayNs on a TIMER,
 # digital::Wait on GPIO) + a minimal WFI `block_on`. Needs critical-section for
 # the waker registry. Drivers do NOT auto-install ISRs — the app routes its trap

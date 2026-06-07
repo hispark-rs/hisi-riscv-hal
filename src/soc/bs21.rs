@@ -9,7 +9,7 @@
 //! (blinky busy-loops on the CPU clock, and the QEMU UART model ignores baud).
 #![allow(dead_code)]
 
-pub use bs21_pac::interrupt::ExternalInterrupt as Interrupt;
+pub use bs2x_pac::interrupt::ExternalInterrupt as Interrupt;
 
 /// CPU clock (64 MHz — BS21/BS21E/BS22 all run the app core at 64 MHz).
 pub const SYSTEM_CLOCK_HZ: u32 = 64_000_000;

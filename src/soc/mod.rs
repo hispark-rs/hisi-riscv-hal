@@ -3,7 +3,7 @@
 //! This HAL supports a family of HiSilicon "HimiDeer" RISC-V SoCs. Exactly one
 //! chip is selected at compile time via a cargo feature:
 //! - `chip-ws63` (default) — WS63 (Wi-Fi6 + BLE + SLE), `ws63-pac`
-//! - `chip-bs21` — BS21/BS2X (BLE + SLE/NearLink), `bs21-pac`
+//! - `chip-bs21` — BS21/BS2X (BLE + SLE/NearLink), `bs2x-pac`
 //!
 //! Drivers never name a vendor PAC or a chip module directly; they go through the
 //! chip-neutral aliases [`pac`] (the active Peripheral Access Crate) and [`chip`]
@@ -22,7 +22,7 @@ pub use bs21 as chip;
 pub use ws63 as chip;
 
 #[cfg(feature = "chip-bs21")]
-pub(crate) use bs21_pac as pac;
-/// The active chip's Peripheral Access Crate (`ws63_pac` or `bs21_pac`).
+pub(crate) use bs2x_pac as pac;
+/// The active chip's Peripheral Access Crate (`ws63_pac` or `bs2x_pac`).
 #[cfg(feature = "chip-ws63")]
 pub(crate) use ws63_pac as pac;
