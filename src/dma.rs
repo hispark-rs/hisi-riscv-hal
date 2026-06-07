@@ -423,7 +423,7 @@ impl<'d> DmaDriver<'d, Dma0> {
 /// UART1 = UART_H0, UART2 = UART_H1.
 ///
 /// (These superseded the earlier fabricated sequential 0..11 values; only the
-/// main-DMA (MDMA) sources ws63-hal models are listed — the SDMA-group I2C IDs
+/// main-DMA (MDMA) sources hisi-riscv-hal models are listed — the SDMA-group I2C IDs
 /// (≥29) don't fit the 4-bit field and aren't modelled here.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

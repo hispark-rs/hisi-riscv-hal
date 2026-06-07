@@ -62,7 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- CI: first release cut by ws63-hal's own repo pipeline (no functional change since 0.2.0).
+- CI: first release cut by hisi-riscv-hal's own repo pipeline (no functional change since 0.2.0).
 
 ## [0.2.0] - 2026-06-02
 

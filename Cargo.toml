@@ -1,10 +1,10 @@
 [package]
-name = "ws63-hal"
+name = "hisi-riscv-hal"
 version = "0.3.0"
 edition = "2024"
 description = "Hardware Abstraction Layer for HiSilicon WS63 (RISC-V RV32IMFC_Zicsr)"
 license = "MIT"
-repository = "https://github.com/sanchuanhehe/ws63-hal"
+repository = "https://github.com/sanchuanhehe/hisi-riscv-hal"
 keywords = ["ws63", "hisilicon", "riscv", "embedded", "hal"]
 categories = ["embedded", "no-std", "hardware-support"]
 

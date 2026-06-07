@@ -1,4 +1,4 @@
-//! # ws63-hal — Hardware Abstraction Layer for HiSilicon WS63 (RISC-V).
+//! # hisi-riscv-hal — Hardware Abstraction Layer for HiSilicon WS63 (RISC-V).
 //!
 //! A comprehensive HAL providing safe, idiomatic Rust APIs for all WS63
 //! peripherals. Modeled on esp-hal patterns with type-state GPIO, RAII
@@ -25,10 +25,10 @@
 
 // Exactly one chip must be selected (each pulls its PAC + soc/<chip>.rs).
 #[cfg(all(feature = "chip-ws63", feature = "chip-bs21"))]
-compile_error!("ws63-hal: select exactly one chip — chip-ws63 (default) OR chip-bs21");
+compile_error!("hisi-riscv-hal: select exactly one chip — chip-ws63 (default) OR chip-bs21");
 #[cfg(not(any(feature = "chip-ws63", feature = "chip-bs21")))]
 compile_error!(
-    "ws63-hal: no chip selected — enable chip-ws63 (default) or chip-bs21 \
+    "hisi-riscv-hal: no chip selected — enable chip-ws63 (default) or chip-bs21 \
      (e.g. --no-default-features --features chip-bs21)"
 );
 
