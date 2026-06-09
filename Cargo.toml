@@ -66,10 +66,13 @@ lto = true
 [profile.dev]
 opt-level = "s"
 
-# Standalone builds (this repo's own CI) pull ws63-pac from crates.io, where the
-# published version lags the generated PAC (e.g. missing KM registers / the host
-# riscv-gating), breaking the build. Patch to the git PAC so standalone CI builds
-# against the current source. IGNORED inside the ws63-rs workspace, whose root
-# manifest patches ws63-pac to the local path (only the workspace-root [patch] applies).
+# Standalone builds (this repo's own CI) pull the PACs from crates.io. ws63-pac's
+# published version lags the generated PAC, and bs2x-pac is not published at all,
+# so the optional `bs2x-pac` dep (pulled by chip-bs21) would fail to resolve even
+# for default-feature jobs (Cargo resolves ALL optional deps when building the lock
+# graph). Patch both to their git sources so standalone CI resolves + builds against
+# current source. IGNORED inside the hisi-riscv-rs workspace, whose root manifest
+# patches both to local paths (only the workspace-root [patch] applies).
 [patch.crates-io]
 ws63-pac = { git = "https://github.com/sanchuanhehe/ws63-pac" }
+bs2x-pac = { git = "https://github.com/sanchuanhehe/bs2x-pac" }

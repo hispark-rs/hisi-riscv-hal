@@ -25,24 +25,34 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
+  # NB: chip-ws63 and chip-bs21 are mutually exclusive (a compile_error in lib.rs),
+  # so `--all-features` cannot be used. Test each chip with its supported feature
+  # set instead. async/embassy are only wired for chip-ws63 today (bs2x-pac lacks
+  # the async TIMER interrupts), so chip-bs21 is checked at its M1 feature level.
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["chip-ws63,rt,async,embassy", "chip-bs21,rt"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --all-features -- -D warnings
+      - run: cargo clippy --no-default-features --features "${{ matrix.features }}" -- -D warnings
 
   build:
     name: Build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["chip-ws63,rt,async,embassy", "chip-bs21,rt"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --all-features
-      - run: cargo check --all-features --release
+      - run: cargo check --no-default-features --features "${{ matrix.features }}"
+      - run: cargo check --no-default-features --features "${{ matrix.features }}" --release
 
   doc:
     name: Docs
