@@ -92,9 +92,13 @@ impl<'d> Spi<'d, Spi1<'d>> {
 // `configure_spi_source_clock` programs the CRG divider to establish it and
 // switches the SPI clock source TCXO→PLL. Mirrors fbb_ws63 `spi_porting_clock_init`
 // (480/bus_clk_MHz into DIV_CTL3[9:5]); see ws63-guide ch8 "时钟树".
+#[cfg(feature = "chip-ws63")]
 const CLDO_CRG_DIV_CTL3: usize = 0x4400_1114; // SPI source divider
+#[cfg(feature = "chip-ws63")]
 const CLDO_CRG_CLK_SEL: usize = 0x4400_1134; // bit 6 = SPI source: 1=PLL, 0=TCXO
+#[cfg(feature = "chip-ws63")]
 const CLDO_SUB_CRG_CKEN_CTL1: usize = 0x4400_1104; // bit 25 = SPI clock gate
+#[cfg(feature = "chip-ws63")]
 const SPI_PLL_ROOT_MHZ: u32 = 480; // FNPLL SPI/QSPI tap (2880 / 6)
 
 /// Establish the two-stage SPI clock: program the CLDO_CRG divider so the SPI
@@ -103,6 +107,7 @@ const SPI_PLL_ROOT_MHZ: u32 = 480; // FNPLL SPI/QSPI tap (2880 / 6)
 /// (gate-close → switch → gate-open). Bus-agnostic (one divider/select/gate for
 /// the whole SPI domain) and idempotent. Requires the PLL to already be locked
 /// (the app's `clock_init` does this before any driver init).
+#[cfg(feature = "chip-ws63")]
 fn configure_spi_source_clock() {
     // CRG divider output = 480 MHz / div → div = 480 / SSI_CLK_MHz (e.g. 3 for 160 MHz).
     let ssi_mhz = (crate::soc::chip::SPI_CLOCK_HZ / 1_000_000).max(1);
@@ -128,6 +133,13 @@ fn configure_spi_source_clock() {
 }
 
 fn configure_spi(idx: u8, config: &Config) {
+    // WS63 two-stage SPI clock (CLDO_CRG @0x4400_11xx → PLL). BS2X has a different
+    // clock tree (64 MHz app core, different CRG layout), so this WS63-specific CRG
+    // sequence must NOT run on BS2X — there the SPI runs off its default input clock
+    // and only the in-controller SCKDV divider (spi_brs, below) is programmed against
+    // soc::chip::SPI_CLOCK_HZ. TODO(bs2x): port the BS2X SPI source-clock setup from
+    // fbb_bs2x spi_porting.c when bringing SPI up on silicon (QEMU ignores the divisor).
+    #[cfg(feature = "chip-ws63")]
     configure_spi_source_clock();
     let r = spi_regs(idx);
     r.spi_er().write(|w| unsafe { w.bits(0) });
