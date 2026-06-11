@@ -108,7 +108,12 @@ pub mod qdec;
 // BS2X v151), rtc (v100 vs v150), lsadc (v154 vs v153), i2s/sfc (no BS2X instance),
 // and the clock/crypto/system stack (deeper port).
 pub mod pwm;
+// RTC is a different IP per chip: WS63 v100 (rtc.rs), BS2X v150 (rtc_v150.rs, a
+// 64-bit counter with a coherent-read handshake). Both exposed as `hal::rtc`.
 #[cfg(feature = "chip-ws63")]
+pub mod rtc;
+#[cfg(feature = "chip-bs21")]
+#[path = "rtc_v150.rs"]
 pub mod rtc;
 #[cfg(feature = "chip-ws63")]
 pub mod safety;
@@ -119,7 +124,11 @@ pub mod spacc;
 pub mod spi;
 #[cfg(feature = "chip-ws63")]
 pub mod system;
+// TRNG differs per chip: WS63 (trng.rs) vs BS2X v1 (trng_v1.rs). Both `hal::trng`.
 #[cfg(feature = "chip-ws63")]
+pub mod trng;
+#[cfg(feature = "chip-bs21")]
+#[path = "trng_v1.rs"]
 pub mod trng;
 #[cfg(feature = "chip-ws63")]
 pub mod tsensor;
