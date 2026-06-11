@@ -1,0 +1,29 @@
+name: Publish
+# Publish this crate to crates.io. Push a `v*` tag to release; or run manually
+# (Actions tab) — manual runs default to a safe dry run.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (package + check, no upload)"
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable   # ignore any ws63 rust-toolchain.toml; publish needs only host cargo
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      # --no-verify: no_std riscv32 crate; the host verify build would fail. The
+      # source is built/tested for the real target in the hisi-riscv-rs CI.
+      - name: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          DRY: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        run: cargo publish --no-verify $DRY
