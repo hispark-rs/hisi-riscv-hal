@@ -95,12 +95,12 @@ pub mod keyscan;
 #[cfg(feature = "chip-bs21")]
 pub mod pdm;
 // BS2X USB 2.0 OTG (Synopsys DWC OTG) — config-level (core-ID; full stack deferred).
-#[cfg(feature = "chip-bs21")]
-pub mod usb;
 #[cfg(feature = "chip-ws63")]
 pub mod pke;
 #[cfg(feature = "chip-bs21")]
 pub mod qdec;
+#[cfg(feature = "chip-bs21")]
+pub mod usb;
 // BS2X-enabled drivers (ungated below: `pwm`, `spi`, `wdt`, `ulp_gpio`). These were
 // chip-ws63-only but build for BS2X too because (a) the driver code is already
 // chip-neutral (it goes through `crate::soc::pac` aliases), (b) their peripheral
