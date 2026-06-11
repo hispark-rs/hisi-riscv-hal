@@ -73,6 +73,11 @@ pub mod io_config;
 pub mod km;
 #[cfg(feature = "chip-ws63")]
 pub mod lsadc;
+// BS2X 13-bit ADC (v153) — chip-bs21-only (WS63's ADC is the different `lsadc`
+// v154). bs2x-pac has the correct `gadc` register block; the driver reaches the
+// ANA/PMU power sub-blocks (not in the PAC) via raw addresses. See gadc.rs.
+#[cfg(feature = "chip-bs21")]
+pub mod gadc;
 #[cfg(feature = "chip-ws63")]
 pub mod pke;
 // BS2X-enabled drivers (ungated below: `pwm`, `spi`, `wdt`, `ulp_gpio`). These were

@@ -131,13 +131,16 @@ mod ws63_only {
 #[cfg(feature = "chip-ws63")]
 pub use ws63_only::*;
 
-// ── BS21-only PAC types (extra GPIO banks + SPI bus) ────────────────────────
+// ── BS21-only PAC types (extra GPIO banks + SPI bus + the GADC) ──────────────
 #[cfg(feature = "chip-bs21")]
 mod bs21_only {
     use super::PhantomData;
     peripheral!(Gpio3, crate::soc::pac::Gpio3);
     peripheral!(Gpio4, crate::soc::pac::Gpio4);
     peripheral!(Spi2, crate::soc::pac::Spi2);
+    // GADC — the BS2X 13-bit ADC (v153). No WS63 analogue (WS63 has LSADC v154),
+    // so it is chip-bs21-only; the `gadc` driver wraps it.
+    peripheral!(Gadc, crate::soc::pac::Gadc);
 }
 #[cfg(feature = "chip-bs21")]
 pub use bs21_only::*;
@@ -206,4 +209,5 @@ peripherals!(
     RTC => Rtc,
     TCXO => Tcxo,
     TRNG => Trng,
+    GADC => Gadc,
 );
