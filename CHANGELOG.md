@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-12
+
+### Added
+
+- **`embassy` time-driver now supports the BS2X family** (BS21/BS22/BS20), not just
+  WS63. The TCXO `now()` and TIMER one-shot alarm are register-identical across the
+  family (verified against the fbb_ws63 / fbb_bs2x C SDKs); only the crystal rate and
+  the alarm IRQ were chip-specific.
+  - New `soc::chip::ALARM_INTERRUPT` (the TIMER-channel-0 interrupt the alarm uses):
+    `TIMER_INT0` (IRQ 26, a standard `mie`-bit local interrupt) on WS63, `TIMER_0`
+    (IRQ 53, a HiSilicon LOCI custom local interrupt) on BS2X.
+  - New `pub const embassy::ALARM_IRQ: u32` so an application's machine-trap handler
+    routes the alarm chip-neutrally (`mcause & 0xFFF == ALARM_IRQ`) instead of a literal.
+
+### Changed
+
+- The `embassy` feature **no longer implies `async`**. The embassy-time driver needs
+  only `critical-section` + the embassy-time crates; `async` (the `embedded-hal-async`
+  driver layer) remains `chip-ws63`-only. This lets `embassy` build on BS2X without
+  dragging in the WS63-only async drivers. WS63 is unaffected.
+
 ## [0.3.0] - 2026-06-05
 
 ### Added
