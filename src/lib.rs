@@ -63,7 +63,10 @@ pub mod clock_init;
 pub mod dma;
 #[cfg(feature = "chip-ws63")]
 pub mod efuse;
-#[cfg(all(feature = "chip-ws63", feature = "embassy"))]
+// Chip-neutral: the embassy-time driver reads TCXO_HZ/TIMER_CLOCK_HZ and the
+// alarm interrupt from `soc::chip`, and the TCXO/TIMER register blocks are
+// register-identical across WS63 and BS2X (verified vs fbb_ws63 / fbb_bs2x).
+#[cfg(feature = "embassy")]
 pub mod embassy;
 // I2C is a DIFFERENT IP per chip: WS63 has a custom v150 core (i2c.rs), BS2X has a
 // Synopsys DesignWare v151 core (i2c_v151.rs). Both are exposed as `hal::i2c`; the

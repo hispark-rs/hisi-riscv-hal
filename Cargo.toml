@@ -53,11 +53,18 @@ rt = ["dep:critical-section", "ws63-pac?/rt", "bs2x-pac?/rt"]
 # to `timer::on_interrupt` / `gpio::on_interrupt` (see ws63-examples/async_delay),
 # so enabling this feature never changes non-async firmware behaviour.
 async = ["dep:embedded-hal-async", "dep:embedded-io-async", "dep:critical-section"]
-# `embassy`: an embassy-time `Driver` for WS63 (now() from the TCXO 64-bit counter,
-# alarms from a TIMER channel). Lets embassy-time (`Timer::after`, etc.) run on
-# WS63 under embassy-executor. The app routes the alarm timer's trap to
-# `embassy::on_alarm_interrupt` (see ws63-examples/embassy_multitask).
-embassy = ["async", "dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+# `embassy`: an embassy-time `Driver` for the WS63 / BS2X family (now() from the
+# TCXO 64-bit counter, alarms from a TIMER channel). Lets embassy-time
+# (`Timer::after`, etc.) run under embassy-executor. The app routes the alarm
+# timer's trap to `embassy::on_alarm_interrupt` (see examples/*/embassy_multitask).
+#
+# Deliberately does NOT enable `async`: the embassy-time driver only needs
+# critical-section + the embassy-time crates, whereas `async` pulls the
+# embedded-hal-async driver layer (`asynch`, per-driver `on_interrupt`) which is
+# still chip-ws63-only. Keeping them separate lets `embassy` work on BS2X today
+# (the time-driver's TCXO/TIMER access is register-identical across the family)
+# without dragging in the WS63-only async drivers.
+embassy = ["dep:critical-section", "dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 [profile.release]
 opt-level = "s"
