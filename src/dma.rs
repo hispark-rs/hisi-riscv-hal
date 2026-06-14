@@ -31,7 +31,7 @@ use core::marker::PhantomData;
 /// DMA instance trait.
 pub trait DmaInstance {
     /// Returns the PAC pointer for this DMA controller.
-    fn ptr() -> *const ws63_pac::dma::RegisterBlock;
+    fn ptr() -> *const crate::soc::pac::dma::RegisterBlock;
 
     /// Logical channel number of this controller's first physical channel.
     ///
@@ -44,7 +44,7 @@ pub trait DmaInstance {
 /// Marker type for the primary DMA controller (logical channels 0-3).
 pub struct Dma0;
 impl DmaInstance for Dma0 {
-    fn ptr() -> *const ws63_pac::dma::RegisterBlock {
+    fn ptr() -> *const crate::soc::pac::dma::RegisterBlock {
         Dma::ptr()
     }
     const CHANNEL_BASE: u8 = 0;
@@ -53,7 +53,7 @@ impl DmaInstance for Dma0 {
 /// Marker type for the secure DMA controller (logical channels 8-11).
 pub struct Sdma0;
 impl DmaInstance for Sdma0 {
-    fn ptr() -> *const ws63_pac::dma::RegisterBlock {
+    fn ptr() -> *const crate::soc::pac::dma::RegisterBlock {
         Sdma::ptr()
     }
     const CHANNEL_BASE: u8 = 8;
@@ -175,7 +175,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         Self { _instance: PhantomData }
     }
 
-    fn regs() -> &'static ws63_pac::dma::RegisterBlock {
+    fn regs() -> &'static crate::soc::pac::dma::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*T::ptr() }
     }
@@ -423,8 +423,13 @@ impl<'d> DmaDriver<'d, Dma0> {
 /// UART1 = UART_H0, UART2 = UART_H1.
 ///
 /// (These superseded the earlier fabricated sequential 0..11 values; only the
-/// main-DMA (MDMA) sources ws63-hal models are listed — the SDMA-group I2C IDs
+/// main-DMA (MDMA) sources hisi-riscv-hal models are listed — the SDMA-group I2C IDs
 /// (≥29) don't fit the 4-bit field and aren't modelled here.)
+// Peripheral-paced DMA request IDs are WS63-specific (the fbb_ws63 vs fbb_bs2x
+// dma_porting.h handshake enums are entirely different). chip-ws63 only; BS2X DMA
+// is enabled for memory-to-memory transfers, whose flow control needs no request
+// ID. A BS2X request-ID table can be added later from fbb_bs2x dma_porting.h.
+#[cfg(feature = "chip-ws63")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum DmaPeripheral {
@@ -456,6 +461,7 @@ pub enum DmaPeripheral {
     Spi1Rx = 14,
 }
 
+#[cfg(feature = "chip-ws63")]
 impl DmaPeripheral {
     /// The hardware handshaking request ID (the `dma_porting.h` index), as
     /// programmed into the channel config's peripheral-select field.
@@ -477,6 +483,7 @@ impl DmaChannelConfig {
     /// Configure this channel for a **memory → peripheral** transfer to `peri`:
     /// sets `MemToPeripheral` flow control, the destination handshaking ID, and
     /// holds the destination address fixed (a peripheral data register).
+    #[cfg(feature = "chip-ws63")]
     pub fn mem_to_peripheral(mut self, peri: DmaPeripheral) -> Self {
         self.flow_control = FlowControl::MemToPeripheral;
         self.dst_peripheral = peri.request_id();
@@ -487,6 +494,7 @@ impl DmaChannelConfig {
     /// Configure this channel for a **peripheral → memory** transfer from `peri`:
     /// sets `PeripheralToMem` flow control, the source handshaking ID, and holds
     /// the source address fixed (a peripheral data register).
+    #[cfg(feature = "chip-ws63")]
     pub fn peripheral_to_mem(mut self, peri: DmaPeripheral) -> Self {
         self.flow_control = FlowControl::PeripheralToMem;
         self.src_peripheral = peri.request_id();

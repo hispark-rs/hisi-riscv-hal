@@ -17,14 +17,14 @@
 //!
 //! This module owns only the interrupt *controller* (mask / priority /
 //! threshold / pending / clear). The trap vector table is the runtime's concern
-//! (`ws63-rt`); the `timer_irq` (mie path) and `gpio_irq` (LOCIEN + LOCIPCLR
+//! (`hisi-riscv-rt`); the `timer_irq` (mie path) and `gpio_irq` (LOCIEN + LOCIPCLR
 //! path) examples drive this API end-to-end and are exercised on ws63-qemu.
 
 // On non-riscv (host) builds the CSR access compiles to no-op stubs, leaving the
 // surrounding `unsafe` blocks empty — silence the resulting lints there.
 #![cfg_attr(not(target_arch = "riscv32"), allow(unused_unsafe, unused_variables, unused_mut))]
 
-pub use crate::soc::ws63::Interrupt;
+pub use crate::soc::chip::Interrupt;
 
 // --- model constants (fbb_ws63 vectors.h / riscv_interrupt.h) ---------------
 /// First IRQ with a configurable `LOCIPRI` priority (IRQs 0..26 are system vectors).

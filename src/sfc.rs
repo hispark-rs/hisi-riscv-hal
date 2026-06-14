@@ -110,7 +110,7 @@ impl<'d> SfcDriver<'d> {
         Self { _sfc: sfc }
     }
 
-    fn regs(&self) -> &'static ws63_pac::sfc_cfg::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::sfc_cfg::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*SfcCfg::ptr() }
     }
@@ -196,7 +196,7 @@ impl<'d> SfcDriver<'d> {
     // ── Command operations ──────────────────────────────────────────
 
     /// Write a 32-bit word to a specific data buffer register.
-    fn write_databuf(r: &ws63_pac::sfc_cfg::RegisterBlock, idx: usize, word: u32) {
+    fn write_databuf(r: &crate::soc::pac::sfc_cfg::RegisterBlock, idx: usize, word: u32) {
         unsafe {
             match idx {
                 0 => {
@@ -253,7 +253,7 @@ impl<'d> SfcDriver<'d> {
     }
 
     /// Read a 32-bit word from a specific data buffer register.
-    fn read_databuf(r: &ws63_pac::sfc_cfg::RegisterBlock, idx: usize) -> u32 {
+    fn read_databuf(r: &crate::soc::pac::sfc_cfg::RegisterBlock, idx: usize) -> u32 {
         match idx {
             0 => r.cmd_databuf_0().read().bits(),
             1 => r.cmd_databuf_1().read().bits(),

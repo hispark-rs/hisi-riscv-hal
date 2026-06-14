@@ -33,7 +33,7 @@ impl<'d> TempSensor<'d> {
         Self { _tsensor: tsensor }
     }
 
-    fn regs(&self) -> &'static ws63_pac::tsensor::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::tsensor::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Tsensor::ptr() }
     }

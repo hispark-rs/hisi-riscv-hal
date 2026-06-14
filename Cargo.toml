@@ -1,15 +1,18 @@
 [package]
-name = "ws63-hal"
-version = "0.3.0"
+name = "hisi-riscv-hal"
+version = "0.3.1"
 edition = "2024"
 description = "Hardware Abstraction Layer for HiSilicon WS63 (RISC-V RV32IMFC_Zicsr)"
 license = "MIT"
-repository = "https://github.com/sanchuanhehe/ws63-hal"
+repository = "https://github.com/hispark-rs/hisi-riscv-hal"
 keywords = ["ws63", "hisilicon", "riscv", "embedded", "hal"]
 categories = ["embedded", "no-std", "hardware-support"]
 
 [dependencies]
-ws63-pac = { version = "0.1", features = ["critical-section", "rt"] }
+# Exactly one PAC is linked, selected by the chip feature below. Optional so the
+# inactive one is never compiled.
+ws63-pac = { version = "0.1", default-features = false, features = ["critical-section"], optional = true }
+bs2x-pac = { version = "0.1", default-features = false, features = ["critical-section"], optional = true }
 embedded-hal = "1.0.0"
 embedded-hal-nb = "1.0"
 # Async trait impls (interrupt + waker driven), gated behind the `async` feature.
@@ -36,19 +39,32 @@ proptest = "1"
 critical-section = { version = "1", features = ["std"] }
 
 [features]
-default = ["rt", "dep:critical-section"]
-rt = ["ws63-pac/rt", "dep:critical-section"]
+default = ["chip-ws63", "rt", "dep:critical-section"]
+# Chip selection (exactly one; enforced by a compile_error in lib.rs). Each pulls
+# its Peripheral Access Crate.
+chip-ws63 = ["dep:ws63-pac"]
+chip-bs21 = ["dep:bs2x-pac"]
+# `rt`: riscv-rt integration. The weak `pac?/rt` enables the rt feature of whichever
+# PAC is active (its device.x interrupt vectors), without forcing the inactive one.
+rt = ["dep:critical-section", "ws63-pac?/rt", "bs2x-pac?/rt"]
 # `async`: interrupt + waker driven embedded-hal-async impls (DelayNs on a TIMER,
 # digital::Wait on GPIO) + a minimal WFI `block_on`. Needs critical-section for
 # the waker registry. Drivers do NOT auto-install ISRs — the app routes its trap
 # to `timer::on_interrupt` / `gpio::on_interrupt` (see ws63-examples/async_delay),
 # so enabling this feature never changes non-async firmware behaviour.
 async = ["dep:embedded-hal-async", "dep:embedded-io-async", "dep:critical-section"]
-# `embassy`: an embassy-time `Driver` for WS63 (now() from the TCXO 64-bit counter,
-# alarms from a TIMER channel). Lets embassy-time (`Timer::after`, etc.) run on
-# WS63 under embassy-executor. The app routes the alarm timer's trap to
-# `embassy::on_alarm_interrupt` (see ws63-examples/embassy_multitask).
-embassy = ["async", "dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+# `embassy`: an embassy-time `Driver` for the WS63 / BS2X family (now() from the
+# TCXO 64-bit counter, alarms from a TIMER channel). Lets embassy-time
+# (`Timer::after`, etc.) run under embassy-executor. The app routes the alarm
+# timer's trap to `embassy::on_alarm_interrupt` (see examples/*/embassy_multitask).
+#
+# Deliberately does NOT enable `async`: the embassy-time driver only needs
+# critical-section + the embassy-time crates, whereas `async` pulls the
+# embedded-hal-async driver layer (`asynch`, per-driver `on_interrupt`) which is
+# still chip-ws63-only. Keeping them separate lets `embassy` work on BS2X today
+# (the time-driver's TCXO/TIMER access is register-identical across the family)
+# without dragging in the WS63-only async drivers.
+embassy = ["dep:critical-section", "dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 [profile.release]
 opt-level = "s"
@@ -57,10 +73,13 @@ lto = true
 [profile.dev]
 opt-level = "s"
 
-# Standalone builds (this repo's own CI) pull ws63-pac from crates.io, where the
-# published version lags the generated PAC (e.g. missing KM registers / the host
-# riscv-gating), breaking the build. Patch to the git PAC so standalone CI builds
-# against the current source. IGNORED inside the ws63-rs workspace, whose root
-# manifest patches ws63-pac to the local path (only the workspace-root [patch] applies).
+# Standalone builds (this repo's own CI) pull the PACs from crates.io. ws63-pac's
+# published version lags the generated PAC, and bs2x-pac is not published at all,
+# so the optional `bs2x-pac` dep (pulled by chip-bs21) would fail to resolve even
+# for default-feature jobs (Cargo resolves ALL optional deps when building the lock
+# graph). Patch both to their git sources so standalone CI resolves + builds against
+# current source. IGNORED inside the hisi-riscv-rs workspace, whose root manifest
+# patches both to local paths (only the workspace-root [patch] applies).
 [patch.crates-io]
-ws63-pac = { git = "https://github.com/sanchuanhehe/ws63-pac" }
+ws63-pac = { git = "https://github.com/hispark-rs/ws63-pac" }
+bs2x-pac = { git = "https://github.com/hispark-rs/bs2x-pac" }

@@ -134,7 +134,7 @@ impl<'d> I2sDriver<'d> {
         Self { _i2s: i2s }
     }
 
-    fn regs(&self) -> &'static ws63_pac::i2s::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::i2s::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*I2s::ptr() }
     }

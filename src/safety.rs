@@ -1,4 +1,4 @@
-//! Compile-time safety checks for ws63-hal.
+//! Compile-time safety checks for hisi-riscv-hal.
 //!
 //! Provides:
 //! 1. Const assertions that key peripheral MMIO addresses are within range and
@@ -52,14 +52,14 @@ use crate::clock::PERIPHERAL_COUNT;
 
 // ── Verify timer tick arithmetic doesn't overflow at compile time ─
 
-const_assert!(crate::soc::ws63::SYSTEM_CLOCK_HZ == 240_000_000, "SYSTEM_CLOCK_HZ must be 240MHz (CPU/PLL clock)");
+const_assert!(crate::soc::chip::SYSTEM_CLOCK_HZ == 240_000_000, "SYSTEM_CLOCK_HZ must be 240MHz (CPU/PLL clock)");
 // The Timer/WDT count at the TCXO crystal (TIMER_CLOCK_HZ), not the CPU clock.
 const_assert!(
-    crate::soc::ws63::TIMER_CLOCK_HZ.is_multiple_of(1_000_000) && crate::soc::ws63::TIMER_CLOCK_HZ >= 1_000_000,
+    crate::soc::chip::TIMER_CLOCK_HZ.is_multiple_of(1_000_000) && crate::soc::chip::TIMER_CLOCK_HZ >= 1_000_000,
     "TIMER_CLOCK_HZ must be a whole number of MHz so us->ticks is exact"
 );
 // Verify the maximum safe us value for the timer is computable at the timer clock.
-const MAX_SAFE_TIMER_US: u64 = u32::MAX as u64 / (crate::soc::ws63::TIMER_CLOCK_HZ as u64 / 1_000_000);
+const MAX_SAFE_TIMER_US: u64 = u32::MAX as u64 / (crate::soc::chip::TIMER_CLOCK_HZ as u64 / 1_000_000);
 const_assert!(MAX_SAFE_TIMER_US > 17_000_000, "Timer max safe period must cover at least 17 seconds");
 
 // ── Type-level safety invariant helpers ──────────────────────────
@@ -94,7 +94,7 @@ pub struct GpioPinIndex(#[allow(dead_code)] u8);
 
 impl GpioPinIndex {
     pub const fn new(pin: u8) -> Option<Self> {
-        if pin < crate::soc::ws63::GPIO_COUNT as u8 { Some(GpioPinIndex(pin)) } else { None }
+        if pin < crate::soc::chip::GPIO_COUNT as u8 { Some(GpioPinIndex(pin)) } else { None }
     }
 }
 
@@ -120,43 +120,43 @@ mod tests {
 
     #[test]
     fn test_soc_constants_consistency() {
-        use crate::soc::ws63;
-        assert_eq!(ws63::SYSTEM_CLOCK_HZ, 240_000_000);
-        assert_eq!(ws63::TIMER_COUNT, 3);
-        assert_eq!(ws63::PWM_CHANNEL_COUNT, 8);
-        assert_eq!(ws63::DMA_CHANNEL_COUNT, 4);
-        assert_eq!(ws63::SPI_COUNT, 2);
-        assert_eq!(ws63::UART_COUNT, 3);
-        assert_eq!(ws63::I2C_COUNT, 2);
-        assert_eq!(ws63::GPIO_COUNT, 19);
-        assert_eq!(ws63::ULP_GPIO_COUNT, 8);
-        assert_eq!(ws63::LSADC_CHANNEL_COUNT, 6);
+        use crate::soc::chip;
+        assert_eq!(chip::SYSTEM_CLOCK_HZ, 240_000_000);
+        assert_eq!(chip::TIMER_COUNT, 3);
+        assert_eq!(chip::PWM_CHANNEL_COUNT, 8);
+        assert_eq!(chip::DMA_CHANNEL_COUNT, 4);
+        assert_eq!(chip::SPI_COUNT, 2);
+        assert_eq!(chip::UART_COUNT, 3);
+        assert_eq!(chip::I2C_COUNT, 2);
+        assert_eq!(chip::GPIO_COUNT, 19);
+        assert_eq!(chip::ULP_GPIO_COUNT, 8);
+        assert_eq!(chip::LSADC_CHANNEL_COUNT, 6);
     }
 
     #[test]
     fn test_max_safe_timer_us() {
         // The timer counts at the TCXO crystal (TIMER_CLOCK_HZ, 24 MHz), so the
         // max safe one-shot period without u32 overflow is u32::MAX / ticks_per_us.
-        let ticks_per_us = crate::soc::ws63::TIMER_CLOCK_HZ as u64 / 1_000_000;
+        let ticks_per_us = crate::soc::chip::TIMER_CLOCK_HZ as u64 / 1_000_000;
         let max_safe: u64 = u32::MAX as u64 / ticks_per_us;
         assert!(max_safe > 17_000_000); // at least 17 seconds
-        let overflow: u64 = crate::soc::ws63::TIMER_CLOCK_HZ as u64 * (max_safe + 1) / 1_000_000;
+        let overflow: u64 = crate::soc::chip::TIMER_CLOCK_HZ as u64 * (max_safe + 1) / 1_000_000;
         assert!(overflow > u32::MAX as u64); // beyond safe range overflows
     }
 
     #[test]
     fn test_pwm_channel_count_fits_u8() {
         // 8 PWM channels max, channel index 0-7
-        assert!(crate::soc::ws63::PWM_CHANNEL_COUNT <= 8);
+        assert!(crate::soc::chip::PWM_CHANNEL_COUNT <= 8);
     }
 
     #[test]
     fn test_dma_channel_bound_check() {
         // DMA channels 0-3 are valid, 4+ is out of bounds
-        assert!(crate::soc::ws63::DMA_CHANNEL_COUNT == 4);
+        assert!(crate::soc::chip::DMA_CHANNEL_COUNT == 4);
         for ch in 0u8..4 {
-            assert!(ch < crate::soc::ws63::DMA_CHANNEL_COUNT as u8);
+            assert!(ch < crate::soc::chip::DMA_CHANNEL_COUNT as u8);
         }
-        assert!(4u8 >= crate::soc::ws63::DMA_CHANNEL_COUNT as u8);
+        assert!(4u8 >= crate::soc::chip::DMA_CHANNEL_COUNT as u8);
     }
 }

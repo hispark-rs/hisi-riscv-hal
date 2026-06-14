@@ -100,7 +100,7 @@ impl<'d> IoConfigDriver<'d> {
         Self { _io_config: io_config }
     }
 
-    fn regs(&self) -> &'static ws63_pac::io_config::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::io_config::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*IoConfig::ptr() }
     }

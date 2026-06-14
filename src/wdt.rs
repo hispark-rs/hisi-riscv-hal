@@ -60,8 +60,8 @@ pub struct Watchdog<'d> {
     _wdt: Wdt<'d>,
 }
 
-/// WDT counting clock = the TCXO crystal ([`crate::soc::ws63::TCXO_HZ`], 24 MHz).
-pub const WDT_CLOCK_HZ: u32 = crate::soc::ws63::TCXO_HZ;
+/// WDT counting clock = the TCXO crystal ([`crate::soc::chip::TCXO_HZ`], 24 MHz).
+pub const WDT_CLOCK_HZ: u32 = crate::soc::chip::TCXO_HZ;
 
 /// Maximum `WDT_LOAD` field value (24-bit; the field occupies `WDT_LOAD` bits [31:8]).
 pub const WDT_MAX_LOAD: u32 = 0x00FF_FFFF;
@@ -79,7 +79,7 @@ impl<'d> Watchdog<'d> {
         wd
     }
 
-    fn regs(&self) -> &'static ws63_pac::wdt::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::wdt::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Wdt::ptr() }
     }

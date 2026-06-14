@@ -1,4 +1,4 @@
-//! # ws63-hal — Hardware Abstraction Layer for HiSilicon WS63 (RISC-V).
+//! # hisi-riscv-hal — Hardware Abstraction Layer for HiSilicon WS63 (RISC-V).
 //!
 //! A comprehensive HAL providing safe, idiomatic Rust APIs for all WS63
 //! peripherals. Modeled on esp-hal patterns with type-state GPIO, RAII
@@ -23,46 +23,129 @@
 #![allow(non_camel_case_types)]
 #![allow(rustdoc::broken_intra_doc_links)]
 
-#[cfg(feature = "async")]
-pub mod asynch;
-pub mod clock;
-pub mod clock_init;
+// Exactly one chip must be selected (each pulls its PAC + soc/<chip>.rs).
+#[cfg(all(feature = "chip-ws63", feature = "chip-bs21"))]
+compile_error!("hisi-riscv-hal: select exactly one chip — chip-ws63 (default) OR chip-bs21");
+#[cfg(not(any(feature = "chip-ws63", feature = "chip-bs21")))]
+compile_error!(
+    "hisi-riscv-hal: no chip selected — enable chip-ws63 (default) or chip-bs21 \
+     (e.g. --no-default-features --features chip-bs21)"
+);
+
+// ── Chip-neutral core (compiles for every chip) ────────────────────────────
 pub mod delay;
-pub mod dma;
-pub mod efuse;
-#[cfg(feature = "embassy")]
-pub mod embassy;
 pub mod gpio;
-pub mod i2c;
-pub mod i2s;
 pub mod interrupt;
-pub mod io_config;
-pub mod lsadc;
 pub mod macros;
 pub mod peripherals;
 pub mod prelude;
 pub mod private;
-pub mod pwm;
-pub mod rtc;
-pub mod safety;
-pub mod sfc;
-pub mod spi;
-pub mod system;
+pub mod soc;
 pub mod tcxo;
 pub mod time;
 pub mod timer;
-pub mod trng;
-pub mod tsensor;
 pub mod uart;
+
+// ── WS63-specific / not-yet-ported-to-BS21 drivers ──────────────────────────
+// Gated to chip-ws63 for now: they touch WS63-only peripherals (Wi-Fi/RF, the
+// full crypto block, SFC) or WS63-specific CRG/clock registers. BS21 ports land
+// in later milestones; gating keeps the BS21 build to the milestone-1 subset
+// while leaving the WS63 build (the default) byte-identical.
+#[cfg(all(feature = "chip-ws63", feature = "async"))]
+pub mod asynch;
+#[cfg(feature = "chip-ws63")]
+pub mod clock;
+#[cfg(feature = "chip-ws63")]
+pub mod clock_init;
+// DMA: the register block + the mem-to-mem path are chip-neutral (Dma0 uses the
+// chip-neutral PAC base). Peripheral-paced flow control (DmaPeripheral request IDs)
+// is chip-ws63-only within the module; BS2X gets mem-to-mem.
+pub mod dma;
+#[cfg(feature = "chip-ws63")]
+pub mod efuse;
+// Chip-neutral: the embassy-time driver reads TCXO_HZ/TIMER_CLOCK_HZ and the
+// alarm interrupt from `soc::chip`, and the TCXO/TIMER register blocks are
+// register-identical across WS63 and BS2X (verified vs fbb_ws63 / fbb_bs2x).
+#[cfg(feature = "embassy")]
+pub mod embassy;
+// I2C is a DIFFERENT IP per chip: WS63 has a custom v150 core (i2c.rs), BS2X has a
+// Synopsys DesignWare v151 core (i2c_v151.rs). Both are exposed as `hal::i2c`; the
+// register blocks come from each chip's PAC (the BS2X v151 layout was rewritten
+// into BS2X.svd / bs2x-pac for this).
+#[cfg(feature = "chip-ws63")]
+pub mod i2c;
+#[cfg(feature = "chip-bs21")]
+#[path = "i2c_v151.rs"]
+pub mod i2c;
+#[cfg(feature = "chip-ws63")]
+pub mod i2s;
+#[cfg(feature = "chip-ws63")]
+pub mod io_config;
+#[cfg(feature = "chip-ws63")]
+pub mod km;
+#[cfg(feature = "chip-ws63")]
+pub mod lsadc;
+// BS2X 13-bit ADC (v153) — chip-bs21-only (WS63's ADC is the different `lsadc`
+// v154). bs2x-pac has the correct `gadc` register block; the driver reaches the
+// ANA/PMU power sub-blocks (not in the PAC) via raw addresses. See gadc.rs.
+#[cfg(feature = "chip-bs21")]
+pub mod gadc;
+// BS2X-only HID peripherals (no WS63 analogue): key-matrix scanner + quadrature
+// decoder. bs2x-pac has faithful register blocks; see keyscan.rs / qdec.rs.
+#[cfg(feature = "chip-bs21")]
+pub mod keyscan;
+// BS2X PDM-mic audio front-end (v150) — config-level (the PCM data path is DMA-fed).
+#[cfg(feature = "chip-bs21")]
+pub mod pdm;
+// BS2X USB 2.0 OTG (Synopsys DWC OTG) — config-level (core-ID; full stack deferred).
+#[cfg(feature = "chip-ws63")]
+pub mod pke;
+#[cfg(feature = "chip-bs21")]
+pub mod qdec;
+#[cfg(feature = "chip-bs21")]
+pub mod usb;
+// BS2X-enabled drivers (ungated below: `pwm`, `spi`, `wdt`, `ulp_gpio`). These were
+// chip-ws63-only but build for BS2X too because (a) the driver code is already
+// chip-neutral (it goes through `crate::soc::pac` aliases), (b) their peripheral
+// instances are in both `Peripherals` structs, and (c) BS2X uses the SAME IP version
+// as WS63 — PWM v151, SPI v151, WDT v151 (the fbb_bs2x vs fbb_ws63 `*_regs_def.h`
+// headers are byte-identical bar copyright comments), and `ulp_gpio` reuses the GPIO
+// v150 block that regular `gpio` already drives on BS2X (blinky). So the register
+// layout is verified, not guessed. NB: functional bring-up on BS2X silicon/QEMU is
+// still future work (the bs2x QEMU machine doesn't model these yet) — what's
+// guaranteed today is a register-correct, compiling blocking API.
+//
+// Still chip-ws63-only (different IP version or no BS2X peripheral): i2c (v150 vs
+// BS2X v151), rtc (v100 vs v150), lsadc (v154 vs v153), i2s/sfc (no BS2X instance),
+// and the clock/crypto/system stack (deeper port).
+pub mod pwm;
+// RTC is a different IP per chip: WS63 v100 (rtc.rs), BS2X v150 (rtc_v150.rs, a
+// 64-bit counter with a coherent-read handshake). Both exposed as `hal::rtc`.
+#[cfg(feature = "chip-ws63")]
+pub mod rtc;
+#[cfg(feature = "chip-bs21")]
+#[path = "rtc_v150.rs"]
+pub mod rtc;
+#[cfg(feature = "chip-ws63")]
+pub mod safety;
+#[cfg(feature = "chip-ws63")]
+pub mod sfc;
+#[cfg(feature = "chip-ws63")]
+pub mod spacc;
+pub mod spi;
+#[cfg(feature = "chip-ws63")]
+pub mod system;
+// TRNG differs per chip: WS63 (trng.rs) vs BS2X v1 (trng_v1.rs). Both `hal::trng`.
+#[cfg(feature = "chip-ws63")]
+pub mod trng;
+#[cfg(feature = "chip-bs21")]
+#[path = "trng_v1.rs"]
+pub mod trng;
+#[cfg(feature = "chip-ws63")]
+pub mod tsensor;
 pub mod ulp_gpio;
 pub mod wdt;
 
-// Crypto modules
-pub mod km;
-pub mod pke;
-pub mod spacc;
-
-pub mod soc;
-
 pub use peripherals::Peripherals;
+#[cfg(feature = "chip-ws63")]
 pub use system::System;

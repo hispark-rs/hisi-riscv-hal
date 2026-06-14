@@ -89,7 +89,7 @@ pub const PERIPHERAL_COUNT: usize = 17;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::soc::ws63::SYSTEM_CLOCK_HZ;
+    use crate::soc::chip::SYSTEM_CLOCK_HZ;
 
     #[test]
     fn test_system_clock_240mhz() {

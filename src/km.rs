@@ -21,7 +21,7 @@ impl<'d> KmDriver<'d> {
         Self { _km: km }
     }
 
-    fn regs(&self) -> &'static ws63_pac::km::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::km::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Km::ptr() }
     }

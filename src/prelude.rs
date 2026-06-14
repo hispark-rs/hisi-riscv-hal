@@ -10,28 +10,44 @@ pub use embedded_io::{Read as _, Write as _};
 pub use nb::block;
 
 pub use crate::Peripherals;
-pub use crate::clock::Peripheral;
 pub use crate::delay::Delay;
-pub use crate::dma::{Dma0, DmaDriver, Sdma0};
-pub use crate::efuse::EfuseDriver;
 pub use crate::gpio::{
     AnyPin, Flex, GpioPin, Input, InputConfig, InputMode, InterruptTrigger, Output, OutputConfig, OutputMode, Pull,
 };
-pub use crate::i2c::I2c;
-pub use crate::i2s::I2sDriver;
 pub use crate::interrupt::{Interrupt, Priority};
-pub use crate::io_config::IoConfigDriver;
-pub use crate::lsadc::LsAdc;
-pub use crate::pwm::PwmChannel;
-pub use crate::rtc::RtcDriver;
-pub use crate::sfc::SfcDriver;
-pub use crate::spi::Spi;
-pub use crate::system::System;
 pub use crate::tcxo::TcxoDriver;
 pub use crate::time::{Duration, Instant, Rate};
 pub use crate::timer::{OneShotTimer, PeriodicTimer, TimerDriver};
-pub use crate::trng::TrngDriver;
-pub use crate::tsensor::TempSensor;
 pub use crate::uart::Uart;
+#[cfg(feature = "chip-ws63")]
+pub use crate::{io_config::IoConfigDriver, system::System};
+
+// WS63-only drivers (gated to chip-ws63 until ported to BS21).
+#[cfg(feature = "chip-ws63")]
+pub use crate::clock::Peripheral;
+#[cfg(feature = "chip-ws63")]
+pub use crate::dma::{Dma0, DmaDriver, Sdma0};
+#[cfg(feature = "chip-ws63")]
+pub use crate::efuse::EfuseDriver;
+#[cfg(feature = "chip-ws63")]
+pub use crate::i2c::I2c;
+#[cfg(feature = "chip-ws63")]
+pub use crate::i2s::I2sDriver;
+#[cfg(feature = "chip-ws63")]
+pub use crate::lsadc::LsAdc;
+#[cfg(feature = "chip-ws63")]
+pub use crate::pwm::PwmChannel;
+#[cfg(feature = "chip-ws63")]
+pub use crate::rtc::RtcDriver;
+#[cfg(feature = "chip-ws63")]
+pub use crate::sfc::SfcDriver;
+#[cfg(feature = "chip-ws63")]
+pub use crate::spi::Spi;
+#[cfg(feature = "chip-ws63")]
+pub use crate::trng::TrngDriver;
+#[cfg(feature = "chip-ws63")]
+pub use crate::tsensor::TempSensor;
+#[cfg(feature = "chip-ws63")]
 pub use crate::ulp_gpio::UlpGpioPin;
+#[cfg(feature = "chip-ws63")]
 pub use crate::wdt::Watchdog;

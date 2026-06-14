@@ -3,7 +3,7 @@
 //! Uses busy-loop timing based on the system clock frequency.
 //! Implements `embedded_hal::delay::DelayNs`.
 
-use crate::soc::ws63::SYSTEM_CLOCK_HZ;
+use crate::soc::chip::SYSTEM_CLOCK_HZ;
 
 /// Delay driver using busy-wait loops.
 pub struct Delay;

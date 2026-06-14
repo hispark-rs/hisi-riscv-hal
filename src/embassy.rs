@@ -1,19 +1,24 @@
-//! embassy-time `Driver` for the WS63 (`embassy` feature).
+//! embassy-time `Driver` for the HiSilicon WS63 / BS2X family (`embassy` feature).
 //!
-//! Makes WS63 an [embassy-time](https://docs.rs/embassy-time) provider so
+//! Makes the chip an [embassy-time](https://docs.rs/embassy-time) provider so
 //! `Timer::after`, `Instant`, `Ticker`, etc. work under embassy-executor:
 //!
-//! * `now()` reads the **TCXO 64-bit free-running counter** (24 MHz) and scales
+//! * `now()` reads the **TCXO 64-bit free-running counter** (the crystal rate
+//!   [`crate::soc::chip::TCXO_HZ`] — 24 MHz on WS63, 32 MHz on BS2X) and scales
 //!   it to embassy-time's 1 MHz tick (microseconds). It is monotonic and tracks
 //!   real (virtual, on QEMU) elapsed time.
 //! * Alarms use **one TIMER channel** (`ALARM_CH`) as a one-shot; on expiry the
 //!   app routes the trap to [`on_alarm_interrupt`], which drains the expired
 //!   wakers and re-arms for the next deadline ([`embassy_time_queue_utils`]).
 //!
-//! Requirements (see `ws63-examples/embassy_multitask`):
+//! The TCXO and TIMER register blocks are register-identical across the family
+//! (verified vs the fbb_ws63 / fbb_bs2x C SDKs); the only per-chip values — the
+//! crystal rate and the alarm IRQ — come from `soc::chip`.
+//!
+//! Requirements (see `examples/ws63/embassy_multitask`, `examples/bs21/embassy_multitask`):
 //! * The application enables `embassy-time/tick-hz-1_000_000` (matches `TICK_HZ`).
-//! * The application routes the TIMER alarm-channel trap (mcause TIMER_INT0) to
-//!   [`on_alarm_interrupt`] and has enabled global interrupts.
+//! * The application routes the TIMER alarm-channel trap (`mcause & 0xFFF` ==
+//!   [`ALARM_IRQ`]) to [`on_alarm_interrupt`] and has enabled global interrupts.
 
 use core::cell::RefCell;
 use core::task::Waker;
@@ -22,15 +27,21 @@ use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
-use crate::interrupt::{self, Interrupt};
+use crate::interrupt;
 use crate::peripherals::{Tcxo, Timer};
-use crate::soc::ws63::TIMER_CLOCK_HZ;
+use crate::soc::chip::TIMER_CLOCK_HZ;
 
-const TCXO_HZ: u64 = crate::soc::ws63::TCXO_HZ as u64;
+const TCXO_HZ: u64 = crate::soc::chip::TCXO_HZ as u64;
 /// embassy-time tick rate — MUST match the app's `embassy-time/tick-hz-*` feature.
 const TICK_HZ: u64 = 1_000_000;
-/// TIMER channel reserved for embassy-time alarms (its IRQ is TIMER_INT0 = 26).
+/// TIMER channel reserved for embassy-time alarms.
 const ALARM_CH: usize = 0;
+
+/// IRQ number of the embassy-time alarm interrupt — **26 on WS63** (`TIMER_INT0`,
+/// a standard `mie`-bit local interrupt), **53 on BS2X** (`TIMER_0`, a LOCI custom
+/// local interrupt). Both are delivered with `mcause = <irq>`, so the application's
+/// machine-trap handler routes the alarm by testing `mcause & 0xFFF == ALARM_IRQ`.
+pub const ALARM_IRQ: u32 = crate::soc::chip::ALARM_INTERRUPT as u32;
 
 /// Read the TCXO 64-bit counter and scale to embassy-time ticks (µs).
 fn now_ticks() -> u64 {
@@ -48,15 +59,15 @@ fn now_ticks() -> u64 {
     let c2 = r.tcxo_count2().read().bits() as u64;
     let c3 = r.tcxo_count3().read().bits() as u64;
     let count = (c3 << 48) | (c2 << 32) | (c1 << 16) | c0;
-    // 24 MHz counter -> 1 MHz ticks.
+    // TCXO crystal counter -> 1 MHz ticks (TCXO_HZ is per-chip from soc::chip).
     count * TICK_HZ / TCXO_HZ
 }
 
-struct Ws63Driver {
+struct HisiTimeDriver {
     queue: Mutex<RefCell<Queue>>,
 }
 
-impl Ws63Driver {
+impl HisiTimeDriver {
     /// Program the alarm TIMER one-shot to fire at tick `at` (or disable it for
     /// `u64::MAX`). Called inside a critical section.
     fn set_alarm(&self, _cs: CriticalSection<'_>, at: u64) {
@@ -83,13 +94,16 @@ impl Ws63Driver {
         }
         unsafe {
             r.timer0_load_count(ALARM_CH).write(|w| w.bits(counts as u32));
-            r.timer0_control(ALARM_CH).write(|w| w.bits(1)); // EN, IRQ unmasked
-            interrupt::enable(Interrupt::TIMER_INT0);
+            // Raw control = 0x1: enable (bit0), mode bits = 0b00 (one-shot in HW —
+            // do NOT use the PAC's typed `.mode()`, whose enum is inverted vs the
+            // dw_apb timer), int_mask (bit3) = 0 = unmasked. Verified vs fbb SDKs.
+            r.timer0_control(ALARM_CH).write(|w| w.bits(1));
+            interrupt::enable(crate::soc::chip::ALARM_INTERRUPT);
         }
     }
 }
 
-impl Driver for Ws63Driver {
+impl Driver for HisiTimeDriver {
     fn now(&self) -> u64 {
         now_ticks()
     }
@@ -107,7 +121,7 @@ impl Driver for Ws63Driver {
 }
 
 embassy_time_driver::time_driver_impl!(
-    static DRIVER: Ws63Driver = Ws63Driver {
+    static DRIVER: HisiTimeDriver = HisiTimeDriver {
         queue: Mutex::new(RefCell::new(Queue::new()))
     }
 );

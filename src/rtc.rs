@@ -33,7 +33,7 @@ impl<'d> RtcDriver<'d> {
         Self { _rtc: rtc }
     }
 
-    fn regs(&self) -> &'static ws63_pac::rtc::RegisterBlock {
+    fn regs(&self) -> &'static crate::soc::pac::rtc::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
         unsafe { &*Rtc::ptr() }
     }
