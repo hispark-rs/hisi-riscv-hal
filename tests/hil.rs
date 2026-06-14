@@ -82,10 +82,10 @@ mod tests {
     use hisi_riscv_hal as hal;
     // Chip-selected PAC alias: the suite names `pac::{Peripherals, Gpio0, ...}`
     // chip-agnostically and the active chip feature picks the concrete PAC.
-    #[cfg(feature = "chip-ws63")]
-    use ws63_pac as pac;
     #[cfg(feature = "chip-bs21")]
     use bs2x_pac as pac;
+    #[cfg(feature = "chip-ws63")]
+    use ws63_pac as pac;
 
     /// `#[init]` runs before every test. It takes the singleton `Peripherals`
     /// once and hands them to each test as shared state — proving the PAC's
@@ -191,12 +191,12 @@ mod tests {
     /// assert the count changed (advanced). Register/poll level only — we do NOT
     /// rely on the interrupt firing (embedded-test owns the trap handler). The
     /// timer ticks at the 24 MHz TCXO clock, so it moves quickly.
-    // IGNORED: the counter did not advance on silicon (the assert panicked) — the
-    // timer likely needs a clock-gate/start step the QEMU model doesn't require.
-    // The timer driver is not yet silicon-validated (see hisi-riscv-rs#10); needs
-    // timer bring-up before this can run.
+    // Previously #[ignore]'d: the counter appeared frozen on silicon because the
+    // old current_value() read the latched `current_value0` register raw. WS63's
+    // TIMER_V150 only refreshes that latch on a cnt_req/cnt_lock handshake (the
+    // vendor HAL always does it; QEMU exposes a live counter so the bug hid). The
+    // driver's current_value() now performs the handshake, so this runs on silicon.
     #[test]
-    #[ignore = "timer counter doesn't advance on silicon yet (needs timer bring-up, #10)"]
     fn timer_counter_advances() {
         use hal::timer::{TimerDriver, TimerMode};
         // SAFETY: sequential single-hart run; TIMER singleton not otherwise held.
@@ -215,47 +215,92 @@ mod tests {
     }
 
     /// DMA memory-to-memory end-to-end (dma.rs / examples/ws63/dma_loopback
-    /// part 2). Run a real SDMA mem→mem transfer on logical channel 8 (→ secure
-    /// controller physical channel 0), poll the raw transfer-done bit (bounded),
-    /// then assert the destination buffer equals the source. This is the
-    /// highest-value end-to-end test: actual data movement by the DMA engine,
-    /// self-contained (no external wiring). Mirrors the SDMA half of dma_loopback.
-    // IGNORED: on real WS63 silicon this hangs the bus and drops the debug link
-    // (the SDMA "secure DMA" path needs security/clock setup the QEMU model skips).
-    // QEMU-validated via dma_loopback; needs on-silicon SDMA bring-up before it can
-    // run in the HIL suite without crashing the chip + aborting the whole run.
+    /// part 1's controller). Run a real mem→mem transfer on the PRIMARY,
+    /// non-secure DMA (`Dma0` @ 0x4A00_0000) logical channel 0, wait for the
+    /// channel-enable bit to auto-clear (completion), then assert the destination
+    /// buffer equals the source. The highest-value end-to-end test: actual data
+    /// movement by the DMA engine, self-contained (no external wiring).
+    /// **Silicon-validated 2026-06-14.**
+    //
+    // Truth is the vendor C SDK + silicon, NOT QEMU. Three silicon facts the QEMU
+    // model glosses over (each is a tracked QEMU issue, not something we work
+    // around here):
+    //   1. START: the transfer is kicked by setting the channel's bit in the
+    //      global `dmac_en_chns` (DesignWare ChEnReg), which `configure_channel`
+    //      now does — the per-channel CFG `ch_enable` bit alone does not start the
+    //      engine on silicon (it does in QEMU). The DMAC auto-clears `en_chns[ch]`
+    //      on completion, which is how the vendor (`hal_dma_v151_is_enabled`) and
+    //      this test detect "done" — NOT `dmac_ori_int_st` (the QEMU path).
+    //   2. CLOCK: `enable_controller()` bypasses the M_DMA auto-clock-gate
+    //      (DMA_CLK_AUTO_CTRL_REG 0x4400_0244 |= 0x80000) so the clock stays on.
+    //   3. CACHE: the RV32 core has a non-coherent D-cache, so we
+    //      `cache::clean_range(src)` before (flush the CPU's bytes to RAM) and
+    //      `cache::invalidate_range(dst)` after (drop the stale cached zeros).
+    //      Buffers are 32-byte (cache-line) aligned so those ops touch only them.
+    //
+    // Uses Dma0 (M_DMA), not the secure SDMA (0x520A_0000): the WS63 vendor SDK
+    // does ALL mem-to-mem through the primary controller (CONFIG_DMA_SUPPORT_SMDMA
+    // is unset in every build, g_sdma_base_addr is never assigned), so the secure
+    // block is never provisioned on silicon — a transfer there stalls AXI and
+    // drops the debug link.
     #[test]
-    #[ignore = "SDMA mem-to-mem hangs the bus on silicon (needs SDMA bring-up); QEMU-only for now"]
     fn dma_mem_to_mem() {
-        use hal::dma::{DmaChannelConfig, DmaDriver, Sdma0};
+        use hal::dma::{Dma0, DmaChannelConfig, DmaDriver};
         const N: usize = 8;
-        let src: [u32; N] =
-            [0xaaaa_0001, 0xaaaa_0002, 0xaaaa_0003, 0xaaaa_0004, 0xaaaa_0005, 0xaaaa_0006, 0xaaaa_0007, 0xaaaa_0008];
-        let dst: [u32; N] = [0u32; N];
+        // 32-byte (cache-line) aligned so the by-range clean/invalidate below
+        // only ever touches these buffers' own lines.
+        #[repr(C, align(32))]
+        struct Aligned([u32; N]);
+        let src = Aligned([
+            0xaaaa_0001,
+            0xaaaa_0002,
+            0xaaaa_0003,
+            0xaaaa_0004,
+            0xaaaa_0005,
+            0xaaaa_0006,
+            0xaaaa_0007,
+            0xaaaa_0008,
+        ]);
+        let mut dst = Aligned([0u32; N]);
+        let bytes = N * core::mem::size_of::<u32>();
+        let src_ptr = src.0.as_ptr() as usize;
+        let dst_ptr = dst.0.as_mut_ptr() as usize;
 
-        // SAFETY: sequential single-hart run; SDMA singleton not otherwise held.
-        let mut sdma = DmaDriver::<Sdma0>::new_sdma(unsafe { hal::peripherals::Sdma::steal() });
-        sdma.enable_controller();
-        // Logical channel 8 → physical channel 0 on the secure controller.
-        sdma.configure_channel(8, src.as_ptr() as u32, dst.as_ptr() as u32, N as u16, &DmaChannelConfig::default());
+        // Clean the source out of the D-cache so the DMA master reads the bytes
+        // the CPU just wrote, not stale RAM. SAFETY: real, owned stack range.
+        unsafe { hal::cache::clean_range(src_ptr, bytes) };
 
-        // Poll the controller's raw transfer-done mask for physical channel 0,
-        // bounded so a stuck transfer can't hang the test run (real-HW pattern).
+        // SAFETY: sequential single-hart run; DMA singleton not otherwise held.
+        let mut dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
+        dma.enable_controller();
+        // Logical channel 0 == physical channel 0 on the primary controller.
+        dma.configure_channel(0, src_ptr as u32, dst_ptr as u32, N as u16, &DmaChannelConfig::default());
+
+        // Wait (bounded) for completion the way the vendor driver does
+        // (`hal_dma_v151_is_enabled`): the DMAC auto-clears this channel's bit in
+        // `en_chns` when the single-block transfer finishes, so the channel going
+        // *not enabled* is the done signal. The bound stops a stuck transfer from
+        // hanging the run. (We deliberately do NOT poll `dmac_ori_int_st` — that
+        // is the path QEMU happens to drive; the silicon truth is `en_chns`.)
         let mut done = false;
         let mut budget = 1_000_000u32;
         while budget > 0 {
-            if sdma.raw_interrupt_status().0 & 0x01 != 0 {
+            if !dma.channel_enabled(0) {
                 done = true;
                 break;
             }
             budget -= 1;
         }
-        sdma.clear_transfer_interrupt(8);
-        assert!(done, "SDMA channel 8 transfer-done bit never set");
+        dma.clear_transfer_interrupt(0);
+        assert!(done, "DMA channel 0 transfer never completed (en_chns[0] stayed set)");
 
-        for (i, &want) in src.iter().enumerate() {
+        // Invalidate the destination so the CPU reads what the DMA wrote to RAM,
+        // not the stale (zero) copy cached when `dst` was initialised.
+        unsafe { hal::cache::invalidate_range(dst_ptr, bytes) };
+
+        for (i, &want) in src.0.iter().enumerate() {
             // Volatile: the DMA engine wrote `dst` behind the compiler's back.
-            let got = unsafe { core::ptr::read_volatile(dst.as_ptr().add(i)) };
+            let got = unsafe { core::ptr::read_volatile(dst.0.as_ptr().add(i)) };
             assert_eq!(got, want, "DMA mem→mem mismatch @{}: got=0x{:08x} want=0x{:08x}", i, got, want);
         }
     }
@@ -357,5 +402,58 @@ mod tests {
         assert_eq!(r.div_l().read().bits(), exp_div_l, "UART0 div_l mismatch");
         assert_eq!(r.div_h().read().bits(), exp_div_h, "UART0 div_h mismatch");
         assert_eq!(r.div_fra().read().bits(), exp_div_fra, "UART0 div_fra mismatch");
+    }
+
+    // (A pwm0_period_duty_config register-config test was tried but needs full
+    // PWM clock-tree bring-up — the 9-bit CKEN_CTL0 field AND the CLDO_CRG_DIV_CTL3
+    // dividers with LOAD_DIV_EN, per vendor `pwm_port_clock_enable` — before the
+    // PWM registers latch writes. Deferred as PWM bring-up, not added as a flaky
+    // or #[ignore]'d test.)
+
+    /// TRNG produces entropy (trng.rs). Read several 32-bit words from the TRNG
+    /// hardware and assert at least two reads succeed AND not all are identical —
+    /// a real on-silicon entropy liveness check (no jumpers). The FRO source can
+    /// need a few attempts to stabilise on cold start (per `read_blocking`), so
+    /// we retry.
+    #[test]
+    fn trng_produces_entropy() {
+        use hal::trng::TrngDriver;
+        // SAFETY: sequential single-hart run; TRNG singleton not otherwise held.
+        let trng = TrngDriver::new(unsafe { hal::peripherals::Trng::steal() });
+        let mut samples = [0u32; 4];
+        let mut got = 0usize;
+        for _ in 0..16 {
+            if got >= samples.len() {
+                break;
+            }
+            if let Ok(w) = trng.read_blocking() {
+                samples[got] = w;
+                got += 1;
+            }
+        }
+        assert!(got >= 2, "TRNG produced fewer than 2 words (got {got})");
+        let all_same = samples[..got].iter().all(|&w| w == samples[0]);
+        assert!(!all_same, "TRNG returned {got} identical words 0x{:08x} — no entropy", samples[0]);
+    }
+
+    /// eFuse read path (efuse.rs / reset_demo). Set the read clock period for the
+    /// detected TCXO, then read byte 0 and assert the read COMPLETES (`Ok`) — a
+    /// read-only liveness check of the eFuse controller on silicon. Contents are
+    /// board-specific, so we assert the path works, not a particular value.
+    ///
+    /// WS63-only: `set_clock_period`/`read_byte` and the `Efuse` peripheral are
+    /// chip-ws63 in the HAL.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn efuse_read_byte0_ok() {
+        use hal::efuse::EfuseDriver;
+        // SAFETY: sequential single-hart run; EFUSE singleton not otherwise held.
+        let mut efuse = EfuseDriver::new(unsafe { hal::peripherals::Efuse::steal() });
+        // 0x29 @ 24 MHz TCXO, 0x19 @ 40 MHz (per the driver docs / vendor SDK).
+        let period: u8 =
+            if hal::soc::chip::uart_boot_clock_hz() == hal::soc::chip::UART_BOOT_CLOCK_24M_HZ { 0x29 } else { 0x19 };
+        efuse.set_clock_period(period);
+        let r = efuse.read_byte(0);
+        assert!(r.is_ok(), "eFuse read_byte(0) failed: {:?}", r.err());
     }
 }

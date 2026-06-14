@@ -370,6 +370,90 @@ mod tests {
     }
 }
 
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use crate::soc::chip::I2C_CLOCK_HZ;
+    use proptest::prelude::*;
+
+    // Re-derivation of the SCL-divider math in `configure_i2c` (same u32 types,
+    // same rounding, same zero-guard) WITHOUT touching any MMIO register:
+    //   freq   = if freq == 0 { 1 } else { freq };
+    //   period = pclk / (2 * freq);
+    //   half   = period / 2;
+    // The `2 * freq` term is a u32 multiply, so the driver's math is only
+    // well-defined for freq <= u32::MAX/2 (a value the divider would never be
+    // configured with — kHz..MHz bus speeds). We fuzz that defined regime here
+    // and exercise the zero-guard / overflow boundary in dedicated tests.
+    fn scl_half(freq: u32) -> u32 {
+        let pclk = I2C_CLOCK_HZ;
+        let freq = if freq == 0 { 1 } else { freq };
+        let period = pclk / (2 * freq);
+        period / 2
+    }
+
+    proptest! {
+        /// Fuzz: the divider never panics (no div-by-zero) across the full u32
+        /// frequency range — the `freq == 0` guard forces the divisor to >= 2.
+        #[test]
+        fn divider_never_div_by_zero(freq in any::<u32>()) {
+            // Mirror the guard, then the divisor `2 * freq` is computed in u64 to
+            // avoid the test itself overflowing; the property under test is that a
+            // non-zero divisor exists for every input (no div-by-zero panic).
+            let f = if freq == 0 { 1u64 } else { freq as u64 };
+            let divisor = 2 * f;
+            prop_assert!(divisor >= 2);
+            let _ = I2C_CLOCK_HZ as u64 / divisor;
+        }
+
+        /// Fuzz: across realistic bus frequencies (1 Hz ..= I2C_CLOCK_HZ) the
+        /// half-period field never exceeds the source clock — it is a fraction of
+        /// `pclk`, so it always fits whatever sane SCL_H/SCL_L width the HW has.
+        #[test]
+        fn half_period_within_clock(freq in 1u32..=I2C_CLOCK_HZ) {
+            prop_assert!(scl_half(freq) <= I2C_CLOCK_HZ);
+        }
+
+        /// Fuzz: the divider is monotonic — a higher requested SCL frequency never
+        /// yields a larger half-period (faster bus ⇒ shorter clock half-period).
+        #[test]
+        fn divider_is_monotonic(a in 1u32..=I2C_CLOCK_HZ, b in 1u32..=I2C_CLOCK_HZ) {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            // lo <= hi requested freq ⇒ half(lo) >= half(hi)
+            prop_assert!(scl_half(lo) >= scl_half(hi));
+        }
+
+        /// Fuzz: the `freq == 0` guard means a 0 request is treated identically to
+        /// a 1 Hz request (no panic, deterministic value), never a div-by-zero.
+        #[test]
+        fn zero_freq_guard_matches_one(_seed in 0u32..4) {
+            prop_assert_eq!(scl_half(0), scl_half(1));
+        }
+
+        /// Fuzz: the 7-bit write-address encoding (`addr << 1`, R/W = 0) keeps the
+        /// LSB clear and round-trips back to the original address.
+        #[test]
+        fn write_addr_encoding_roundtrips(addr in 0u8..=0x7F) {
+            let addr_w = (addr as u32) << 1;
+            prop_assert_eq!(addr_w & 0x01, 0, "write R/W bit must be clear");
+            prop_assert_eq!(addr_w >> 1, addr as u32, "address must round-trip");
+            prop_assert!(addr_w <= 0xFE, "7-bit write byte stays in a u8");
+        }
+
+        /// Fuzz: the read-address encoding (`(addr << 1) | 1`, R/W = 1) sets the
+        /// LSB, round-trips, and differs from the write byte in exactly bit 0.
+        #[test]
+        fn read_addr_encoding_roundtrips(addr in 0u8..=0x7F) {
+            let addr_w = (addr as u32) << 1;
+            let addr_r = ((addr as u32) << 1) | 1;
+            prop_assert_eq!(addr_r & 0x01, 1, "read R/W bit must be set");
+            prop_assert_eq!(addr_r >> 1, addr as u32, "address must round-trip");
+            prop_assert_eq!(addr_w ^ addr_r, 1, "write/read bytes differ only in bit 0");
+        }
+    }
+}
+
 // ── Async I2C (embedded-hal-async) ──────────────────────────────────────────
 // Reuses the blocking transaction (FIFO-paced; synchronous loopback on ws63-qemu).
 #[cfg(feature = "async")]

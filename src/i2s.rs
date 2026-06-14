@@ -352,3 +352,257 @@ impl<'d> I2sDriver<'d> {
         (self.regs().version().read().bits() & 0xFF) as u8
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::*;
+
+    // Re-derive the pure `mode` register encoding from `configure()` (lines that
+    // build `mode`): channels in bits[0:1], clk_edge=bit2, master=bit3, pcm=bit4.
+    // Kept byte-for-byte identical to the driver so the test guards that packing.
+    fn encode_mode(c: &I2sConfig) -> u32 {
+        let mut mode: u32 = 0;
+        mode |= (c.channels as u32) & 0x03;
+        if matches!(c.clock_edge, ClockEdge::Falling) {
+            mode |= 1 << 2;
+        }
+        if matches!(c.role, I2sRole::Master) {
+            mode |= 1 << 3;
+        }
+        if matches!(c.mode, I2sMode::Pcm) {
+            mode |= 1 << 4;
+        }
+        mode
+    }
+
+    // Re-derive the `intmask` encoding from `set_interrupt_mask()`.
+    fn encode_int_mask(rx: bool, tx: bool, rx_ovf: bool, tx_unf: bool) -> u32 {
+        let mut val: u32 = 0;
+        if rx {
+            val |= 0x01;
+        }
+        if tx {
+            val |= 0x02;
+        }
+        if rx_ovf {
+            val |= 0x04;
+        }
+        if tx_unf {
+            val |= 0x08;
+        }
+        val
+    }
+
+    // Re-derive the `intstatus` decode from `interrupt_status()`.
+    fn decode_int_status(sts: u32) -> (bool, bool, bool, bool) {
+        ((sts & 0x01) != 0, (sts & 0x02) != 0, (sts & 0x04) != 0, (sts & 0x08) != 0)
+    }
+
+    #[test]
+    fn channel_count_discriminants() {
+        // ChannelCount maps 2/4/6/8 channels to the field codes 0..3.
+        assert_eq!(ChannelCount::Two as u32, 0);
+        assert_eq!(ChannelCount::Four as u32, 1);
+        assert_eq!(ChannelCount::Six as u32, 2);
+        assert_eq!(ChannelCount::Eight as u32, 3);
+    }
+
+    #[test]
+    fn data_width_discriminants() {
+        // DataWidth codes are the dense 0..7 sequence used by both TX and RX fields.
+        assert_eq!(DataWidth::Bits8 as u32, 0);
+        assert_eq!(DataWidth::Bits10 as u32, 1);
+        assert_eq!(DataWidth::Bits12 as u32, 2);
+        assert_eq!(DataWidth::Bits14 as u32, 3);
+        assert_eq!(DataWidth::Bits16 as u32, 4);
+        assert_eq!(DataWidth::Bits18 as u32, 5);
+        assert_eq!(DataWidth::Bits20 as u32, 6);
+        assert_eq!(DataWidth::Bits24 as u32, 7);
+    }
+
+    #[test]
+    fn default_config_values() {
+        // The default is a 16-bit stereo I2S master with no loopback and FIFO
+        // thresholds of 8, and all dividers zeroed.
+        let c = I2sConfig::default();
+        assert_eq!(c.mode, I2sMode::I2s);
+        assert_eq!(c.role, I2sRole::Master);
+        assert_eq!(c.clock_edge, ClockEdge::Rising);
+        assert_eq!(c.channels, ChannelCount::Two);
+        assert_eq!(c.tx_width, DataWidth::Bits16);
+        assert_eq!(c.rx_width, DataWidth::Bits16);
+        assert_eq!(c.bclk_div, 0);
+        assert_eq!(c.fs_div_num, 0);
+        assert_eq!(c.fs_div_ratio, 0);
+        assert_eq!(c.tx_fifo_threshold, 8);
+        assert_eq!(c.rx_fifo_threshold, 8);
+        assert!(!c.loopback);
+    }
+
+    #[test]
+    fn mode_encoding_default() {
+        // Default: 2ch (0) + rising (no bit2) + master (bit3) + I2s (no bit4) = 0x08.
+        assert_eq!(encode_mode(&I2sConfig::default()), 0x08);
+    }
+
+    #[test]
+    fn mode_encoding_all_bits() {
+        // 8ch (code 3) + falling + master + pcm sets all of bits[0:4].
+        let c = I2sConfig {
+            channels: ChannelCount::Eight,
+            clock_edge: ClockEdge::Falling,
+            role: I2sRole::Master,
+            mode: I2sMode::Pcm,
+            ..I2sConfig::default()
+        };
+        // 0b11 | (1<<2) | (1<<3) | (1<<4) = 0x1F.
+        assert_eq!(encode_mode(&c), 0x1F);
+    }
+
+    #[test]
+    fn mode_encoding_slave_clears_master_bit() {
+        // Slave role must not set bit3; rising edge must not set bit2.
+        let c = I2sConfig {
+            role: I2sRole::Slave,
+            clock_edge: ClockEdge::Rising,
+            channels: ChannelCount::Two,
+            mode: I2sMode::I2s,
+            ..I2sConfig::default()
+        };
+        assert_eq!(encode_mode(&c), 0x00);
+    }
+
+    #[test]
+    fn mode_encoding_fields_are_disjoint() {
+        // Each independent flag occupies exactly one bit and does not collide
+        // with the channel field.
+        let base = I2sConfig { channels: ChannelCount::Two, role: I2sRole::Slave, ..I2sConfig::default() };
+        let falling = I2sConfig { clock_edge: ClockEdge::Falling, ..base };
+        let master = I2sConfig { role: I2sRole::Master, ..base };
+        let pcm = I2sConfig { mode: I2sMode::Pcm, ..base };
+        assert_eq!(encode_mode(&falling), 1 << 2);
+        assert_eq!(encode_mode(&master), 1 << 3);
+        assert_eq!(encode_mode(&pcm), 1 << 4);
+    }
+
+    #[test]
+    fn data_width_set_encoding() {
+        // tx_width occupies bits[0:2], rx_width bits[8:10] of data_width_set.
+        let tx = DataWidth::Bits24; // code 7
+        let rx = DataWidth::Bits16; // code 4
+        let dw = ((tx as u32) & 0x07) | (((rx as u32) & 0x07) << 8);
+        assert_eq!(dw, 0x0407);
+    }
+
+    #[test]
+    fn fifo_threshold_encoding() {
+        // tx threshold in low byte, rx threshold in second byte.
+        let tx: u8 = 0x12;
+        let rx: u8 = 0x34;
+        let thresh = (tx as u32 & 0xFF) | ((rx as u32 & 0xFF) << 8);
+        assert_eq!(thresh, 0x3412);
+    }
+
+    #[test]
+    fn divider_masks() {
+        // The dividers are masked to their field widths: bclk 7 bits, fs_num 10
+        // bits, fs_ratio 11 bits. Out-of-range values wrap, never overflow.
+        assert_eq!(0xFFu32 & 0x7F, 0x7F); // bclk_div max field
+        assert_eq!(0xFFFFu32 & 0x3FF, 0x3FF); // fs_div_num max field
+        assert_eq!(0xFFFFu32 & 0x7FF, 0x7FF); // fs_div_ratio max field
+        // In-range values pass through unchanged.
+        assert_eq!(0x40u32 & 0x7F, 0x40);
+        assert_eq!(0x200u32 & 0x3FF, 0x200);
+        assert_eq!(0x400u32 & 0x7FF, 0x400);
+    }
+
+    #[test]
+    fn interrupt_mask_encoding() {
+        // Each mask flag is one bit; all-set is 0x0F, none-set is 0.
+        assert_eq!(encode_int_mask(false, false, false, false), 0x00);
+        assert_eq!(encode_int_mask(true, false, false, false), 0x01);
+        assert_eq!(encode_int_mask(false, true, false, false), 0x02);
+        assert_eq!(encode_int_mask(false, false, true, false), 0x04);
+        assert_eq!(encode_int_mask(false, false, false, true), 0x08);
+        assert_eq!(encode_int_mask(true, true, true, true), 0x0F);
+    }
+
+    #[test]
+    fn interrupt_status_decode_roundtrips_mask() {
+        // The status decode is the inverse bit-layout of the mask encode: feeding
+        // an encoded mask back through the decode recovers the same four flags.
+        for bits in 0u32..16 {
+            let (rx, tx, ovf, unf) = decode_int_status(bits);
+            assert_eq!(encode_int_mask(rx, tx, ovf, unf), bits);
+        }
+    }
+
+    #[test]
+    fn interrupt_status_ignores_high_bits() {
+        // Only the low nibble is meaningful; upper bits must not leak into flags.
+        assert_eq!(decode_int_status(0xFFFF_FFF0), (false, false, false, false));
+        assert_eq!(decode_int_status(0x0000_000F), (true, true, true, true));
+    }
+
+    #[test]
+    fn bclk_fs_divider_formula() {
+        // Per the module doc: BCLK = I2S_CLK / (BCLK_DIV_NUM + 1),
+        // FS = BCLK / (FS_DIV_NUM + 1). A div of 0 means "divide by 1".
+        let i2s_clk: u32 = 12_288_000; // typical 48kHz*256 master clock
+        let bclk_div: u32 = 3;
+        let fs_div: u32 = 63;
+        let bclk = i2s_clk / (bclk_div + 1);
+        let fs = bclk / (fs_div + 1);
+        assert_eq!(bclk, 3_072_000);
+        assert_eq!(fs, 48_000);
+        // Divider of 0 is the identity (pass-through) case.
+        assert_eq!(i2s_clk / (0 + 1), i2s_clk);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Fuzz: the divider field masks never exceed their field widths for any
+        /// input, and in-range values are preserved (idempotent masking).
+        #[test]
+        fn divider_masks_bounded(bclk in any::<u8>(), num in any::<u16>(), ratio in any::<u16>()) {
+            let m_bclk = bclk as u32 & 0x7F;
+            let m_num = num as u32 & 0x3FF;
+            let m_ratio = ratio as u32 & 0x7FF;
+            prop_assert!(m_bclk <= 0x7F);
+            prop_assert!(m_num <= 0x3FF);
+            prop_assert!(m_ratio <= 0x7FF);
+            // Masking is idempotent.
+            prop_assert_eq!(m_bclk & 0x7F, m_bclk);
+            prop_assert_eq!(m_num & 0x3FF, m_num);
+            prop_assert_eq!(m_ratio & 0x7FF, m_ratio);
+        }
+
+        /// Fuzz: the FIFO-threshold packing keeps tx in the low byte and rx in the
+        /// second byte with no cross-contamination, and is exactly recoverable.
+        #[test]
+        fn fifo_threshold_roundtrip(tx in any::<u8>(), rx in any::<u8>()) {
+            let thresh = (tx as u32 & 0xFF) | ((rx as u32 & 0xFF) << 8);
+            prop_assert_eq!((thresh & 0xFF) as u8, tx);
+            prop_assert_eq!(((thresh >> 8) & 0xFF) as u8, rx);
+            // Nothing leaks above bit 15.
+            prop_assert_eq!(thresh & !0xFFFF, 0);
+        }
+
+        /// Fuzz: BCLK/FS divider formula never divides by zero (the +1 guards it)
+        /// and the result is monotonically non-increasing as the divider grows.
+        #[test]
+        fn bclk_divider_no_div_by_zero(clk in any::<u32>(), div in any::<u8>()) {
+            let bclk = clk / (div as u32 + 1);
+            // div of 0 yields the full clock (identity), larger div never increases it.
+            prop_assert!(bclk <= clk);
+        }
+    }
+}

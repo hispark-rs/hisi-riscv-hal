@@ -393,3 +393,194 @@ fn build_pad_ctrl(drive: DriveStrength, pull: PullResistor, schmitt_trigger: boo
 
     val
 }
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::*;
+
+    // Bit positions in the pad-control register (mirrors build_pad_ctrl).
+    const ST_BIT: u32 = 1 << 3; // Schmitt trigger
+    const DS_MASK: u32 = 0x7 << 4; // drive strength ds[2:0] -> bits [6:4]
+    const PE_BIT: u32 = 1 << 9; // pull enable
+    const PS_BIT: u32 = 1 << 10; // pull select (1 = up, 0 = down)
+    const IE_BIT: u32 = 1 << 11; // input enable
+
+    #[test]
+    fn drive_strength_discriminants_are_dense() {
+        // The enum encodes DS[2:0] directly; values must be 0..=7 contiguous.
+        assert_eq!(DriveStrength::Strongest as u32, 0);
+        assert_eq!(DriveStrength::Strong as u32, 1);
+        assert_eq!(DriveStrength::Medium as u32, 2);
+        assert_eq!(DriveStrength::Weak as u32, 3);
+        assert_eq!(DriveStrength::Weaker as u32, 4);
+        assert_eq!(DriveStrength::VeryWeak as u32, 5);
+        assert_eq!(DriveStrength::Weakest as u32, 6);
+        assert_eq!(DriveStrength::Minimum as u32, 7);
+    }
+
+    #[test]
+    fn drive_strength_lands_in_bits_4_to_6() {
+        // ds[2:0] must be shifted intact into register bits [6:4] (val == ds << 4).
+        for (ds, expect) in [
+            (DriveStrength::Strongest, 0u32),
+            (DriveStrength::Strong, 1 << 4),
+            (DriveStrength::Medium, 2 << 4),
+            (DriveStrength::Minimum, 7 << 4),
+        ] {
+            let val = build_pad_ctrl(ds, PullResistor::None, false, false);
+            assert_eq!(val & DS_MASK, expect, "ds {ds:?} mis-placed");
+            // Drive strength must not bleed into any other field.
+            assert_eq!(val & !DS_MASK, 0);
+        }
+    }
+
+    #[test]
+    fn drive_strength_covers_full_mask() {
+        // The strongest..minimum span must exactly fill the 3-bit DS field.
+        let strongest = build_pad_ctrl(DriveStrength::Strongest, PullResistor::None, false, false);
+        let minimum = build_pad_ctrl(DriveStrength::Minimum, PullResistor::None, false, false);
+        assert_eq!(strongest & DS_MASK, 0);
+        assert_eq!(minimum & DS_MASK, DS_MASK);
+    }
+
+    #[test]
+    fn pull_none_sets_neither_pe_nor_ps() {
+        // No pull => both PE and PS clear.
+        let val = build_pad_ctrl(DriveStrength::Strongest, PullResistor::None, false, false);
+        assert_eq!(val & (PE_BIT | PS_BIT), 0);
+    }
+
+    #[test]
+    fn pull_up_sets_pe_and_ps() {
+        // Pull-up => PE=1, PS=1.
+        let val = build_pad_ctrl(DriveStrength::Strongest, PullResistor::Up, false, false);
+        assert_eq!(val & PE_BIT, PE_BIT);
+        assert_eq!(val & PS_BIT, PS_BIT);
+    }
+
+    #[test]
+    fn pull_down_sets_pe_only() {
+        // Pull-down => PE=1, PS=0 (selecting the down resistor).
+        let val = build_pad_ctrl(DriveStrength::Strongest, PullResistor::Down, false, false);
+        assert_eq!(val & PE_BIT, PE_BIT);
+        assert_eq!(val & PS_BIT, 0);
+    }
+
+    #[test]
+    fn schmitt_and_input_enable_are_independent_bits() {
+        // ST (bit3) and IE (bit11) toggle only their own bits.
+        let none = build_pad_ctrl(DriveStrength::Strongest, PullResistor::None, false, false);
+        assert_eq!(none & (ST_BIT | IE_BIT), 0);
+
+        let st = build_pad_ctrl(DriveStrength::Strongest, PullResistor::None, true, false);
+        assert_eq!(st, ST_BIT);
+
+        let ie = build_pad_ctrl(DriveStrength::Strongest, PullResistor::None, false, true);
+        assert_eq!(ie, IE_BIT);
+
+        let both = build_pad_ctrl(DriveStrength::Strongest, PullResistor::None, true, true);
+        assert_eq!(both, ST_BIT | IE_BIT);
+    }
+
+    #[test]
+    fn all_fields_compose_without_collision() {
+        // A fully-populated config must be the bitwise OR of every field — no
+        // field may share or stomp another's bits.
+        let val = build_pad_ctrl(DriveStrength::Minimum, PullResistor::Up, true, true);
+        assert_eq!(val, DS_MASK | PE_BIT | PS_BIT | ST_BIT | IE_BIT);
+    }
+
+    #[test]
+    fn no_bits_set_outside_known_fields() {
+        // Every legal combination must stay within the defined field mask;
+        // nothing should ever set a reserved bit.
+        let defined = DS_MASK | PE_BIT | PS_BIT | ST_BIT | IE_BIT;
+        for &drive in &[DriveStrength::Strongest, DriveStrength::Medium, DriveStrength::Minimum] {
+            for &pull in &[PullResistor::None, PullResistor::Up, PullResistor::Down] {
+                for st in [false, true] {
+                    for ie in [false, true] {
+                        let val = build_pad_ctrl(drive, pull, st, ie);
+                        assert_eq!(val & !defined, 0, "reserved bit set for {drive:?}/{pull:?}/{st}/{ie}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    const ST_BIT: u32 = 1 << 3;
+    const DS_MASK: u32 = 0x7 << 4;
+    const PE_BIT: u32 = 1 << 9;
+    const PS_BIT: u32 = 1 << 10;
+    const IE_BIT: u32 = 1 << 11;
+    const DEFINED: u32 = DS_MASK | PE_BIT | PS_BIT | ST_BIT | IE_BIT;
+
+    fn drive_from(i: u8) -> DriveStrength {
+        match i % 8 {
+            0 => DriveStrength::Strongest,
+            1 => DriveStrength::Strong,
+            2 => DriveStrength::Medium,
+            3 => DriveStrength::Weak,
+            4 => DriveStrength::Weaker,
+            5 => DriveStrength::VeryWeak,
+            6 => DriveStrength::Weakest,
+            _ => DriveStrength::Minimum,
+        }
+    }
+
+    fn pull_from(i: u8) -> PullResistor {
+        match i % 3 {
+            0 => PullResistor::None,
+            1 => PullResistor::Up,
+            _ => PullResistor::Down,
+        }
+    }
+
+    proptest! {
+        /// Fuzz: any field combination only ever sets defined bits, never reserved ones.
+        #[test]
+        fn never_sets_reserved_bits(d in any::<u8>(), p in any::<u8>(), st: bool, ie: bool) {
+            let val = build_pad_ctrl(drive_from(d), pull_from(p), st, ie);
+            prop_assert_eq!(val & !DEFINED, 0);
+        }
+
+        /// Fuzz: the DS field always equals the drive enum value shifted left by 4.
+        #[test]
+        fn ds_field_equals_discriminant_shifted(d in any::<u8>(), p in any::<u8>(), st: bool, ie: bool) {
+            let drive = drive_from(d);
+            let val = build_pad_ctrl(drive, pull_from(p), st, ie);
+            prop_assert_eq!(val & DS_MASK, (drive as u32) << 4);
+        }
+
+        /// Fuzz: ST and IE bits track their boolean inputs exactly, regardless of other fields.
+        #[test]
+        fn st_ie_track_inputs(d in any::<u8>(), p in any::<u8>(), st: bool, ie: bool) {
+            let val = build_pad_ctrl(drive_from(d), pull_from(p), st, ie);
+            prop_assert_eq!(val & ST_BIT != 0, st);
+            prop_assert_eq!(val & IE_BIT != 0, ie);
+        }
+
+        /// Fuzz: PE is set iff a pull is requested; PS is set iff that pull is up.
+        #[test]
+        fn pull_encoding_is_consistent(d in any::<u8>(), p in any::<u8>(), st: bool, ie: bool) {
+            let pull = pull_from(p);
+            let val = build_pad_ctrl(drive_from(d), pull, st, ie);
+            let pe = val & PE_BIT != 0;
+            let ps = val & PS_BIT != 0;
+            match pull {
+                PullResistor::None => { prop_assert!(!pe); prop_assert!(!ps); }
+                PullResistor::Up => { prop_assert!(pe); prop_assert!(ps); }
+                PullResistor::Down => { prop_assert!(pe); prop_assert!(!ps); }
+            }
+        }
+    }
+}

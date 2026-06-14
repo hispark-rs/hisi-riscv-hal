@@ -58,6 +58,11 @@ pub mod uart;
 // while leaving the WS63 build (the default) byte-identical.
 #[cfg(all(feature = "chip-ws63", feature = "async"))]
 pub mod asynch;
+// D-cache maintenance (custom HiSilicon CSRs). WS63-only: the cache CSR layout is
+// core-specific and only validated on WS63. Needed for correct DMA on the
+// non-coherent core (clean source / invalidate destination around a transfer).
+#[cfg(feature = "chip-ws63")]
+pub mod cache;
 #[cfg(feature = "chip-ws63")]
 pub mod clock;
 #[cfg(feature = "chip-ws63")]

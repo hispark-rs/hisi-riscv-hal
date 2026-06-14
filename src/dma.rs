@@ -39,6 +39,16 @@ pub trait DmaInstance {
     /// exposes 8-11. The driver subtracts this base to index the controller's
     /// physical channels 0-3 — see the module-level "Channel addressing" docs.
     const CHANNEL_BASE: u8;
+
+    /// Auto clock-gate **bypass** `(register, mask)` for this controller, if any.
+    ///
+    /// The WS63 M_DMA clock is auto-gated when the controller is idle; the
+    /// primary controller must set this bit so its clock keeps running across a
+    /// transfer, otherwise a started transfer never advances (its done bit never
+    /// sets). Mirrors the vendor `dma_port_register_irq()` "BYPASS dma自动门控"
+    /// (`DMA_CLK_AUTO_CTRL_REG |= DMA_CLK_ON_MASK`). `None` = no ungate
+    /// needed/available — the secure SDMA is never provisioned on WS63.
+    const CLK_AUTO_CTRL: Option<(usize, u32)> = None;
 }
 
 /// Marker type for the primary DMA controller (logical channels 0-3).
@@ -48,6 +58,9 @@ impl DmaInstance for Dma0 {
         Dma::ptr()
     }
     const CHANNEL_BASE: u8 = 0;
+    // Bypass the M_DMA auto clock-gate (DMA_CLK_AUTO_CTRL_REG bit 19) so the
+    // primary controller's clock stays on across a transfer (vendor dma_porting).
+    const CLK_AUTO_CTRL: Option<(usize, u32)> = Some((0x4400_0244, 0x0008_0000));
 }
 
 /// Marker type for the secure DMA controller (logical channels 8-11).
@@ -188,7 +201,21 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     }
 
     /// Enable the DMA controller.
+    ///
+    /// First bypasses the controller's auto clock-gate (if it has one — the WS63
+    /// M_DMA does), so the DMA clock stays running across a transfer. Without
+    /// this the idle-gated clock leaves a started transfer stuck (done bit never
+    /// sets); this was why `dma_mem_to_mem` failed on silicon while passing under
+    /// QEMU, which models no clock gating. Mirrors the vendor `dma_porting`.
     pub fn enable_controller(&mut self) {
+        if let Some((reg, mask)) = T::CLK_AUTO_CTRL {
+            // SAFETY: fixed glue MMIO register; read-modify-write sets only the
+            // clock-on bit, preserving the rest. Not exposed by the PAC.
+            unsafe {
+                let p = reg as *mut u32;
+                p.write_volatile(p.read_volatile() | mask);
+            }
+        }
         let r = Self::regs();
         unsafe {
             r.dmac_config().write(|w| w.bits(0x01));
@@ -282,6 +309,19 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
         unsafe {
             r.dmac_chn_config_0(ch).write(|w| w.bits(ch_cfg));
+        }
+
+        // Actually START the transfer: set this channel's bit in the global
+        // channel-enable register (`dmac_en_chns`, the DesignWare ChEnReg). On
+        // real silicon the per-channel CFG `ch_enable` bit alone does NOT kick the
+        // engine — the vendor `hal_dma_v151_enable` writes `en_chns`, and the
+        // hardware auto-clears the bit when the (single-block) transfer completes.
+        // (QEMU runs its synchronous memcpy on the CFG write and may not model
+        // `en_chns`, so this is a harmless extra write there.) Completion is then
+        // observed via `channel_enabled()` going false — see the HIL test.
+        let en = r.dmac_en_chns().read().bits();
+        unsafe {
+            r.dmac_en_chns().write(|w| w.bits(en | (1 << ch)));
         }
     }
 
@@ -632,6 +672,238 @@ mod tests {
     fn test_sdma_channel_12_panics() {
         // 12 is above SDMA's logical range (8-11).
         physical_channel_index(Sdma0::CHANNEL_BASE, 12);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::{BurstSize, FlowControl, TransferWidth, physical_channel_index};
+    use proptest::prelude::*;
+
+    // Re-derive `configure_channel`'s control-word encoder (same masks/shifts as
+    // the driver — pure arithmetic, no MMIO). Mirrors dma.rs lines 244-261.
+    fn control_word(
+        transfer_size: u16,
+        src_burst: BurstSize,
+        dst_burst: BurstSize,
+        src_width: TransferWidth,
+        dst_width: TransferWidth,
+        src_inc: bool,
+        dst_inc: bool,
+        transfer_int: bool,
+    ) -> u32 {
+        let mut control: u32 = 0;
+        control |= (transfer_size as u32) & 0xFFF; // trans_size [0:11]
+        control |= ((src_burst as u32) & 0x07) << 12; // s_bsize [12:14]
+        control |= ((dst_burst as u32) & 0x07) << 15; // d_bsize [15:17]
+        control |= ((src_width as u32) & 0x07) << 18; // s_width [18:20]
+        control |= ((dst_width as u32) & 0x07) << 21; // d_width [21:23]
+        if src_inc {
+            control |= 1 << 26;
+        }
+        if dst_inc {
+            control |= 1 << 27;
+        }
+        if transfer_int {
+            control |= 1 << 31;
+        }
+        control
+    }
+
+    // Re-derive `configure_channel`'s channel-config-word encoder. Mirrors
+    // dma.rs lines 268-281.
+    fn ch_cfg_word(
+        src_peripheral: u8,
+        dst_peripheral: u8,
+        flow_control: FlowControl,
+        error_int: bool,
+        transfer_int: bool,
+        bus_lock: bool,
+    ) -> u32 {
+        let mut ch_cfg: u32 = 0;
+        ch_cfg |= 0x01; // chn_en
+        ch_cfg |= ((src_peripheral as u32) & 0x0F) << 1; // s_peripheral [1:4]
+        ch_cfg |= ((dst_peripheral as u32) & 0x0F) << 5; // d_peripheral [5:8]
+        ch_cfg |= ((flow_control as u32) & 0x07) << 9; // flow_ctl [9:11]
+        if error_int {
+            ch_cfg |= 1 << 12; // int_en
+        }
+        if transfer_int {
+            ch_cfg |= 1 << 13; // int_tc
+        }
+        if bus_lock {
+            ch_cfg |= 1 << 14; // lock
+        }
+        ch_cfg
+    }
+
+    fn burst(v: u8) -> BurstSize {
+        match v & 0x07 {
+            0 => BurstSize::Beats1,
+            1 => BurstSize::Beats4,
+            2 => BurstSize::Beats8,
+            3 => BurstSize::Beats16,
+            4 => BurstSize::Beats32,
+            5 => BurstSize::Beats64,
+            6 => BurstSize::Beats128,
+            _ => BurstSize::Beats256,
+        }
+    }
+
+    fn width(v: u8) -> TransferWidth {
+        match v % 3 {
+            0 => TransferWidth::Width8,
+            1 => TransferWidth::Width16,
+            _ => TransferWidth::Width32,
+        }
+    }
+
+    fn flow(v: u8) -> FlowControl {
+        match v & 0x03 {
+            0 => FlowControl::MemToMem,
+            1 => FlowControl::MemToPeripheral,
+            2 => FlowControl::PeripheralToMem,
+            _ => FlowControl::PeripheralToPeripheral,
+        }
+    }
+
+    proptest! {
+        // ── physical_channel_index (logical→physical translation + range gate) ──
+
+        /// Fuzz: any in-range logical channel maps to a physical index 0..=3.
+        #[test]
+        fn physical_index_in_range(base in 0u8..=200, off in 0u8..4) {
+            let idx = physical_channel_index(base, base + off);
+            prop_assert_eq!(idx, off as usize);
+            prop_assert!(idx < 4);
+        }
+
+        /// Fuzz: translation is monotonic across the controller's 4 logical channels.
+        #[test]
+        fn physical_index_monotonic(base in 0u8..=200) {
+            let mut prev = None;
+            for off in 0u8..4 {
+                let idx = physical_channel_index(base, base + off);
+                if let Some(p) = prev {
+                    prop_assert!(idx > p);
+                }
+                prev = Some(idx);
+            }
+        }
+
+        /// Fuzz: a channel below the controller's base must panic, never silently
+        /// alias physical channel 0 (the guard's lower bound).
+        #[test]
+        fn physical_index_below_base_panics(base in 1u8..=200, under in 1u8..=100) {
+            let under = under.min(base);
+            let ch = base - under;
+            let r = std::panic::catch_unwind(|| physical_channel_index(base, ch));
+            prop_assert!(r.is_err());
+        }
+
+        /// Fuzz: a channel at or above base+4 must panic (the guard's upper bound).
+        #[test]
+        fn physical_index_above_range_panics(base in 0u8..=200, over in 0u8..=50) {
+            let ch = (base as u16 + 4 + over as u16).min(255) as u8;
+            // Guard against wrap making ch land back in [base, base+4).
+            prop_assume!(ch >= base.saturating_add(4) || ch < base);
+            let r = std::panic::catch_unwind(|| physical_channel_index(base, ch));
+            prop_assert!(r.is_err());
+        }
+
+        // ── control-word bit encoder ──────────────────────────────────────────
+
+        /// Fuzz: the control word never sets a bit outside its documented fields.
+        /// Reserved positions [24:25] (masters), [28:30] (prot/reserved) must be 0.
+        #[test]
+        fn control_word_no_stray_bits(
+            ts in any::<u16>(),
+            sb in any::<u8>(), db in any::<u8>(),
+            sw in any::<u8>(), dw in any::<u8>(),
+            si in any::<bool>(), di in any::<bool>(), ti in any::<bool>(),
+        ) {
+            let c = control_word(ts, burst(sb), burst(db), width(sw), width(dw), si, di, ti);
+            // Defined bits: [0:11] trans, [12:14] sb, [15:17] db, [18:20] sw,
+            // [21:23] dw, 26 s_inc, 27 d_inc, 31 t_int. Everything else is reserved 0.
+            const DEFINED: u32 = 0x00FF_FFFF | (1 << 26) | (1 << 27) | (1 << 31);
+            prop_assert_eq!(c & !DEFINED, 0, "stray bits in control word {:#010x}", c);
+        }
+
+        /// Fuzz: trans_size is a 12-bit field — the encoder truncates a u16 > 0xFFF
+        /// (mask, not overflow). Verify the masked low 12 bits round-trip exactly.
+        #[test]
+        fn control_word_trans_size_field(ts in any::<u16>()) {
+            let c = control_word(ts, BurstSize::Beats1, BurstSize::Beats1,
+                TransferWidth::Width8, TransferWidth::Width8, false, false, false);
+            prop_assert_eq!(c & 0xFFF, (ts as u32) & 0xFFF);
+            prop_assert!((c & 0xFFF) <= 0xFFF);
+        }
+
+        /// Fuzz: every enum field round-trips out of the control word at its shift.
+        #[test]
+        fn control_word_fields_round_trip(
+            sb in 0u8..8, db in 0u8..8, sw in 0u8..3, dw in 0u8..3,
+        ) {
+            let (sbe, dbe, swe, dwe) = (burst(sb), burst(db), width(sw), width(dw));
+            let c = control_word(0, sbe, dbe, swe, dwe, false, false, false);
+            prop_assert_eq!((c >> 12) & 0x07, sbe as u32);
+            prop_assert_eq!((c >> 15) & 0x07, dbe as u32);
+            prop_assert_eq!((c >> 18) & 0x07, swe as u32);
+            prop_assert_eq!((c >> 21) & 0x07, dwe as u32);
+        }
+
+        /// Fuzz: each boolean control flag lands in exactly its documented bit.
+        #[test]
+        fn control_word_flag_bits(si in any::<bool>(), di in any::<bool>(), ti in any::<bool>()) {
+            let c = control_word(0, BurstSize::Beats1, BurstSize::Beats1,
+                TransferWidth::Width8, TransferWidth::Width8, si, di, ti);
+            prop_assert_eq!((c >> 26) & 1 == 1, si);
+            prop_assert_eq!((c >> 27) & 1 == 1, di);
+            prop_assert_eq!((c >> 31) & 1 == 1, ti);
+        }
+
+        // ── channel-config-word bit encoder ───────────────────────────────────
+
+        /// Fuzz: ch_cfg always has chn_en set and no bits above the lock bit (14).
+        #[test]
+        fn ch_cfg_word_no_stray_bits(
+            sp in any::<u8>(), dp in any::<u8>(), fc in any::<u8>(),
+            ei in any::<bool>(), ti in any::<bool>(), bl in any::<bool>(),
+        ) {
+            let w = ch_cfg_word(sp, dp, flow(fc), ei, ti, bl);
+            prop_assert_eq!(w & 0x01, 1, "chn_en must always be set");
+            // Defined: bit0 en, [1:4] s_peri, [5:8] d_peri, [9:11] flow, 12 int_en,
+            // 13 int_tc, 14 lock → low 15 bits. Nothing above bit 14.
+            prop_assert_eq!(w & !0x7FFF, 0, "stray bits in ch_cfg {:#010x}", w);
+        }
+
+        /// Fuzz: a 4-bit peripheral field truncates ids > 0x0F — verify both
+        /// peripheral selects round-trip their low nibble and never collide.
+        #[test]
+        fn ch_cfg_word_peripheral_fields(sp in any::<u8>(), dp in any::<u8>()) {
+            let w = ch_cfg_word(sp, dp, FlowControl::MemToMem, false, false, false);
+            prop_assert_eq!((w >> 1) & 0x0F, (sp as u32) & 0x0F);
+            prop_assert_eq!((w >> 5) & 0x0F, (dp as u32) & 0x0F);
+        }
+
+        /// Fuzz: flow control occupies bits [9:11] and round-trips its discriminant.
+        #[test]
+        fn ch_cfg_word_flow_field(fc in 0u8..4) {
+            let f = flow(fc);
+            let w = ch_cfg_word(0, 0, f, false, false, false);
+            prop_assert_eq!((w >> 9) & 0x07, f as u32);
+        }
+
+        /// Fuzz: int_en / int_tc / lock flags map to bits 12 / 13 / 14 exactly.
+        #[test]
+        fn ch_cfg_word_flag_bits(ei in any::<bool>(), ti in any::<bool>(), bl in any::<bool>()) {
+            let w = ch_cfg_word(0, 0, FlowControl::MemToMem, ei, ti, bl);
+            prop_assert_eq!((w >> 12) & 1 == 1, ei);
+            prop_assert_eq!((w >> 13) & 1 == 1, ti);
+            prop_assert_eq!((w >> 14) & 1 == 1, bl);
+        }
     }
 }
 

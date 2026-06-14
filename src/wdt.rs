@@ -111,7 +111,12 @@ impl<'d> Watchdog<'d> {
         // 8 bits to form the 24-bit WDT_LOAD field. Matches the vendor
         // hal_watchdog_v151_set_attr: `cycles = timeout_s * clock; field = cycles >> LOAD_RESEV`.
         let cycles = (timeout_ms as u64 * WDT_CLOCK_HZ as u64) / 1000;
-        let load = ((cycles >> WDT_LOAD_RESEV) as u32).min(WDT_MAX_LOAD);
+        // Saturate in u64 BEFORE narrowing: a multi-hour timeout shifts to a
+        // value > u32::MAX, and casting to u32 first would TRUNCATE (wrap) it to
+        // a bogus small load instead of clamping. Clamp in u64, then the
+        // already-bounded result narrows losslessly. (The 24-bit field caps the
+        // real timeout at ~178 s anyway, so anything larger must pin to the max.)
+        let load = (cycles >> WDT_LOAD_RESEV).min(WDT_MAX_LOAD as u64) as u32;
 
         self.unlock();
 
@@ -230,5 +235,165 @@ impl<'d> Watchdog<'d> {
     /// Check if the watchdog is currently busy.
     pub fn is_busy(&self) -> bool {
         self.regs().wdt_status().read().bits() & 0x01 == 0
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::{ResetPulseLength, WDT_CLOCK_HZ, WDT_LOAD_RESEV, WDT_MAX_LOAD, WdtMode};
+
+    /// Re-derivation of the `configure()` timeout→field math: timeout(ms) is
+    /// converted to total WDT clock cycles, shifted right by the reserved low
+    /// bits to form the 24-bit field, then clamped to the max field value.
+    /// This mirrors `Watchdog::configure` exactly (same types/rounding/clamp)
+    /// without touching any MMIO register.
+    fn load_field(timeout_ms: u32) -> u32 {
+        let cycles = (timeout_ms as u64 * WDT_CLOCK_HZ as u64) / 1000;
+        (cycles >> WDT_LOAD_RESEV).min(WDT_MAX_LOAD as u64) as u32
+    }
+
+    /// Re-derivation of the control-register encoding from `configure()`.
+    fn control_bits(mode: WdtMode, reset_enable: bool, reset_pulse: ResetPulseLength) -> u32 {
+        let mut cr: u32 = 0;
+        cr |= 0x01; // wdt_en
+        if reset_enable {
+            cr |= 1 << 2; // rst_en
+        }
+        cr |= (reset_pulse as u32) << 3; // rst_pl
+        cr |= 1 << 6; // wdt_imsk
+        if matches!(mode, WdtMode::DoubleInterrupt) {
+            cr |= 1 << 7; // wdt_mode
+        }
+        cr
+    }
+
+    #[test]
+    fn reset_pulse_discriminants_are_the_3bit_field() {
+        // The eight pulse lengths map to the contiguous 3-bit rst_pl field 0..=7.
+        assert_eq!(ResetPulseLength::Cycles2 as u32, 0);
+        assert_eq!(ResetPulseLength::Cycles4 as u32, 1);
+        assert_eq!(ResetPulseLength::Cycles8 as u32, 2);
+        assert_eq!(ResetPulseLength::Cycles16 as u32, 3);
+        assert_eq!(ResetPulseLength::Cycles32 as u32, 4);
+        assert_eq!(ResetPulseLength::Cycles64 as u32, 5);
+        assert_eq!(ResetPulseLength::Cycles128 as u32, 6);
+        assert_eq!(ResetPulseLength::Cycles256 as u32, 7);
+    }
+
+    #[test]
+    fn zero_timeout_yields_zero_load() {
+        // A 0 ms timeout produces a 0-cycle, 0-field load (no underflow/panic).
+        assert_eq!(load_field(0), 0);
+    }
+
+    #[test]
+    fn known_timeout_matches_hand_computed_field() {
+        // 1000 ms = WDT_CLOCK_HZ cycles; the field is that shifted right by RESEV.
+        let cycles = WDT_CLOCK_HZ as u64; // 1000 ms * clock / 1000
+        let expected = (cycles >> WDT_LOAD_RESEV) as u32;
+        assert_eq!(load_field(1000), expected);
+        assert!(expected <= WDT_MAX_LOAD);
+    }
+
+    #[test]
+    fn large_timeout_clamps_to_max_field() {
+        // u32::MAX ms vastly exceeds the 24-bit field; the load saturates, never wraps.
+        assert_eq!(load_field(u32::MAX), WDT_MAX_LOAD);
+    }
+
+    #[test]
+    fn load_field_is_monotonic_until_clamp() {
+        // More milliseconds never produce a smaller field (within the unclamped range).
+        let a = load_field(1000);
+        let b = load_field(2000);
+        assert!(b >= a);
+        assert!(b <= WDT_MAX_LOAD);
+    }
+
+    #[test]
+    fn first_timeout_that_reaches_clamp() {
+        // A timeout past the (WDT_MAX_LOAD+1)<<RESEV cycle boundary clamps to max.
+        // Compute that boundary in ms with CEILING division (+1 ms margin) so the
+        // input definitely clears the threshold — a floored value lands one tick
+        // below it (cycles>>RESEV == WDT_MAX_LOAD-ε) and would not yet clamp.
+        let threshold_cycles = (WDT_MAX_LOAD as u64 + 1) << WDT_LOAD_RESEV;
+        let big_ms = (threshold_cycles * 1000).div_ceil(WDT_CLOCK_HZ as u64) + 1;
+        // big_ms may exceed u32; saturate the *input* to u32 like the real API would receive.
+        let ms = big_ms.min(u32::MAX as u64) as u32;
+        assert_eq!(load_field(ms), WDT_MAX_LOAD);
+    }
+
+    #[test]
+    fn control_bits_minimal_config() {
+        // Single-interrupt, no reset, pulse 0: only wdt_en (bit0) + wdt_imsk (bit6).
+        let cr = control_bits(WdtMode::SingleInterrupt, false, ResetPulseLength::Cycles2);
+        assert_eq!(cr, 0x01 | (1 << 6));
+    }
+
+    #[test]
+    fn control_bits_full_config() {
+        // Double-interrupt + reset + pulse 256 (field 7): all encoded bits set.
+        let cr = control_bits(WdtMode::DoubleInterrupt, true, ResetPulseLength::Cycles256);
+        let expected = 0x01            // wdt_en
+            | (1 << 2)                 // rst_en
+            | (7 << 3)                 // rst_pl = Cycles256
+            | (1 << 6)                 // wdt_imsk
+            | (1 << 7); // wdt_mode (double)
+        assert_eq!(cr, expected);
+    }
+
+    #[test]
+    fn control_bits_reset_pulse_occupies_field() {
+        // rst_pl lives in bits [5:3]; verify each variant lands there and nowhere else.
+        for (variant, val) in
+            [(ResetPulseLength::Cycles2, 0u32), (ResetPulseLength::Cycles16, 3), (ResetPulseLength::Cycles256, 7)]
+        {
+            let cr = control_bits(WdtMode::SingleInterrupt, false, variant);
+            assert_eq!((cr >> 3) & 0x7, val);
+        }
+    }
+
+    #[test]
+    fn mode_only_affects_bit7() {
+        // The only difference between single and double interrupt is wdt_mode (bit7).
+        let single = control_bits(WdtMode::SingleInterrupt, true, ResetPulseLength::Cycles32);
+        let double = control_bits(WdtMode::DoubleInterrupt, true, ResetPulseLength::Cycles32);
+        assert_eq!(single ^ double, 1 << 7);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::{WDT_CLOCK_HZ, WDT_LOAD_RESEV, WDT_MAX_LOAD};
+    use proptest::prelude::*;
+
+    fn load_field(timeout_ms: u32) -> u32 {
+        let cycles = (timeout_ms as u64 * WDT_CLOCK_HZ as u64) / 1000;
+        (cycles >> WDT_LOAD_RESEV).min(WDT_MAX_LOAD as u64) as u32
+    }
+
+    proptest! {
+        /// Fuzz: the load field is always within the 24-bit max for any u32 timeout.
+        #[test]
+        fn load_field_never_exceeds_max(ms in any::<u32>()) {
+            prop_assert!(load_field(ms) <= WDT_MAX_LOAD);
+        }
+
+        /// Fuzz: the conversion never panics (no overflow) for any u32 timeout.
+        #[test]
+        fn load_field_never_panics(ms in any::<u32>()) {
+            let _ = load_field(ms);
+        }
+
+        /// Fuzz: monotonic — a longer timeout never yields a smaller load field.
+        #[test]
+        fn load_field_is_monotonic(a in any::<u32>(), b in any::<u32>()) {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            prop_assert!(load_field(hi) >= load_field(lo));
+        }
     }
 }

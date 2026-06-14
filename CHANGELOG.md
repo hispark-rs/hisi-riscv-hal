@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **timer**: `current_value()` now performs the TIMER_V150 `cnt_req`/`cnt_lock`
+  snapshot handshake before reading `current_value0` (a latched register, not a
+  live counter). Without it both reads returned the same stale latch — the timer
+  appeared frozen on silicon (QEMU exposes a live counter, hiding the bug).
+  **Silicon-validated**: `timer_counter_advances` now passes (hisi-riscv-rs#10).
+- **wdt**: `configure()` saturates the load field in `u64` before narrowing to
+  `u32`. The old `((cycles >> RESEV) as u32).min(MAX)` truncated (wrapped) a
+  multi-hour timeout to a bogus small load instead of clamping. Caught by a new
+  property test.
+- **sfc**: `configure_timing()` masks `tshsl` to the 4-bit field *before* applying
+  the `MIN_TSHSL` floor. The old order (floor then mask) let a value whose low
+  nibble was below the floor (e.g. 16/32/48) be masked back to 0, defeating the
+  minimum. Caught by a new property test.
+- **dma**: `configure_channel()` now actually **starts** the transfer by setting
+  the channel's bit in the global `dmac_en_chns` register (the DesignWare ChEnReg)
+  — on silicon the per-channel CFG `ch_enable` bit alone does not kick the engine
+  (it does in QEMU). Completion is the hardware auto-clearing that bit, matching
+  the vendor `hal_dma_v151_is_enabled`. **Silicon-validated end-to-end**: the HIL
+  `dma_mem_to_mem` mem→mem test now passes (was `#[ignore]`'d). QEMU's divergent
+  start/complete path is tracked as hisi-riscv-qemu#5 (QEMU is not the reference).
+
+### Added
+
+- **uart**: `Config::clock_hz: Option<u32>` (a per-instance baud-base override)
+  plus `soc::chip::uart_boot_clock_hz()` and `UART_BOOT_CLOCK_{24M,40M}_HZ`.
+  Examples that skip the (XIP-unsafe) `clock_init` run on flashboot's raw-TCXO
+  console clock, not the 160 MHz PLL — **confirmed 40 MHz on silicon** (HW_CTL
+  TCXO strap; `div_fra = 44` ⟺ 40 MHz), resolving the boot-baud root cause of
+  #15/#10. Default `None` keeps the 160 MHz post-`clock_init` behaviour.
+- **`cache`** module (WS63): `clean_range` / `invalidate_range` / `flush_range`
+  D-cache maintenance via the HiSilicon custom CSRs (`DCINCVA`/`DCMAINT`). The
+  RV32 core's D-cache is non-coherent with the DMA master, so a mem→mem transfer
+  must clean the source and invalidate the destination — now done by the HIL DMA
+  test (no-ops on the host build).
+
+### Changed
+
+- **dma**: `enable_controller()` bypasses the controller's auto clock-gate when it
+  has one (the WS63 M_DMA `DMA_CLK_AUTO_CTRL_REG` bit, via the new
+  `DmaInstance::CLK_AUTO_CTRL`), so the clock stays on across a transfer. Mirrors
+  the vendor `dma_porting`.
+- **timer**: `current_value()` uses the now-named `cnt_req`/`cnt_lock` fields
+  (added to `ws63-pac`'s `TIMER%s_CONTROL`) instead of raw bit pokes.
+
+### Internal
+
+- Greatly expanded host coverage: new unit + property (`proptest`) tests across
+  previously-untested driver modules (gpio, interrupt, io_config, pwm, i2s, uart,
+  sfc, wdt, tsensor, rtc, gadc, dma, i2c, clock, tcxo, …) — **302 host tests**
+  total, all green. The wdt + sfc fixes above were both found by these new property
+  tests. No API change from the test work.
+- HIL suite: added `efuse_read_byte0_ok` + `trng_produces_entropy` (both
+  silicon-validated) — **11 driver tests, all passing on real WS63 silicon**.
+- Code-review follow-up: the `tcxo` status-register bit values are now named
+  consts (`TCXO_EN_BIT`/`TCXO_CLEAR_BIT`/`TCXO_REFRESH_BIT`/`TCXO_VALID_BIT`) that
+  both the driver and its property tests use; 4 tautological status-bit unit tests
+  (which asserted literals against themselves) were removed.
+
 ## [0.3.2] - 2026-06-14
 
 ### Fixed

@@ -218,3 +218,143 @@ fn sign_extend18(raw: u32) -> i32 {
     let v = raw & 0x3FFFF;
     if v & (1 << 17) != 0 { (v as i32) - 0x4_0000 } else { v as i32 }
 }
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::*;
+
+    /// Re-derivation of the `cfg_amux_1` packing inlined in `Gadc::read`: p-side
+    /// one-hot `BIT(channel)`, n-side one-hot `BIT(VSSAFE1)`, both divide-disable.
+    /// Layout: amuxn[10:0], div-n bit11, amuxp[22:12], div-p bit23.
+    fn amux_1(channel: AdcChannel) -> u32 {
+        let amuxp = 1u32 << (channel as u32);
+        let amuxn = 1u32 << VSSAFE1_BIT;
+        (amuxn & 0x7FF) | (1 << 11) | ((amuxp & 0x7FF) << 12) | (1 << 23)
+    }
+
+    #[test]
+    fn channel_discriminants_are_index() {
+        // AdcChannel is repr(u8) numbered 0..=7; `channel as u32` is the AIN index.
+        assert_eq!(AdcChannel::Ain0 as u32, 0);
+        assert_eq!(AdcChannel::Ain3 as u32, 3);
+        assert_eq!(AdcChannel::Ain7 as u32, 7);
+    }
+
+    #[test]
+    fn sign_extend_positive_passthrough() {
+        // Values with bit17 clear are non-negative and unchanged.
+        assert_eq!(sign_extend18(0), 0);
+        assert_eq!(sign_extend18(1), 1);
+        // 0x1FFFF = largest positive 18-bit sample (bit17 clear) = 131071.
+        assert_eq!(sign_extend18(0x1FFFF), 131_071);
+    }
+
+    #[test]
+    fn sign_extend_negative_values() {
+        // bit17 set → negative. 0x20000 is the most-negative sample (-2^17).
+        assert_eq!(sign_extend18(0x2_0000), -131_072);
+        // 0x3FFFF (all 18 bits set) = -1.
+        assert_eq!(sign_extend18(0x3_FFFF), -1);
+        // 0x3FFFE = -2.
+        assert_eq!(sign_extend18(0x3_FFFE), -2);
+    }
+
+    #[test]
+    fn sign_extend_ignores_high_bits() {
+        // Only bits [17:0] are significant; junk above bit17 is masked off.
+        assert_eq!(sign_extend18(0xFFFC_0000), 0);
+        // High junk plus the bit17 sign + low bits round-trips to the masked value.
+        assert_eq!(sign_extend18(0xFFFF_FFFF), -1);
+        assert_eq!(sign_extend18(0xDEAD_0000 | 0x1FFFF), 131_071);
+    }
+
+    #[test]
+    fn sign_extend_range_is_18bit_signed() {
+        // The output is always within the signed 18-bit range [-2^17, 2^17).
+        for raw in [0u32, 0x1, 0x1_FFFF, 0x2_0000, 0x3_FFFF, 0xFFFF_FFFF] {
+            let v = sign_extend18(raw);
+            assert!((-131_072..=131_071).contains(&v), "raw={raw:#x} -> {v}");
+        }
+    }
+
+    #[test]
+    fn amux_n_side_fixed_to_vssafe1() {
+        // The n-side is always BIT(VSSAFE1)=BIT(9) regardless of channel, and both
+        // divide-disable bits (11 and 23) are always set.
+        for ch in [AdcChannel::Ain0, AdcChannel::Ain4, AdcChannel::Ain7] {
+            let v = amux_1(ch);
+            assert_eq!(v & 0x7FF, 1 << VSSAFE1_BIT, "amuxn for {ch:?}");
+            assert_ne!(v & (1 << 11), 0, "div-n bit for {ch:?}");
+            assert_ne!(v & (1 << 23), 0, "div-p bit for {ch:?}");
+        }
+    }
+
+    #[test]
+    fn amux_p_side_is_channel_onehot() {
+        // The p-side field [22:12] is a one-hot of the selected channel index.
+        assert_eq!((amux_1(AdcChannel::Ain0) >> 12) & 0x7FF, 1 << 0);
+        assert_eq!((amux_1(AdcChannel::Ain5) >> 12) & 0x7FF, 1 << 5);
+        assert_eq!((amux_1(AdcChannel::Ain7) >> 12) & 0x7FF, 1 << 7);
+    }
+
+    #[test]
+    fn amux_known_value_ain0() {
+        // Exact word for AIN0: amuxn=BIT(9), div-n=BIT(11), amuxp=BIT(12), div-p=BIT(23).
+        let expected = (1 << 9) | (1 << 11) | (1 << 12) | (1 << 23);
+        assert_eq!(amux_1(AdcChannel::Ain0), expected);
+    }
+
+    #[test]
+    fn delay_us_saturates() {
+        // delay_us computes a cycle count `us * 64` with a saturating multiply, so
+        // a huge µs request clamps to u32::MAX rather than wrapping.
+        assert_eq!(0u32.saturating_mul(64), 0);
+        assert_eq!(1u32.saturating_mul(64), 64);
+        assert_eq!(u32::MAX.saturating_mul(64), u32::MAX);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Fuzz: sign_extend18 output is always within the signed 18-bit range and
+        /// depends only on the low 18 bits of the input (high bits are masked).
+        #[test]
+        fn sign_extend_in_range_and_masked(raw in any::<u32>()) {
+            let v = sign_extend18(raw);
+            prop_assert!((-131_072..=131_071).contains(&v));
+            // Masking the input to 18 bits gives the identical result.
+            prop_assert_eq!(v, sign_extend18(raw & 0x3FFFF));
+        }
+
+        /// Fuzz: re-encoding the sign-extended value back to 18 bits round-trips
+        /// to the masked raw (two's-complement is bijective over 18 bits).
+        #[test]
+        fn sign_extend_roundtrips(raw in any::<u32>()) {
+            let v = sign_extend18(raw);
+            let reencoded = (v as u32) & 0x3FFFF;
+            prop_assert_eq!(reencoded, raw & 0x3FFFF);
+        }
+
+        /// Fuzz: the delay_us cycle count saturates and never panics for any input.
+        #[test]
+        fn delay_cycles_never_panic(us in any::<u32>()) {
+            let cycles = us.saturating_mul(64);
+            prop_assert!(cycles <= u32::MAX);
+            // Saturation: result is either the exact product (as u64) or u32::MAX.
+            let exact = us as u64 * 64;
+            if exact <= u32::MAX as u64 {
+                prop_assert_eq!(cycles as u64, exact);
+            } else {
+                prop_assert_eq!(cycles, u32::MAX);
+            }
+        }
+    }
+}

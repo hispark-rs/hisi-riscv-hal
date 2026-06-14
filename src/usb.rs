@@ -19,6 +19,22 @@ pub const SNPS_SIGNATURE: u16 = 0x4F54;
 
 const POLL_LIMIT: u32 = 1_000_000;
 
+/// True if a raw `gsnpsid` core-ID value carries the Synopsys DWC OTG signature
+/// in its top 16 bits.
+const fn id_has_signature(core_id: u32) -> bool {
+    (core_id >> 16) as u16 == SNPS_SIGNATURE
+}
+
+/// Decode the 2-bit `DSTS.ENUMSPD` field into the negotiated [`Speed`].
+const fn speed_from_enumspd(enumspd: u8) -> Speed {
+    match enumspd {
+        0 => Speed::High,
+        1 => Speed::FullFs,
+        2 => Speed::Low,
+        _ => Speed::Full,
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum UsbError {
     /// A status bit (reset-done / USB reset / enumeration done) never asserted.
@@ -58,7 +74,7 @@ impl<'d> Usb<'d> {
 
     /// True if the core-ID carries the Synopsys DWC OTG signature.
     pub fn is_present(&self) -> bool {
-        (self.core_id() >> 16) as u16 == SNPS_SIGNATURE
+        id_has_signature(self.core_id())
     }
 
     /// Bring the DWC2 OTG device controller up and wait until the host has reset
@@ -111,12 +127,7 @@ impl<'d> Usb<'d> {
         r.gintsts().write(|w| w.enumdone().set_bit());
 
         // G. Read the negotiated speed.
-        Ok(match r.dsts().read().enumspd().bits() {
-            0 => Speed::High,
-            1 => Speed::FullFs,
-            2 => Speed::Low,
-            _ => Speed::Full,
-        })
+        Ok(speed_from_enumspd(r.dsts().read().enumspd().bits()))
     }
 
     fn poll(&self, mut ready: impl FnMut() -> bool) -> Result<(), UsbError> {
@@ -127,5 +138,109 @@ impl<'d> Usb<'d> {
             core::hint::spin_loop();
         }
         Err(UsbError::Timeout)
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signature_is_ascii_ot() {
+        // The GSNPSID top-half signature is the ASCII bytes "OT" (0x4F, 0x54).
+        assert_eq!(SNPS_SIGNATURE, u16::from_be_bytes([b'O', b'T']));
+        assert_eq!(SNPS_SIGNATURE, 0x4F54);
+    }
+
+    #[test]
+    fn signature_check_uses_high_half_only() {
+        // A core-ID whose top 16 bits are the signature is recognized regardless
+        // of the (revision) low half; the low half must not affect the decision.
+        assert!(id_has_signature(0x4F54_0000));
+        assert!(id_has_signature(0x4F54_FFFF));
+        assert!(id_has_signature((SNPS_SIGNATURE as u32) << 16 | 0x1234));
+    }
+
+    #[test]
+    fn signature_check_rejects_wrong_high_half() {
+        // The signature living in the low half (or anywhere but the top) is not
+        // a match — the controller is considered absent.
+        assert!(!id_has_signature(0x0000_4F54));
+        assert!(!id_has_signature(0));
+        assert!(!id_has_signature(0xFFFF_FFFF));
+        // Off-by-one in the high half is rejected.
+        assert!(!id_has_signature(0x4F55_0000));
+        assert!(!id_has_signature(0x4F53_0000));
+    }
+
+    #[test]
+    fn enumspd_known_values() {
+        // DSTS.ENUMSPD encoding from the DWC2 device init (dwc_otgreg.h):
+        // 0=High, 1=Full(FS PHY), 2=Low, 3=Full.
+        assert_eq!(speed_from_enumspd(0), Speed::High);
+        assert_eq!(speed_from_enumspd(1), Speed::FullFs);
+        assert_eq!(speed_from_enumspd(2), Speed::Low);
+        assert_eq!(speed_from_enumspd(3), Speed::Full);
+    }
+
+    #[test]
+    fn enumspd_out_of_range_is_full() {
+        // The field is 2 bits in hardware (masked & 3), but the decode catches
+        // every value ≥ 3 via the wildcard arm → Full (never panics).
+        for v in 3u8..=u8::MAX {
+            assert_eq!(speed_from_enumspd(v), Speed::Full);
+        }
+    }
+
+    #[test]
+    fn speed_variants_are_distinct() {
+        // The four documented field values map to four distinct speeds, so the
+        // round-trip through the decoder loses no information for 0..=3.
+        let speeds = [speed_from_enumspd(0), speed_from_enumspd(1), speed_from_enumspd(2), speed_from_enumspd(3)];
+        for i in 0..speeds.len() {
+            for j in (i + 1)..speeds.len() {
+                assert_ne!(speeds[i], speeds[j]);
+            }
+        }
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Fuzz: signature decode never panics and matches the explicit
+        /// high-half comparison for any 32-bit core-ID.
+        #[test]
+        fn signature_matches_high_half(id in any::<u32>()) {
+            prop_assert_eq!(id_has_signature(id), (id >> 16) as u16 == SNPS_SIGNATURE);
+        }
+
+        /// Fuzz: only IDs with exactly the signature in the top half are present;
+        /// changing any high-half bit away from the signature breaks the match.
+        #[test]
+        fn signature_iff_high_half_equals(low in any::<u16>(), high in any::<u16>()) {
+            let id = ((high as u32) << 16) | low as u32;
+            prop_assert_eq!(id_has_signature(id), high == SNPS_SIGNATURE);
+        }
+
+        /// Fuzz: speed decode is total over all u8 inputs and only 0/1/2 differ
+        /// from Full; everything else collapses to Full.
+        #[test]
+        fn speed_decode_total(v in any::<u8>()) {
+            let s = speed_from_enumspd(v);
+            match v {
+                0 => prop_assert_eq!(s, Speed::High),
+                1 => prop_assert_eq!(s, Speed::FullFs),
+                2 => prop_assert_eq!(s, Speed::Low),
+                _ => prop_assert_eq!(s, Speed::Full),
+            }
+        }
     }
 }

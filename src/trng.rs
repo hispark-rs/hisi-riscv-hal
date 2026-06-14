@@ -161,7 +161,7 @@ mod tests {
     fn test_trng_read_blocking_timeout_logic() {
         // Simulate the timeout loop: should return Err after retries exhausted
         let max_retries = 10u32;
-        let mut data_ready = false;
+        let data_ready = false;
         let mut retries = 0;
         let result = loop {
             if data_ready {
@@ -181,5 +181,92 @@ mod tests {
         let data_ready = true;
         let result = if data_ready { Ok(0xDEAD_BEEFu32) } else { Err(TrngError::Timeout) };
         assert_eq!(result.unwrap(), 0xDEAD_BEEF);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use proptest::prelude::*;
+
+    /// Pure re-derivation of `TrngDriver::fill_bytes` packing over a fixed 32-byte
+    /// scratch buffer (`len` selects the active prefix), with the MMIO
+    /// `read_blocking()` replaced by drawing from a pre-supplied word stream.
+    /// This is byte-for-byte the same little-endian split + buffer-fill clamp the
+    /// driver runs (`word.to_le_bytes()` into `buf[i]`, stopping at `buf.len()`).
+    /// Returns the populated scratch buffer.
+    fn fill_bytes_from(words: &[u32; 8], len: usize) -> [u8; 32] {
+        let mut buf = [0u8; 32];
+        let active = &mut buf[..len];
+        let mut i = 0;
+        let mut w = 0;
+        while i < active.len() {
+            // Driver pulls a fresh word each outer iteration via read_blocking().
+            let word = words[w % words.len()];
+            w += 1;
+            let bytes = word.to_le_bytes();
+            for &b in &bytes {
+                if i < active.len() {
+                    active[i] = b;
+                    i += 1;
+                }
+            }
+        }
+        buf
+    }
+
+    proptest! {
+        /// Fuzz: fill_bytes packing never panics / never writes out of bounds for
+        /// any buffer length and any word stream (the inner `i < buf.len()` guard
+        /// must hold even when the final word straddles the buffer tail).
+        #[test]
+        fn fill_bytes_never_overflows(
+            words in any::<[u32; 8]>(),
+            len in 0usize..=32,
+        ) {
+            let _ = fill_bytes_from(&words, len);
+        }
+
+        /// Fuzz: for a buffer whose length is a whole number of words, every byte
+        /// is exactly the little-endian decomposition of the consumed words — i.e.
+        /// the buffer round-trips back to the source words with no shuffle/gap.
+        #[test]
+        fn fill_bytes_round_trips_whole_words(
+            words in any::<[u32; 8]>(),
+            nwords in 0usize..=8,
+        ) {
+            let buf = fill_bytes_from(&words, nwords * 4);
+            for k in 0..nwords {
+                let chunk: [u8; 4] = buf[k * 4..k * 4 + 4].try_into().unwrap();
+                prop_assert_eq!(u32::from_le_bytes(chunk), words[k]);
+            }
+        }
+
+        /// Fuzz: the partial-word tail is handled by truncation, never by reading
+        /// past the buffer. The bytes written into a non-aligned tail must be the
+        /// low-order LE prefix of the next word (LE => buf[i] = (word >> 8*j) & 0xff).
+        #[test]
+        fn fill_bytes_tail_is_le_prefix(
+            word in any::<u32>(),
+            tail in 1usize..4,
+        ) {
+            // One full word already consumed (zeros), then `tail` bytes of `word`.
+            let words = [0, word, 0, 0, 0, 0, 0, 0];
+            let buf = fill_bytes_from(&words, 4 + tail);
+            for j in 0..tail {
+                let expected = ((word >> (8 * j)) & 0xff) as u8;
+                prop_assert_eq!(buf[4 + j], expected);
+            }
+        }
+
+        /// Fuzz: set_divider widening (`div as u32`) is a pure zero-extension —
+        /// it never sets any bit above bit 7, for any u8 divider.
+        #[test]
+        fn divider_widening_zero_extends(div in any::<u8>()) {
+            let reg = div as u32;
+            prop_assert_eq!(reg & !0xff, 0);
+            prop_assert_eq!(reg as u8, div);
+        }
     }
 }

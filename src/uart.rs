@@ -1,8 +1,12 @@
 //! UART driver for WS63 (UART0/1/2, 16C550-compatible with FIFO).
 //!
 //! Baud rate: div = (div_h << 8 | div_l) + div_fra / 64.
-//! Clock source: the 160 MHz PLL-derived UART clock ([`crate::soc::chip::UART_CLOCK_HZ`]),
-//! NOT the 240 MHz CPU clock (vendor `clock_init` sets the baud base to 160 MHz).
+//! Clock source: by default the 160 MHz PLL-derived UART clock
+//! ([`crate::soc::chip::UART_CLOCK_HZ`]), NOT the 240 MHz CPU clock (vendor
+//! `clock_init` sets the baud base to 160 MHz). Examples that skip `clock_init`
+//! run on flashboot's raw-TCXO console clock (24/40 MHz, confirmed 40 MHz on
+//! silicon) — they pass `Config::clock_hz = Some(soc::chip::uart_boot_clock_hz())`
+//! so the divider matches the real base (issue #15/#10).
 
 use crate::peripherals::{Uart0, Uart1, Uart2};
 use core::marker::PhantomData;
@@ -34,11 +38,26 @@ pub struct Config {
     pub data_bits: DataBits,
     pub parity: Parity,
     pub stop_bits: StopBits,
+    /// UART baud-base clock in Hz. `None` = the post-`clock_init` PLL base
+    /// ([`crate::soc::chip::UART_CLOCK_HZ`], 160 MHz). Examples that skip
+    /// `clock_init` run on the flashboot console clock — the raw 24/40 MHz TCXO,
+    /// NOT the PLL — so they must set this to
+    /// `Some(crate::soc::chip::uart_boot_clock_hz())` for a correct divider on
+    /// real hardware. Otherwise the baud is off by the PLL/TCXO ratio (≈4× on a
+    /// 40 MHz board, confirmed on silicon), the root cause of garbled-console
+    /// issue #15/#10.
+    pub clock_hz: Option<u32>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { baudrate: 115200, data_bits: DataBits::Eight, parity: Parity::None, stop_bits: StopBits::One }
+        Self {
+            baudrate: 115200,
+            data_bits: DataBits::Eight,
+            parity: Parity::None,
+            stop_bits: StopBits::One,
+            clock_hz: None,
+        }
     }
 }
 
@@ -97,7 +116,9 @@ fn configure_uart(idx: u8, config: &Config) {
     // Set baud rate: div = UART_CLK / (16 * baudrate)
     // Valid range: div ∈ [1, 65535] (16-bit divider).
     // At 160MHz UART clock, valid baud ∈ [153, 10_000_000].
-    let pclk = crate::soc::chip::UART_CLOCK_HZ;
+    // `config.clock_hz` overrides the base for pre-`clock_init` examples (the
+    // 24/40 MHz flashboot console clock); `None` keeps the 160 MHz PLL default.
+    let pclk = config.clock_hz.unwrap_or(crate::soc::chip::UART_CLOCK_HZ);
     let min_baud = (pclk / (16 * 65535)) + 1;
     let baudrate = if config.baudrate < min_baud { min_baud } else { config.baudrate };
     // div = pclk / (16 * baud), as fixed-point with 6 fractional bits (div_fra ∈
@@ -399,3 +420,243 @@ mod asynch_impl {
 
 #[cfg(feature = "async")]
 pub use asynch_impl::on_interrupt;
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::*;
+    use crate::soc::chip::UART_CLOCK_HZ;
+
+    // Re-derivation of the pure baud-rate math that `configure_uart` inlines
+    // (lines 100-114). div = pclk / (16 * baud) carried as 6-bit fixed point:
+    //   div64 = pclk * 4 / baud  (= div * 64), div = div64 >> 6, frac = div64 & 0x3F.
+    // The 16-bit divider gives a minimum representable baud of pclk/(16*65535)+1.
+    fn min_baud() -> u32 {
+        (UART_CLOCK_HZ / (16 * 65535)) + 1
+    }
+    fn clamp_baud(baud: u32) -> u32 {
+        let m = min_baud();
+        if baud < m { m } else { baud }
+    }
+    /// Returns (div_l, div_h, div_fra) exactly as `configure_uart` would program them.
+    fn baud_regs(baud: u32) -> (u16, u16, u16) {
+        let baud = clamp_baud(baud);
+        let div64 = ((UART_CLOCK_HZ as u64) * 4 / (baud as u64)) as u32;
+        let div = div64 >> 6;
+        let div_fra = (div64 & 0x3F) as u16;
+        let div_l = (div & 0xFF) as u16;
+        let div_h = ((div >> 8) & 0xFF) as u16;
+        (div_l, div_h, div_fra)
+    }
+
+    /// Default config matches the conventional 115200-8N1 settings.
+    #[test]
+    fn default_config_is_115200_8n1() {
+        let c = Config::default();
+        assert_eq!(c.baudrate, 115200);
+        assert_eq!(c.data_bits, DataBits::Eight);
+        assert_eq!(c.parity, Parity::None);
+        assert_eq!(c.stop_bits, StopBits::One);
+    }
+
+    /// 115200 baud at 160 MHz: div = 160e6/(16*115200) ≈ 86.8 → div=86, frac≈51.
+    /// div * 64 = 5546 → div=86 (0x56), frac=42 (5546 & 0x3F). Verify exact bytes.
+    #[test]
+    fn baud_115200_known_divisor() {
+        // div64 = 160_000_000 * 4 / 115200 = 5555 (integer truncation).
+        let div64 = (UART_CLOCK_HZ as u64) * 4 / 115200;
+        assert_eq!(div64, 5555);
+        let (div_l, div_h, div_fra) = baud_regs(115200);
+        // div = 5555 >> 6 = 86 = 0x56, frac = 5555 & 0x3F = 51.
+        assert_eq!(div_l, 0x56);
+        assert_eq!(div_h, 0x00);
+        assert_eq!(div_fra, 51);
+    }
+
+    /// The fractional field is always a 6-bit value (sixty-fourths), never out of range.
+    #[test]
+    fn frac_field_is_six_bits() {
+        for &baud in &[300u32, 9600, 115200, 921600, 1_000_000, 10_000_000] {
+            let (_, _, frac) = baud_regs(baud);
+            assert!(frac <= 0x3F, "baud {baud} -> frac {frac} exceeds 6 bits");
+        }
+    }
+
+    /// Each divider byte stays within 0..=0xFF (the 8-bit DIV_L/DIV_H registers).
+    #[test]
+    fn divider_bytes_fit_in_eight_bits() {
+        for &baud in &[min_baud(), 1200, 115200, 3_000_000] {
+            let (div_l, div_h, _) = baud_regs(baud);
+            assert!(div_l <= 0xFF);
+            assert!(div_h <= 0xFF);
+        }
+    }
+
+    /// Sub-minimum baud rates clamp up to min_baud so the 16-bit divider never
+    /// overflows; min_baud itself programs a divider near (but ≤) the 0xFFFF cap.
+    #[test]
+    fn low_baud_clamps_to_min() {
+        // A baud of 1 would demand div ≫ 65535; clamping prevents the overflow.
+        assert_eq!(clamp_baud(1), min_baud());
+        assert_eq!(clamp_baud(0), min_baud());
+        // At min_baud the full divider (div64 >> 6) fits the 16-bit DIV_H:DIV_L.
+        let div64 = ((UART_CLOCK_HZ as u64) * 4 / (min_baud() as u64)) as u32;
+        let div = div64 >> 6;
+        assert!(div <= 0xFFFF, "div {div} overflows 16-bit divider at min_baud");
+    }
+
+    /// A baud above min_baud is never altered by the clamp.
+    #[test]
+    fn normal_baud_not_clamped() {
+        assert_eq!(clamp_baud(115200), 115200);
+        assert_eq!(clamp_baud(min_baud() + 1), min_baud() + 1);
+    }
+
+    /// Higher baud rates yield a smaller (or equal) integer divisor — the divider
+    /// is monotonically non-increasing in baud (div = pclk*4/baud >> 6).
+    #[test]
+    fn divisor_monotonic_in_baud() {
+        let div_of = |baud: u32| -> u32 {
+            let (l, h, _) = baud_regs(baud);
+            ((h as u32) << 8) | (l as u32)
+        };
+        let mut prev = u32::MAX;
+        for &baud in &[1200u32, 9600, 19200, 57600, 115200, 230400, 460800] {
+            let d = div_of(baud);
+            assert!(d <= prev, "baud {baud} div {d} not <= prev {prev}");
+            prev = d;
+        }
+    }
+
+    // ── Control-register (UART_CTL) bit encoding ──────────────────
+    // Mirrors the `ctl` assembly in `configure_uart` (lines 117-137):
+    //   data bits at [3:2], parity-enable at bit5 / even-select at bit4, 2 stop at bit7.
+
+    fn data_bits_field(d: DataBits) -> u16 {
+        match d {
+            DataBits::Five => 0,
+            DataBits::Six => 1 << 2,
+            DataBits::Seven => 2 << 2,
+            DataBits::Eight => 3 << 2,
+        }
+    }
+    fn parity_field(p: Parity) -> u16 {
+        match p {
+            Parity::Even => (1 << 5) | (1 << 4),
+            Parity::Odd => 1 << 5,
+            Parity::None => 0,
+        }
+    }
+    fn build_ctl(c: &Config) -> u16 {
+        let mut ctl = data_bits_field(c.data_bits) | parity_field(c.parity);
+        if matches!(c.stop_bits, StopBits::Two) {
+            ctl |= 1 << 7;
+        }
+        ctl
+    }
+
+    /// Data-bit widths map to consecutive codes 0..=3 in the [3:2] field.
+    #[test]
+    fn data_bits_encoding() {
+        assert_eq!(data_bits_field(DataBits::Five), 0 << 2);
+        assert_eq!(data_bits_field(DataBits::Six), 1 << 2);
+        assert_eq!(data_bits_field(DataBits::Seven), 2 << 2);
+        assert_eq!(data_bits_field(DataBits::Eight), 3 << 2);
+    }
+
+    /// Parity: None clears both bits; Odd sets only the enable bit (5); Even sets
+    /// enable (5) AND the even-select bit (4).
+    #[test]
+    fn parity_encoding() {
+        assert_eq!(parity_field(Parity::None), 0);
+        assert_eq!(parity_field(Parity::Odd), 1 << 5);
+        assert_eq!(parity_field(Parity::Even), (1 << 5) | (1 << 4));
+        // Odd and Even both enable parity (bit 5 set); None does not.
+        assert_ne!(parity_field(Parity::Odd) & (1 << 5), 0);
+        assert_ne!(parity_field(Parity::Even) & (1 << 5), 0);
+        assert_eq!(parity_field(Parity::None) & (1 << 5), 0);
+    }
+
+    /// Two stop bits sets bit 7; one stop bit leaves it clear.
+    #[test]
+    fn stop_bits_encoding() {
+        let mut c = Config::default();
+        c.stop_bits = StopBits::One;
+        assert_eq!(build_ctl(&c) & (1 << 7), 0);
+        c.stop_bits = StopBits::Two;
+        assert_eq!(build_ctl(&c) & (1 << 7), 1 << 7);
+    }
+
+    /// 8N1 (the default frame) encodes to exactly the 8-data-bits field with no
+    /// parity and one stop bit: 0b1100 = 0x0C.
+    #[test]
+    fn ctl_8n1_known_value() {
+        assert_eq!(build_ctl(&Config::default()), 0x0C);
+    }
+
+    /// 7E2 (7 data, even parity, 2 stop) sets distinct, non-overlapping fields.
+    #[test]
+    fn ctl_7e2_known_value() {
+        let c = Config {
+            baudrate: 9600,
+            data_bits: DataBits::Seven,
+            parity: Parity::Even,
+            stop_bits: StopBits::Two,
+            clock_hz: None,
+        };
+        // data=2<<2 (0x08) | parity even (0x30) | 2-stop (0x80) = 0xB8.
+        assert_eq!(build_ctl(&c), (2 << 2) | (1 << 5) | (1 << 4) | (1 << 7));
+        assert_eq!(build_ctl(&c), 0xB8);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use crate::soc::chip::UART_CLOCK_HZ;
+    use proptest::prelude::*;
+
+    fn min_baud() -> u32 {
+        (UART_CLOCK_HZ / (16 * 65535)) + 1
+    }
+
+    fn baud_regs(baud: u32) -> (u16, u16, u16) {
+        let m = min_baud();
+        let baud = if baud < m { m } else { baud };
+        let div64 = ((UART_CLOCK_HZ as u64) * 4 / (baud as u64)) as u32;
+        let div = div64 >> 6;
+        let div_fra = (div64 & 0x3F) as u16;
+        let div_l = (div & 0xFF) as u16;
+        let div_h = ((div >> 8) & 0xFF) as u16;
+        (div_l, div_h, div_fra)
+    }
+
+    proptest! {
+        /// Fuzz: baud divider math never panics for any u32 baud (incl. 0).
+        #[test]
+        fn baud_regs_never_panics(baud in any::<u32>()) {
+            let _ = baud_regs(baud);
+        }
+
+        /// Fuzz: the fractional field is always a valid 6-bit value, and each
+        /// divider byte fits 8 bits, for every clamped baud.
+        #[test]
+        fn fields_stay_in_range(baud in any::<u32>()) {
+            let (div_l, div_h, frac) = baud_regs(baud);
+            prop_assert!(frac <= 0x3F);
+            prop_assert!(div_l <= 0xFF);
+            prop_assert!(div_h <= 0xFF);
+        }
+
+        /// Fuzz: for any baud at or above min_baud, the assembled 16-bit divider
+        /// never overflows DIV_H:DIV_L (the clamp guarantees this).
+        #[test]
+        fn divider_fits_sixteen_bits(baud in min_baud()..=u32::MAX) {
+            let div64 = ((UART_CLOCK_HZ as u64) * 4 / (baud as u64)) as u32;
+            let div = div64 >> 6;
+            prop_assert!(div <= 0xFFFF, "baud={} div={}", baud, div);
+        }
+    }
+}

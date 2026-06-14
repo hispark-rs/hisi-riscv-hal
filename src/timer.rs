@@ -95,14 +95,54 @@ impl<'d> TimerDriver<'d> {
     }
 
     /// Read the current counter value.
+    ///
+    /// On WS63 (TIMER_V150) the per-channel `current_value0` register is a
+    /// **latched snapshot**, not a live counter: it only refreshes after a
+    /// `cnt_req`/`cnt_lock` handshake. Reading it raw returns the same stale
+    /// value forever — the vendor `hal_timer_v150_get_current_value()` always
+    /// performs this handshake; QEMU exposes a live counter and ignores it,
+    /// which is why the un-handshaked read passed under emulation but froze on
+    /// silicon (hisi-riscv-rs#10). A disabled channel keeps a stale latch, so we
+    /// return 0 there (matching the vendor HAL) rather than a meaningless value.
     pub fn current_value(&self, n: usize) -> u32 {
+        // The poll bound mirrors the vendor TIMER_CURRENT_COUNT_LOCK_TIMEOUT
+        // (0xFFFF) so a never-locking channel cannot spin forever. cnt_req
+        // (bit 5) / cnt_lock (bit 6) are now named fields in ws63-pac.
+        const LOCK_TIMEOUT: u32 = 0xFFFF;
+
         let r = self.regs();
-        match n {
+        // The control + current-value registers are a 3-element array; index it
+        // per channel (mirrors enable()/disable()).
+        let ctrl = |n: usize| match n {
+            0 => r.timer0_control(0),
+            1 => r.timer0_control(1),
+            2 => r.timer0_control(2),
+            _ => unreachable!(),
+        };
+        let read_value = |n: usize| match n {
             0 => r.timer0_current_value(0).read().bits(),
             1 => r.timer0_current_value(1).read().bits(),
             2 => r.timer0_current_value(2).read().bits(),
             _ => unreachable!(),
+        };
+
+        // A disabled timer holds a stale latch; the vendor HAL returns 0.
+        if ctrl(n).read().enable().bit_is_clear() {
+            return 0;
         }
+        // Request a fresh snapshot of the down-counter into current_value0
+        // (modify preserves enable/mode/int_mask)…
+        ctrl(n).modify(|_, w| w.cnt_req().set_bit());
+        // …then wait (bounded) for the hardware to latch it.
+        let mut timeout = 0u32;
+        while timeout < LOCK_TIMEOUT {
+            if ctrl(n).read().cnt_lock().bit_is_set() {
+                return read_value(n);
+            }
+            timeout += 1;
+        }
+        // Latch never asserted (should not happen on a running timer); best effort.
+        read_value(n)
     }
 
     /// Check if a timer interrupt is pending.

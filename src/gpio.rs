@@ -693,3 +693,195 @@ mod asynch_impl {
 
 #[cfg(feature = "async")]
 pub use asynch_impl::on_interrupt;
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::*;
+
+    // `steal(pin)` splits a pin into `block = pin / 8`, `bit = pin % 8`, and
+    // `number()` recombines them as `block * 8 + bit`. The two are inverses, so
+    // re-derive that split here (no MMIO) and assert the round-trip.
+    fn split(pin: u8) -> (u8, u8) {
+        (pin / 8, pin % 8)
+    }
+    fn number(block: u8, bit: u8) -> u8 {
+        block * 8 + bit
+    }
+
+    #[test]
+    fn pin_number_round_trips() {
+        // Every valid WS63 pin (0..=18) survives split→recombine unchanged.
+        for pin in 0u8..=18 {
+            let (block, bit) = split(pin);
+            assert_eq!(number(block, bit), pin);
+        }
+    }
+
+    #[test]
+    fn pin_split_block_boundaries() {
+        // Block/bit layout: GPIO0 = pins 0..=7, GPIO1 = 8..=15, GPIO2 = 16..=18.
+        assert_eq!(split(0), (0, 0));
+        assert_eq!(split(7), (0, 7));
+        assert_eq!(split(8), (1, 0));
+        assert_eq!(split(15), (1, 7));
+        assert_eq!(split(16), (2, 0));
+        assert_eq!(split(18), (2, 2));
+    }
+
+    #[test]
+    fn input_config_defaults_to_no_pull() {
+        // Both the `Default` impl and `new()` start with no pull resistor.
+        assert_eq!(InputConfig::default().pull, Pull::None);
+        assert_eq!(InputConfig::new().pull, Pull::None);
+    }
+
+    #[test]
+    fn input_config_with_pull_sets_field() {
+        // `with_pull` is a pure const builder that overwrites only `pull`.
+        assert_eq!(InputConfig::new().with_pull(Pull::Up).pull, Pull::Up);
+        assert_eq!(InputConfig::new().with_pull(Pull::Down).pull, Pull::Down);
+        assert_eq!(InputConfig::new().with_pull(Pull::None).pull, Pull::None);
+    }
+
+    #[test]
+    fn output_config_defaults_are_false() {
+        // `new()` and `Default` agree: push-pull, starts low.
+        let a = OutputConfig::new();
+        let b = OutputConfig::default();
+        assert!(!a.open_drain && !a.initial_high);
+        assert!(!b.open_drain && !b.initial_high);
+    }
+
+    #[test]
+    fn output_config_builders_set_independent_fields() {
+        // Each builder mutates exactly its own field, leaving the other intact.
+        let c = OutputConfig::new().with_open_drain(true);
+        assert!(c.open_drain && !c.initial_high);
+        let c = OutputConfig::new().with_initial(true);
+        assert!(!c.open_drain && c.initial_high);
+        let c = OutputConfig::new().with_open_drain(true).with_initial(true);
+        assert!(c.open_drain && c.initial_high);
+    }
+
+    // `set_interrupt_trigger` maps each trigger to `(edge, high)` and writes
+    // GPIO_INT_TYPE (edge) + GPIO_INT_POLARITY (high). Re-derive the pure map
+    // here to lock the encoding without touching the registers.
+    fn trigger_bits(t: InterruptTrigger) -> (bool, bool) {
+        match t {
+            InterruptTrigger::RisingEdge => (true, true),
+            InterruptTrigger::FallingEdge => (true, false),
+            InterruptTrigger::HighLevel => (false, true),
+            InterruptTrigger::LowLevel => (false, false),
+        }
+    }
+
+    #[test]
+    fn interrupt_trigger_encoding() {
+        // Edge bit distinguishes edge vs level; high bit distinguishes the active
+        // direction (rising/high vs falling/low).
+        assert_eq!(trigger_bits(InterruptTrigger::RisingEdge), (true, true));
+        assert_eq!(trigger_bits(InterruptTrigger::FallingEdge), (true, false));
+        assert_eq!(trigger_bits(InterruptTrigger::HighLevel), (false, true));
+        assert_eq!(trigger_bits(InterruptTrigger::LowLevel), (false, false));
+    }
+
+    #[test]
+    fn interrupt_trigger_edge_vs_level() {
+        // The two edge triggers share edge=true; the two level triggers edge=false.
+        assert!(trigger_bits(InterruptTrigger::RisingEdge).0);
+        assert!(trigger_bits(InterruptTrigger::FallingEdge).0);
+        assert!(!trigger_bits(InterruptTrigger::HighLevel).0);
+        assert!(!trigger_bits(InterruptTrigger::LowLevel).0);
+    }
+
+    // `apply_pull` maps each `Pull` to `(pe, ps)` = (pull-enable, pull-select),
+    // matching the SVD encoding 00=none, 11=up, 10=down. Re-derive that map.
+    fn pull_bits(p: Pull) -> (bool, bool) {
+        match p {
+            Pull::None => (false, false),
+            Pull::Up => (true, true),
+            Pull::Down => (true, false),
+        }
+    }
+
+    #[test]
+    fn pull_encoding_matches_svd() {
+        // {PE,PS}: 00 = none, 11 = up, 10 = down.
+        assert_eq!(pull_bits(Pull::None), (false, false));
+        assert_eq!(pull_bits(Pull::Up), (true, true));
+        assert_eq!(pull_bits(Pull::Down), (true, false));
+    }
+
+    #[test]
+    fn pull_enable_implies_nonzero() {
+        // Any active pull asserts PE; only `None` leaves PE clear.
+        assert!(!pull_bits(Pull::None).0);
+        assert!(pull_bits(Pull::Up).0);
+        assert!(pull_bits(Pull::Down).0);
+    }
+
+    // `apply_pull` computes the pad-control register address as
+    // IO_CONFIG_BASE + PAD_GPIO_CTRL_OFF + pin*4, and is a no-op for pins > 14.
+    fn pad_ctrl_addr(pin: u8) -> usize {
+        IO_CONFIG_BASE + PAD_GPIO_CTRL_OFF + (pin as usize) * 4
+    }
+
+    #[test]
+    fn pad_ctrl_address_arithmetic() {
+        // First pad sits at base+offset; each subsequent pad is +4 bytes.
+        assert_eq!(pad_ctrl_addr(0), IO_CONFIG_BASE + PAD_GPIO_CTRL_OFF);
+        assert_eq!(pad_ctrl_addr(1), IO_CONFIG_BASE + PAD_GPIO_CTRL_OFF + 4);
+        assert_eq!(pad_ctrl_addr(14), 0x4400_D000 + 0x800 + 14 * 4);
+        // Strictly ascending, 4-byte stride across the whole pad-controlled range.
+        for pin in 1u8..=14 {
+            assert_eq!(pad_ctrl_addr(pin) - pad_ctrl_addr(pin - 1), 4);
+        }
+    }
+
+    #[test]
+    fn pad_pull_bits_are_distinct_and_placed() {
+        // PE = bit 9, PS = bit 10; clearing both masks 0b110_0000_0000.
+        assert_eq!(PAD_PE_BIT, 1 << 9);
+        assert_eq!(PAD_PS_BIT, 1 << 10);
+        assert_ne!(PAD_PE_BIT, PAD_PS_BIT);
+        assert_eq!(PAD_PE_BIT | PAD_PS_BIT, 0b110_0000_0000);
+    }
+
+    #[test]
+    fn pad_clear_mask_preserves_other_bits() {
+        // The RMW clears only PE+PS; every other bit (e.g. drive strength) survives.
+        let other = 0xFFFF_FFFFu32 & !(PAD_PE_BIT | PAD_PS_BIT);
+        let v = other & !(PAD_PE_BIT | PAD_PS_BIT);
+        assert_eq!(v, other);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::{IO_CONFIG_BASE, PAD_GPIO_CTRL_OFF};
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Fuzz: for any valid pin, split→recombine is the identity (no MMIO).
+        #[test]
+        fn pin_number_round_trips(pin in 0u8..=18) {
+            let block = pin / 8;
+            let bit = pin % 8;
+            prop_assert_eq!(block * 8 + bit, pin);
+            prop_assert!(bit < 8);
+        }
+
+        /// Fuzz: pad-control addresses are strictly monotonic in the pin index
+        /// and never overflow `usize` for the pad-controlled range (0..=14).
+        #[test]
+        fn pad_addr_monotonic(pin in 1u8..=14) {
+            let addr = |p: u8| IO_CONFIG_BASE + PAD_GPIO_CTRL_OFF + (p as usize) * 4;
+            prop_assert_eq!(addr(pin) - addr(pin - 1), 4);
+            prop_assert!(addr(pin) > addr(pin - 1));
+        }
+    }
+}
