@@ -120,8 +120,9 @@ impl<'d> AnyPin<'d> {
 
     /// Initialize this pin as a GPIO input.
     ///
-    /// Applies `config.pull` to the pad via the IO_CONFIG pad register
-    /// (`apply_pull`; pins 0..=14 have a pad-control register).
+    /// Sets the direction to input and applies `config.pull` + enables the input
+    /// buffer (IE) on the pad via the IO_CONFIG pad register (`apply_pull`; pins
+    /// 0..=14 have a pad-control register).
     pub fn init_input(self, config: InputConfig) -> Input<'d> {
         self.set_oen(true);
         apply_pull(self.number(), config.pull);
@@ -404,12 +405,21 @@ const IO_CONFIG_BASE: usize = 0x4400_D000;
 const PAD_GPIO_CTRL_OFF: usize = 0x800;
 const PAD_PE_BIT: u32 = 1 << 9;
 const PAD_PS_BIT: u32 = 1 << 10;
+// IE = bit 11 gates the pad's input buffer; gpio_sw_out only reflects the pin
+// when IE is set. The boot ROM leaves IE=1 by reset default (measured on silicon:
+// pad_gpio_03_ctrl = 0x800 at entry) and the WS63 vendor pinctrl never writes it
+// (CONFIG_PINCTRL_SUPPORT_IE undefined), so a GPIO read works without us touching
+// it. We assert IE for input pins anyway — same hardware state the vendor relies
+// on, but self-contained, so a pad whose IE was cleared by an earlier mux still
+// reads correctly. (`io_config::build_pad_ctrl` places IE at the same bit 11.)
+const PAD_IE_BIT: u32 = 1 << 11;
 
-/// Apply a pull-resistor setting to a GPIO pad via IO_CONFIG.
+/// Configure a GPIO pad for **input** via IO_CONFIG: apply the pull resistor and
+/// enable the input buffer (IE).
 ///
-/// Read-modify-write so drive strength / Schmitt / input-enable bits are kept.
-/// A no-op for pins 15..=18, which have no `pad_gpio_NN_ctrl` register in this
-/// layout (their pull is configured through other pads / the ROM pin map).
+/// Read-modify-write so drive strength / Schmitt bits are kept. A no-op for pins
+/// 15..=18, which have no `pad_gpio_NN_ctrl` register in this layout (their pull
+/// is configured through other pads / the ROM pin map).
 fn apply_pull(pin: u8, pull: Pull) {
     if pin > 14 {
         return;
@@ -429,6 +439,7 @@ fn apply_pull(pin: u8, pull: Pull) {
         if ps {
             v |= PAD_PS_BIT;
         }
+        v |= PAD_IE_BIT; // ensure the input buffer is enabled
         core::ptr::write_volatile(reg, v);
     }
 }
@@ -855,6 +866,63 @@ mod tests {
         let other = 0xFFFF_FFFFu32 & !(PAD_PE_BIT | PAD_PS_BIT);
         let v = other & !(PAD_PE_BIT | PAD_PS_BIT);
         assert_eq!(v, other);
+    }
+
+    // Re-derive the `apply_pull` RMW (sans MMIO): clear PE+PS, set them per the
+    // pull, and unconditionally assert IE — bit-for-bit what the driver does.
+    fn apply_pull_rmw(start: u32, pull: Pull) -> u32 {
+        let (pe, ps) = pull_bits(pull);
+        let mut v = start;
+        v &= !(PAD_PE_BIT | PAD_PS_BIT);
+        if pe {
+            v |= PAD_PE_BIT;
+        }
+        if ps {
+            v |= PAD_PS_BIT;
+        }
+        v |= PAD_IE_BIT;
+        v
+    }
+
+    #[test]
+    fn pad_ie_bit_is_bit11() {
+        assert_eq!(PAD_IE_BIT, 1 << 11);
+        // IE is distinct from the pull bits it shares the register with.
+        assert_ne!(PAD_IE_BIT, PAD_PE_BIT);
+        assert_ne!(PAD_IE_BIT, PAD_PS_BIT);
+    }
+
+    #[test]
+    fn apply_pull_always_enables_input_buffer() {
+        // Regardless of the pad's prior IE state (cleared OR set) and the pull,
+        // the RMW leaves IE asserted so the input read path works self-contained.
+        for &start in &[0x0000_0000u32, 0x800, 0x600, 0xFFFF_FFFF] {
+            for pull in [Pull::None, Pull::Up, Pull::Down] {
+                let v = apply_pull_rmw(start, pull);
+                assert_ne!(v & PAD_IE_BIT, 0, "IE must be set (start={start:#x}, {pull:?})");
+            }
+        }
+    }
+
+    #[test]
+    fn apply_pull_sets_pull_and_keeps_unrelated_bits() {
+        // Drive-strength bits (4..=6) and Schmitt (bit 3) must survive the RMW,
+        // while PE/PS reflect the requested pull and IE is forced on.
+        let start = (0x7 << 4) | (1 << 3); // ds=7, ST=1, PE/PS/IE clear
+        let keep = (0x7 << 4) | (1 << 3);
+
+        let up = apply_pull_rmw(start, Pull::Up);
+        assert_eq!(up & keep, keep);
+        assert_eq!(up & (PAD_PE_BIT | PAD_PS_BIT), PAD_PE_BIT | PAD_PS_BIT);
+        assert_ne!(up & PAD_IE_BIT, 0);
+
+        let down = apply_pull_rmw(start, Pull::Down);
+        assert_eq!(down & keep, keep);
+        assert_eq!(down & (PAD_PE_BIT | PAD_PS_BIT), PAD_PE_BIT);
+
+        let none = apply_pull_rmw(start | PAD_PE_BIT | PAD_PS_BIT, Pull::None);
+        assert_eq!(none & (PAD_PE_BIT | PAD_PS_BIT), 0); // both cleared
+        assert_ne!(none & PAD_IE_BIT, 0);
     }
 }
 

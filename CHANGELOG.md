@@ -28,6 +28,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   the vendor `hal_dma_v151_is_enabled`. **Silicon-validated end-to-end**: the HIL
   `dma_mem_to_mem` mem→mem test now passes (was `#[ignore]`'d). QEMU's divergent
   start/complete path is tracked as hisi-riscv-qemu#5 (QEMU is not the reference).
+- **spi**: SPI transfers no longer time out on silicon. Root cause was a `ws63-pac`
+  `SPI_WSR` bit-layout bug (the v151 silicon places `txfnf` at bit 11, not bit 1),
+  so the driver's `txfnf` poll watched a reserved always-0 bit. Fixed in the PAC;
+  the HAL polls the same `txfnf`/`rxfne`/`txfe`/`busy` field names unchanged.
+  **Silicon-validated**: the HIL `spi0_loopback_mosi_to_miso` MOSI→MISO test now
+  round-trips a 4-byte buffer (was `Err(Timeout)`).
+- **gpio**: `init_input()` now explicitly asserts the pad input-enable (IE, bit 11)
+  via `apply_pull` instead of relying on the boot reset default. On WS63 the ROM
+  leaves IE = 1 (measured: `pad_gpio_03_ctrl` = 0x800 at entry) and the vendor
+  pinctrl never writes it (`CONFIG_PINCTRL_SUPPORT_IE` undefined), so reads already
+  worked — but a pad whose IE was cleared by an earlier mux would have read a dead
+  buffer. Setting IE is the same hardware state the vendor relies on, just
+  self-contained. **Silicon-validated**: the HIL `gpio_loopback_0_to_3` GPIO0→GPIO3
+  test reads the driven input high and low through the plain HAL path.
 
 ### Added
 
@@ -56,12 +70,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Greatly expanded host coverage: new unit + property (`proptest`) tests across
   previously-untested driver modules (gpio, interrupt, io_config, pwm, i2s, uart,
-  sfc, wdt, tsensor, rtc, gadc, dma, i2c, clock, tcxo, …) — **302 host tests**
+  sfc, wdt, tsensor, rtc, gadc, dma, i2c, clock, tcxo, …) — **305 host tests**
   total, all green. The wdt + sfc fixes above were both found by these new property
-  tests. No API change from the test work.
+  tests; the gpio IE hardening added 3 (`apply_pull` always enables the input
+  buffer / keeps unrelated bits). No API change from the test work.
 - HIL suite: added `efuse_read_byte0_ok`, `trng_produces_entropy`, and
   `tsensor_reads_in_range` (on-die temperature) — all silicon-validated;
-  **12 driver tests, all passing on real WS63 silicon**.
+  **12 driver tests, all passing on real WS63 silicon**. Plus an opt-in
+  (`hil-loopback` feature) jumper-wired loopback group — `gpio_loopback_0_to_3`
+  (GPIO0→GPIO3), `spi0_loopback_mosi_to_miso` (GPIO9→GPIO11),
+  `uart1_loopback_tx_to_rx` (GPIO15→GPIO16) — all three passing on silicon.
 - Code-review follow-up: the `tcxo` status-register bit values are now named
   consts (`TCXO_EN_BIT`/`TCXO_CLEAR_BIT`/`TCXO_REFRESH_BIT`/`TCXO_VALID_BIT`) that
   both the driver and its property tests use; 4 tautological status-bit unit tests

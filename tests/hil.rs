@@ -43,8 +43,11 @@
 //! own PAC `pub(crate)`, so the test names the PAC directly for the raw register
 //! and singleton facts.
 //!
-//! The tests are self-contained: no jumpers / external wiring, safe on a bare
-//! board and under QEMU.
+//! The default suite is self-contained: no jumpers / external wiring, safe on a
+//! bare board and under QEMU. The opt-in `hil-loopback` cargo feature adds tests
+//! that DO require external jumpers — GPIO3↔GPIO5, SPI0 GPIO9↔GPIO11, and UART1
+//! GPIO15↔GPIO16 — for validating real on-silicon data paths; run them with
+//! `--features chip-ws63,hil-loopback` on a board wired accordingly.
 
 // This is an on-target (RISC-V, semihosting) integration test: it links
 // hisi-riscv-rt + the embedded-test harness, both of which are riscv-only
@@ -487,4 +490,112 @@ mod tests {
     // its registers stalls the bus / drops the debug link — same failure class as
     // the secure SDMA. This is a board-population gap (missing part), not a
     // software fix, so the RTC simply cannot be HIL-tested on this hardware.)
+
+    // ── Loopback tests (opt-in `hil-loopback` feature; need board jumpers) ──
+
+    /// GPIO output→input loopback (gpio.rs + io_config.rs). Drive GPIO0 as a
+    /// push-pull output and assert GPIO3 (input) follows it high and low — exercises
+    /// the GPIO **input** read path (`gpio_sw_out` reflects the pad in input mode),
+    /// which the output-only `gpio_output_readback` test never touches. The whole
+    /// path goes through the public HAL (`init_output`/`init_input`/`is_high`): with
+    /// `init_input` asserting the pad's input-enable (IE) bit, no manual pad writes
+    /// are needed (silicon-confirmed 2026-06-14: GPIO3 tracks GPIO0 both ways).
+    /// **Requires a jumper GPIO0 → GPIO3.** (GPIO5 is unusable on this board — it
+    /// drives an SK6805 addressable LED.) GPIO0 is the validated-driving pin
+    /// (blinky); the gpio drivers set direction, we just select plain-GPIO mux.
+    #[cfg(all(feature = "chip-ws63", feature = "hil-loopback"))]
+    #[test]
+    fn gpio_loopback_0_to_3() {
+        use hal::gpio::{AnyPin, InputConfig, OutputConfig, Pull};
+        use hal::io_config::IoConfigDriver;
+        // SAFETY: sequential single-hart run; IO_CONFIG singleton not otherwise held.
+        let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
+        io.set_gpio_mux(0, 0); // plain-GPIO function on both pads
+        io.set_gpio_mux(3, 0);
+        let settle = || {
+            for _ in 0..50_000u32 {
+                black_box(0u32);
+            }
+        };
+        // SAFETY: GPIO0/3 owned by this test; jumpered 0->3 on the board.
+        let mut out = unsafe { AnyPin::steal(0) }.init_output(OutputConfig::new().with_initial(false));
+        // Pull-down so a missing/loose jumper reads low (fails) rather than floating.
+        let inp = unsafe { AnyPin::steal(3) }.init_input(InputConfig::new().with_pull(Pull::Down));
+
+        out.set_high();
+        settle();
+        let hi = inp.is_high();
+        out.set_low();
+        settle();
+        let lo = inp.is_high();
+
+        semihosting::println!("[gpio-lb] GPIO0->GPIO3: drive-high read={hi} drive-low read={lo}");
+        assert!(hi, "GPIO3 did not read high when GPIO0 driven high — check GPIO0->GPIO3 jumper");
+        assert!(!lo, "GPIO3 did not read low when GPIO0 driven low — check GPIO0->GPIO3 jumper");
+    }
+
+    /// SPI0 MOSI→MISO loopback (spi.rs + io_config.rs). Transfer 4 bytes and assert
+    /// the received buffer equals the sent one. **Requires a jumper GPIO9 (SPI0
+    /// DO/MOSI) → GPIO11 (SPI0 DI/MISO);** SCK (GPIO7) and CS (GPIO10) are
+    /// master-driven (no jumper). The HAL has no SPI pin-mux helper, so we mux the
+    /// four SPI0 pads to function 3 first.
+    #[cfg(all(feature = "chip-ws63", feature = "hil-loopback"))]
+    #[test]
+    fn spi0_loopback_mosi_to_miso() {
+        use hal::io_config::IoConfigDriver;
+        use hal::spi::{Config, Spi};
+        let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
+        for pin in [7u8, 9, 10, 11] {
+            io.set_gpio_mux(pin, 3);
+        }
+        // SAFETY: SPI0 singleton not otherwise held; GPIO9->GPIO11 jumpered.
+        let mut spi = Spi::new_spi0(unsafe { hal::peripherals::Spi0::steal() }, Config::default());
+        let tx = [0xA5u8, 0x3C, 0x00, 0xFF];
+        let mut rx = [0u8; 4];
+        let res = spi.transfer(&tx, &mut rx);
+        semihosting::println!("[spi-lb] transfer={res:?} tx={tx:02x?} rx={rx:02x?}");
+        res.expect("SPI0 transfer returned an error");
+        assert_eq!(rx, tx, "SPI0 loopback mismatch — check GPIO9->GPIO11 jumper: tx={tx:02x?} rx={rx:02x?}");
+    }
+
+    /// UART1 TX→RX loopback (uart.rs + io_config.rs). Send a byte on UART1 and read
+    /// it back. **Requires a jumper GPIO15 (UART1 TXD) → GPIO16 (UART1 RXD).** UART1
+    /// is used, not the UART0 console. We mux the UART1 pads (function 1), enable
+    /// the RX input pad (IE), and ungate UART1's clock (CKEN_CTL1 bit 19 — unlike
+    /// UART0 it is not on out of reset). TX and RX share the instance/divider, so
+    /// the byte round-trips even if the absolute baud differs from nominal (#15).
+    #[cfg(all(feature = "chip-ws63", feature = "hil-loopback"))]
+    #[test]
+    fn uart1_loopback_tx_to_rx() {
+        use hal::io_config::{DriveStrength, IoConfigDriver, PinMux, PullResistor};
+        use hal::uart::{Config, Uart};
+        // Ungate the UART1 clock (CKEN_CTL1 bit 19). SAFETY: RMW-set of one
+        // clock-enable bit, leaves the other clocks running.
+        let crg = unsafe { &*pac::CldoCrg::PTR };
+        crg.cken_ctl1().modify(|r, w| unsafe { w.bits(r.bits() | (1 << 19)) });
+
+        let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
+        io.set_uart_mux(PinMux::Uart1Txd, 1);
+        io.set_uart_mux(PinMux::Uart1Rxd, 1);
+        io.configure_uart_pad(PinMux::Uart1Txd, DriveStrength::Strong, PullResistor::None, false, false);
+        io.configure_uart_pad(PinMux::Uart1Rxd, DriveStrength::Strong, PullResistor::Up, true, true);
+
+        // SAFETY: UART1 singleton not otherwise held; GPIO15->GPIO16 jumpered.
+        let uart = Uart::new_uart1(unsafe { hal::peripherals::Uart1::steal() }, Config::default());
+        let sent = 0x5Au8;
+        uart.write_byte(1, sent);
+        let mut got = None;
+        for _ in 0..2_000_000u32 {
+            if let Some(b) = uart.read_byte(1) {
+                got = Some(b);
+                break;
+            }
+        }
+        match got {
+            Some(b) => semihosting::println!("[uart-lb] sent=0x{sent:02x} got=0x{b:02x}"),
+            None => semihosting::println!("[uart-lb] sent=0x{sent:02x} got=none"),
+        }
+        let got = got.expect("UART1 RX never received the looped byte — check GPIO15->GPIO16 jumper");
+        assert_eq!(got, sent, "UART1 loopback mismatch: sent 0x{sent:02x} got 0x{got:02x}");
+    }
 }

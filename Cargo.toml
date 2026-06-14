@@ -53,6 +53,9 @@ critical-section = { version = "1", features = ["std"] }
 # Default features = ["semihosting", "panic-handler"] — exactly what the WS63
 # semihosting test-report channel needs (validated on silicon 2026-06-14).
 embedded-test = "0.7"
+# Direct semihosting access for ad-hoc HIL diagnostics (semihosting::println!),
+# same crate embedded-test pulls; `stdio` enables the print macros.
+semihosting = { version = "0.1", features = ["stdio"] }
 # Provides the `embedded-test.x` linker fragment on the link-search path so
 # build.rs's `-Tembedded-test.x` resolves (lets embedded-test stay a dev-dep).
 embedded-test-linker-script = "0.1"
@@ -117,6 +120,11 @@ async = ["dep:embedded-hal-async", "dep:embedded-io-async", "dep:critical-sectio
 # (the time-driver's TCXO/TIMER access is register-identical across the family)
 # without dragging in the WS63-only async drivers.
 embassy = ["dep:critical-section", "dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+# `hil-loopback`: opt-in HIL tests that need external jumper wiring on the board
+# (the default HIL suite is self-contained / jumper-free). Enables the loopback
+# tests in tests/hil.rs — GPIO0↔GPIO3, SPI0 GPIO9↔GPIO11, UART1 GPIO15↔GPIO16.
+# Run with `--features chip-ws63,hil-loopback` on a board wired accordingly.
+hil-loopback = []
 
 # On-target (semihosting) HIL integration test (RISC-V only; flashed to a real
 # WS63 board by `probe-rs run`). embedded-test IS the harness — the default
