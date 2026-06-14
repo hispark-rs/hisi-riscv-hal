@@ -456,4 +456,35 @@ mod tests {
         let r = efuse.read_byte(0);
         assert!(r.is_ok(), "eFuse read_byte(0) failed: {:?}", r.err());
     }
+
+    /// On-die temperature sensor (tsensor.rs). Enable the sensor, trigger a
+    /// conversion, then bounded-poll `read_raw()` and assert the 10-bit code is
+    /// within the driver's documented valid range (114..=896). Self-contained:
+    /// the sensor is on-die, no external wiring. Uses the bounded `read_raw()`
+    /// (not the unbounded `read_blocking()`) so a non-responsive sensor cannot
+    /// hang the run.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn tsensor_reads_in_range() {
+        use hal::tsensor::TempSensor;
+        // SAFETY: sequential single-hart run; TSENSOR singleton not otherwise held.
+        let mut ts = TempSensor::new(unsafe { hal::peripherals::Tsensor::steal() });
+        ts.enable();
+        ts.start_conversion();
+        let mut code = None;
+        for _ in 0..1_000_000u32 {
+            if let Some(c) = ts.read_raw() {
+                code = Some(c);
+                break;
+            }
+        }
+        let code = code.expect("tsensor never asserted data-ready");
+        assert!((114..=896).contains(&code), "tsensor code {code} outside the valid 114..=896 range");
+    }
+
+    // (No rtc_counter_advances test: this board does NOT populate the RTC's
+    // 32.768 kHz crystal, so the RTC clock domain never comes up and any access to
+    // its registers stalls the bus / drops the debug link — same failure class as
+    // the secure SDMA. This is a board-population gap (missing part), not a
+    // software fix, so the RTC simply cannot be HIL-tested on this hardware.)
 }

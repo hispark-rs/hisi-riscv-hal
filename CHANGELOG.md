@@ -59,8 +59,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   sfc, wdt, tsensor, rtc, gadc, dma, i2c, clock, tcxo, …) — **302 host tests**
   total, all green. The wdt + sfc fixes above were both found by these new property
   tests. No API change from the test work.
-- HIL suite: added `efuse_read_byte0_ok` + `trng_produces_entropy` (both
-  silicon-validated) — **11 driver tests, all passing on real WS63 silicon**.
+- HIL suite: added `efuse_read_byte0_ok`, `trng_produces_entropy`, and
+  `tsensor_reads_in_range` (on-die temperature) — all silicon-validated;
+  **12 driver tests, all passing on real WS63 silicon**.
 - Code-review follow-up: the `tcxo` status-register bit values are now named
   consts (`TCXO_EN_BIT`/`TCXO_CLEAR_BIT`/`TCXO_REFRESH_BIT`/`TCXO_VALID_BIT`) that
   both the driver and its property tests use; 4 tautological status-bit unit tests
