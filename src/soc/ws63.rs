@@ -61,6 +61,11 @@ pub const TIMER_CLOCK_HZ: u32 = TCXO_HZ;
 /// baud base to `UART_PLL_CLOCK = 160_000_000` (fbb_ws63 `clock_init.c`); ch2 of
 /// ws63-guide also lists UART = 160 MHz. The baud divisor is `clock / (16 * baud)`,
 /// so this — not the 240 MHz CPU clock — is the divisor base.
+///
+/// **On-silicon caveat (2026-06-14, see hisi-riscv-rs#10/#15):** examples that do
+/// NOT run the (XIP-unsafe) full `clock_init` inherit flashboot's UART clock, which
+/// is NOT this PLL base — so their baud is wrong on real hardware. The exact boot
+/// UART clock still needs a logic-analyzer measurement; tracked in #10.
 pub const UART_CLOCK_HZ: u32 = 160_000_000;
 
 /// SPI controller input clock / SSI_CLK (160 MHz, PLL-derived).

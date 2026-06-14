@@ -100,12 +100,18 @@ fn configure_uart(idx: u8, config: &Config) {
     let pclk = crate::soc::chip::UART_CLOCK_HZ;
     let min_baud = (pclk / (16 * 65535)) + 1;
     let baudrate = if config.baudrate < min_baud { min_baud } else { config.baudrate };
-    let div = pclk / (16 * baudrate);
+    // div = pclk / (16 * baud), as fixed-point with 6 fractional bits (div_fra ∈
+    // [0,63] sixty-fourths). Dropping the fraction (old div_fra=0) is fine at high
+    // clocks but a significant baud error at the TCXO base — flashboot itself
+    // programs a non-zero div_fra. (issue #15)
+    let div64 = ((pclk as u64) * 4 / (baudrate as u64)) as u32; // = div * 64
+    let div = div64 >> 6;
+    let div_fra = (div64 & 0x3F) as u16;
     let div_l = (div & 0xFF) as u16;
     let div_h = ((div >> 8) & 0xFF) as u16;
     r.div_l().write(|w| unsafe { w.bits(div_l) });
     r.div_h().write(|w| unsafe { w.bits(div_h) });
-    r.div_fra().write(|w| unsafe { w.bits(0) });
+    r.div_fra().write(|w| unsafe { w.bits(div_fra) });
 
     // Configure data bits, parity, stop bits
     let mut ctl = 0u16;
