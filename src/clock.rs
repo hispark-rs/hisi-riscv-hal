@@ -86,7 +86,7 @@ pub const PERIPHERAL_COUNT: usize = 17;
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::*;
     use crate::soc::chip::SYSTEM_CLOCK_HZ;

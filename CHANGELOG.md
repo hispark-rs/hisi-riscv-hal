@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-14
+
+### Fixed
+
+- **uart**: compute the fractional baud divider `div_fra`
+  (`(UART_CLK * 4 / baud) & 0x3F`) instead of hardcoding 0 — a real on-wire baud
+  error at low clocks. On real WS63 silicon flashboot itself programs
+  `div_fra = 44`. Fixes #15.
+
+### Internal
+
+- Add an on-target `embedded-test` integration suite (`tests/hil.rs`, run via
+  `cargo test --test hil` + the patched probe-rs fork over semihosting) covering
+  the HAL drivers on real WS63 silicon (7 passing, 2 ignored bring-up TODOs).
+  Dev-deps + a build.rs linker-script step only; no change to the published API.
+
 ## [0.3.1] - 2026-06-12
 
 ### Added

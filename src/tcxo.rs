@@ -107,7 +107,7 @@ impl<'d> TcxoDriver<'d> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     #[test]
     fn test_tcxo_refresh_timeout_logic() {

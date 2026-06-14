@@ -518,7 +518,7 @@ impl<'d> DmaDriver<'d, Sdma0> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::*;
 

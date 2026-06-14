@@ -78,7 +78,7 @@ impl<'d> KmDriver<'d> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     #[test]
     fn test_keyslot_lock_bit_position() {

@@ -1,6 +1,6 @@
 [package]
 name = "hisi-riscv-hal"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 description = "Hardware Abstraction Layer for HiSilicon WS63 (RISC-V RV32IMFC_Zicsr)"
 license = "MIT"
@@ -31,19 +31,71 @@ portable-atomic = { version = "1", default-features = false, features = ["critic
 
 critical-section = { version = "1", optional = true }
 
-[dev-dependencies]
+# Host-only dev-deps: `proptest` (property tests in src/*.rs `#[cfg(test)]` unit
+# tests) and the `std` critical-section impl. Gated to non-riscv so they are NOT
+# compiled for the riscv `tests/hil.rs` build — proptest's transitive `once_cell`
+# does not build on the no_std riscv target, and these are only needed by the
+# host lib unit-test harness (`cargo test --target x86_64`), which compiles the
+# whole lib incl. ws63-pac's `critical-section`-gated `Peripherals::take()`.
+[target.'cfg(not(target_arch = "riscv32"))'.dev-dependencies]
 proptest = "1"
-# Host unit tests (`cargo test --target x86_64`) compile the whole lib, including
-# ws63-pac's `critical-section`-gated `Peripherals::take()`; pull a real
-# critical-section impl (std) so the test binary links. Not in the firmware graph.
 critical-section = { version = "1", features = ["std"] }
+
+# On-target (semihosting) integration tests (`tests/hil.rs`). These are RISC-V
+# only — the test ELF is a no_std embedded-test binary flashed to a real WS63
+# board by `probe-rs run` (see ../../hil/README.md, mirrors the tests-hil crate).
+# Target-gated so the host unit-test build (`cargo test --target x86_64`) never
+# pulls hisi-riscv-rt (whose startup asm doesn't assemble for the host) or the
+# semihosting embedded-test harness — they live in the firmware graph only.
+[target.'cfg(target_arch = "riscv32")'.dev-dependencies]
+# embedded-test brings its own test harness + panic-handler + a `main` entry
+# (exported as the C symbol `main`, which hisi-riscv-rt's runtime_init calls).
+# Default features = ["semihosting", "panic-handler"] — exactly what the WS63
+# semihosting test-report channel needs (validated on silicon 2026-06-14).
+embedded-test = "0.7"
+# Provides the `embedded-test.x` linker fragment on the link-search path so
+# build.rs's `-Tembedded-test.x` resolves (lets embedded-test stay a dev-dep).
+embedded-test-linker-script = "0.1"
+# hisi-riscv-rt supplies the startup + reset vector + critical-section impl + the
+# riscv-rt runtime that calls embedded-test's exported `main` (see tests/hil.rs),
+# and — via the `boot-header` feature (turned on by this crate's chip-ws63
+# feature) — the 0x300 HiSilicon image header that makes the test ELF bootable.
+# default-features=false so the chip + boot-header + bundled-memory-x selection is
+# driven by THIS crate's chip-* features (weak `hisi-riscv-rt?/...` pulls below),
+# never linked into the firmware/host graph (this is a riscv-only dev-dep).
+hisi-riscv-rt = { path = "../hisi-riscv-rt", default-features = false }
+# The semihosting embedded-test harness needs a real critical-section impl in the
+# graph; portable-atomic's RMW polyfill on this no-atomic core also routes through
+# it (impl registered by hisi-riscv-rt). Mirrors tests-hil.
+portable-atomic = { version = "1", default-features = false, features = ["critical-section"] }
 
 [features]
 default = ["chip-ws63", "rt", "dep:critical-section"]
 # Chip selection (exactly one; enforced by a compile_error in lib.rs). Each pulls
 # its Peripheral Access Crate.
-chip-ws63 = ["dep:ws63-pac"]
-chip-bs21 = ["dep:bs2x-pac"]
+#
+# Each chip also pulls the matching hisi-riscv-rt features so the on-target
+# `tests/hil.rs` test ELF gets the right runtime. `hisi-riscv-rt` is a riscv-only
+# dev-dep (see the [target.'cfg(...)'.dev-dependencies] block below), so it is in
+# the graph ONLY for the riscv test build — and a feature reference to a dep that
+# isn't present in the current target's graph is simply ignored at resolution.
+# Hence a host build (lib unit tests) or a plain library build, where rt is
+# absent, does NOT drag in the runtime when `chip-ws63` is enabled; only the
+# riscv test build sees these. Mirrors what tests-hil's chip features do.
+#   - chip-ws63: rt's chip-ws63 + boot-header (0x300 image header @ flash 0x230000,
+#     WS63-only) + bundled-memory-x (so ws63-link.x's `INCLUDE memory.x` resolves).
+#   - chip-bs21: rt's chip-bs21 (BS21's app partition / header placement differs;
+#     a BS21 board would supply its own memory.x — out of scope here).
+chip-ws63 = [
+    "dep:ws63-pac",
+    "hisi-riscv-rt/chip-ws63",
+    "hisi-riscv-rt/boot-header",
+    "hisi-riscv-rt/bundled-memory-x",
+]
+chip-bs21 = [
+    "dep:bs2x-pac",
+    "hisi-riscv-rt/chip-bs21",
+]
 # `rt`: riscv-rt integration. The weak `pac?/rt` enables the rt feature of whichever
 # PAC is active (its device.x interrupt vectors), without forcing the inactive one.
 rt = ["dep:critical-section", "ws63-pac?/rt", "bs2x-pac?/rt"]
@@ -65,6 +117,15 @@ async = ["dep:embedded-hal-async", "dep:embedded-io-async", "dep:critical-sectio
 # (the time-driver's TCXO/TIMER access is register-identical across the family)
 # without dragging in the WS63-only async drivers.
 embassy = ["dep:critical-section", "dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+
+# On-target (semihosting) HIL integration test (RISC-V only; flashed to a real
+# WS63 board by `probe-rs run`). embedded-test IS the harness — the default
+# libtest harness would pull the std `test` crate (unavailable on this no_std
+# target) and a duplicate panic handler. The HAL's own lib unit tests keep the
+# default harness (host); only this integration test opts out. See tests/hil.rs.
+[[test]]
+name = "hil"
+harness = false
 
 [profile.release]
 opt-level = "s"

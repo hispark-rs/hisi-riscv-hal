@@ -17,9 +17,14 @@
 //! // Now safe to construct peripheral drivers
 //! let uart = Uart::new_uart0(peripherals.UART0, Config::default());
 //! ```
-// `no_std` for firmware builds; `std` is linked under `cfg(test)` so the host
-// unit tests can use the standard test harness (run via `cargo test --target x86_64`).
-#![cfg_attr(not(test), no_std)]
+// `no_std` for firmware builds; `std` is linked under `cfg(test)` ONLY on the
+// host so the lib unit tests can use the standard test harness (run via
+// `cargo test --target x86_64`). On the RISC-V target the lib stays `no_std`
+// even under the `test` cfg: `cargo test --target riscv32imfc-...` builds the
+// lib-test target too (alongside tests/hil.rs), and `std`/`test` don't exist on
+// the bare-metal target — the host-only unit-test modules are themselves gated
+// `#[cfg(all(test, not(target_arch = "riscv32")))]`, so they vanish there.
+#![cfg_attr(not(all(test, not(target_arch = "riscv32"))), no_std)]
 #![allow(non_camel_case_types)]
 #![allow(rustdoc::broken_intra_doc_links)]
 

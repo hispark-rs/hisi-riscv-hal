@@ -285,7 +285,7 @@ impl PeriodicTimer<'_> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use crate::soc::chip::TIMER_CLOCK_HZ;
 
@@ -322,7 +322,7 @@ mod tests {
 
 // ── Property-based fuzz tests ──────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod proptests {
     use crate::soc::chip::TIMER_CLOCK_HZ;
     use proptest::prelude::*;

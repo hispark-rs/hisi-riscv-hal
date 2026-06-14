@@ -219,7 +219,7 @@ impl<'d> LsAdc<'d> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::*;
 
@@ -268,7 +268,7 @@ mod tests {
 
 // ── Property-based fuzz tests ──────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod proptests {
     use super::*;
     use proptest::prelude::*;

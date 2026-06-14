@@ -269,7 +269,7 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Spi1<'_>> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::sckdv;
     use crate::soc::chip::SPI_CLOCK_HZ;
@@ -303,7 +303,7 @@ mod tests {
 
 // ── Property-based fuzz tests ──────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod proptests {
     use super::sckdv;
     use proptest::prelude::*;

@@ -337,7 +337,7 @@ impl embedded_hal::i2c::I2c for I2c<'_, I2c1<'_>> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     #[test]
     fn test_i2c_address_write_encoding() {
