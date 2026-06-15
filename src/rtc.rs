@@ -7,6 +7,17 @@
 //! # Clock source
 //!
 //! The RTC runs from a 32.768 kHz clock.
+//!
+//! # Preconditions (board / analog)
+//!
+//! The 32.768 kHz domain comes from an **external crystal that many boards do not
+//! populate**. If the crystal is absent its clock domain never comes up, the
+//! counter never advances, and touching the RTC registers can stall the bus / drop
+//! the debug link. There is no software guard for a missing crystal — it is a board
+//! provisioning fact — so the on-silicon RTC test is gated behind the opt-in
+//! `hil-rtc` feature (OFF by default). Treat a populated 32.768 kHz crystal as a
+//! hard precondition before constructing an `RtcDriver`; with it absent, prefer the
+//! `timer` (TCXO) driver instead.
 
 use crate::peripherals::Rtc;
 

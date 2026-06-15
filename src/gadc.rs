@@ -100,6 +100,22 @@ pub enum AdcChannel {
 
 const VSSAFE1_BIT: u32 = 9; // n-side reference channel (cfg_amux_1 amuxn)
 
+/// Bounded spin limit for the conversion-done poll (`rpt_gadc_data_3` bit 0). A
+/// single GADC conversion latches within microseconds at the SDK clock divider;
+/// this cap is several orders above that so a wedged AFE/LDO (e.g. analog never
+/// powered) yields [`GadcError::ConversionTimeout`] instead of hanging forever.
+const GADC_DONE_POLL_LIMIT: u32 = 1_000_000;
+
+/// GADC conversion error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum GadcError {
+    /// The conversion-done flag did not assert within [`GADC_DONE_POLL_LIMIT`]
+    /// spins — the analog front-end is unpowered or the trigger handshake stalled.
+    ConversionTimeout,
+}
+
 /// The BS2X GADC driver (single instance).
 pub struct Gadc<'d> {
     _gadc: PhantomData<GadcPeriph<'d>>,
@@ -114,6 +130,16 @@ impl<'d> Gadc<'d> {
 
     /// Power up the GADC and bring it live. Mirrors `hal_adc_v153_init` ->
     /// `_power_on` -> `_enable` -> `hal_gafe_enable` (fbb_bs2x).
+    ///
+    /// # Preconditions (analog)
+    ///
+    /// This drives the GADC digital block, the ANA/LDO sub-block, and the PMU AFE
+    /// (MTCMOS power / isolation / reset / clock) through the vendor power-up
+    /// sequence with the SDK's settling delays. It assumes the **board's analog
+    /// supply and 32 MHz reference are up** (the AON `XO32M` path); the efuse LDO
+    /// trim is skipped (`TODO(bs2x)`). Without a live AFE, a conversion never
+    /// completes — [`Gadc::read`] then returns [`GadcError::ConversionTimeout`]
+    /// rather than hanging. Not validated on silicon (QEMU returns a fixed sample).
     pub fn new(_gadc: GadcPeriph<'d>) -> Self {
         let r = unsafe { &*GadcPeriph::ptr() };
         unsafe {
@@ -164,7 +190,12 @@ impl<'d> Gadc<'d> {
     /// Select `channel`, run one conversion, and return the raw 18-bit signed
     /// accumulated sample (`rpt_gadc_data_2`, sign-extended at bit 17). Mirrors
     /// `hal_adc_v153_auto_sample`.
-    pub fn read(&mut self, channel: AdcChannel) -> i32 {
+    ///
+    /// # Errors
+    ///
+    /// [`GadcError::ConversionTimeout`] if the conversion-done flag never asserts
+    /// within the bounded poll (an unpowered AFE/LDO) — instead of spinning forever.
+    pub fn read(&mut self, channel: AdcChannel) -> Result<i32, GadcError> {
         let r = self.regs();
         // Channel select: p-side one-hot = BIT(channel), n-side = BIT(VSSAFE1),
         // both divide-disable. cfg_amux_1: amuxn[10:0], amuxp[22:12].
@@ -178,14 +209,14 @@ impl<'d> Gadc<'d> {
 
         // The very first sample after power-up is discarded.
         if self.first_sample {
-            self.convert_once();
+            self.convert_once()?;
             self.first_sample = false;
         }
         self.convert_once()
     }
 
-    /// Trigger one conversion, poll done, read + sign-extend the result.
-    fn convert_once(&self) -> i32 {
+    /// Trigger one conversion, poll done (bounded), read + sign-extend the result.
+    fn convert_once(&self) -> Result<i32, GadcError> {
         let r = self.regs();
         unsafe {
             // Trigger (hal_gadc_iso_on): un-isolate + enable -> free-running scan.
@@ -195,19 +226,30 @@ impl<'d> Gadc<'d> {
             delay_us(5);
             pmu_rmw(PMU_AFE_GADC_CFG, 0, S2D_GADC_EN);
 
-            // Poll done: rpt_gadc_data_3 bit0 (GADC block).
-            while r.rpt_gadc_data_3().read().bits() & 0x1 == 0 {
+            // Poll done: rpt_gadc_data_3 bit0 (GADC block). Bounded so an unpowered
+            // AFE returns ConversionTimeout instead of hanging.
+            let mut done = false;
+            for _ in 0..GADC_DONE_POLL_LIMIT {
+                if r.rpt_gadc_data_3().read().bits() & 0x1 != 0 {
+                    done = true;
+                    break;
+                }
                 core::hint::spin_loop();
             }
 
-            // Stop / re-isolate (hal_gadc_iso_off).
+            // Stop / re-isolate (hal_gadc_iso_off) — always, even on timeout, so the
+            // AFE is left isolated rather than free-running.
             pmu_rmw(PMU_AFE_GADC_CFG, S2D_GADC_EN, 0);
             delay_us(5);
             pmu_rmw(PMU_AFE_GADC_CFG, S2D_GADC_MUX_EN, S2D_GADC_ISO_EN);
 
+            if !done {
+                return Err(GadcError::ConversionTimeout);
+            }
+
             // Read result + sign-extend (18-bit signed, sign bit 17).
             let raw = r.rpt_gadc_data_2().read().bits();
-            sign_extend18(raw)
+            Ok(sign_extend18(raw))
         }
     }
 }

@@ -619,7 +619,7 @@ mod tests {
         let ctrl0 = r.lsadc_ctrl_0().read();
         assert_ne!(ctrl0.channel().bits() & (1 << 0), 0, "LSADC channel-0 select bit not set");
         assert_eq!(ctrl0.equ_model_sel().bits(), cfg.averaging as u8, "LSADC averaging field mismatch");
-        assert_eq!(ctrl0.sample_cnt().bits(), cfg.sample_count & 0x1F, "LSADC sample_cnt field mismatch");
+        assert_eq!(ctrl0.sample_cnt().bits(), cfg.sample_count.bits(), "LSADC sample_cnt field mismatch");
     }
 
     /// RTC free-running counter advances (rtc.rs) — **opt-in** (`hil-rtc` feature).

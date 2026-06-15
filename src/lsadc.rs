@@ -66,23 +66,84 @@ pub enum Averaging {
     Eight = 3,
 }
 
+/// A validated `sample_cnt` (`LSADC_CTRL_0`, 5-bit). [`SampleCount::new`] returns
+/// `None` for `> 31`, so [`AdcConfig`] can never silently `& 0x1F`-truncate it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SampleCount(u8);
+
+impl SampleCount {
+    /// Construct from a raw count. `None` if `> 31` (the 5-bit field maximum).
+    pub const fn new(n: u8) -> Option<Self> {
+        if n <= 0x1F { Some(Self(n)) } else { None }
+    }
+    /// The raw 5-bit count.
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+}
+
+/// A validated `cast_cnt` (`LSADC_CTRL_0`, 7-bit). [`CastCount::new`] returns `None`
+/// for `> 127`, so [`AdcConfig`] can never silently `& 0x7F`-truncate it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct CastCount(u8);
+
+impl CastCount {
+    /// Construct from a raw count. `None` if `> 127` (the 7-bit field maximum).
+    pub const fn new(n: u8) -> Option<Self> {
+        if n <= 0x7F { Some(Self(n)) } else { None }
+    }
+    /// The raw 7-bit count.
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+}
+
+/// A validated RX-FIFO interrupt waterline (`LSADC_CTRL_1.rxintsize`, 3-bit).
+/// [`FifoWaterline::new`] returns `None` for `> 7`, so [`LsAdc::set_fifo_waterline`]
+/// can never silently `& 0x07`-truncate it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct FifoWaterline(u8);
+
+impl FifoWaterline {
+    /// Construct from a raw level. `None` if `> 7` (the 3-bit field maximum).
+    pub const fn new(level: u8) -> Option<Self> {
+        if level <= 0x07 { Some(Self(level)) } else { None }
+    }
+    /// The raw 3-bit level.
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+}
+
 /// Scan-mode sample timing (`LSADC_CTRL_0`). Defaults match the SDK's
 /// `hal_adc_auto_scan_mode_set` (8× averaging, `sample_cnt=8`, `start_cnt=0x18`).
+///
+/// The count fields are validated newtypes ([`SampleCount`]/[`CastCount`]) so an
+/// out-of-range value is rejected at construction instead of silently masked here.
 #[derive(Debug, Clone, Copy)]
 pub struct AdcConfig {
     /// Averaging mode (`equ_model_sel`, 2-bit).
     pub averaging: Averaging,
-    /// Sample count (`sample_cnt`, 5-bit).
-    pub sample_count: u8,
-    /// Start count (`start_cnt` / SDK `satrt_cnt`, 8-bit).
+    /// Sample count (`sample_cnt`, validated 5-bit).
+    pub sample_count: SampleCount,
+    /// Start count (`start_cnt` / SDK `satrt_cnt`, 8-bit — the full `u8` field).
     pub start_count: u8,
-    /// Cast count (`cast_cnt`, 7-bit).
-    pub cast_count: u8,
+    /// Cast count (`cast_cnt`, validated 7-bit).
+    pub cast_count: CastCount,
 }
 
 impl Default for AdcConfig {
     fn default() -> Self {
-        Self { averaging: Averaging::Eight, sample_count: 0x8, start_count: 0x18, cast_count: 0x0 }
+        Self {
+            averaging: Averaging::Eight,
+            // 0x8 and 0x0 are in range, so these unwraps never fire.
+            sample_count: SampleCount::new(0x8).unwrap(),
+            start_count: 0x18,
+            cast_count: CastCount::new(0x0).unwrap(),
+        }
     }
 }
 
@@ -147,9 +208,10 @@ impl<'d> LsAdc<'d> {
             unsafe {
                 w.channel().bits(ch);
                 w.equ_model_sel().bits(config.averaging as u8);
-                w.sample_cnt().bits(config.sample_count & 0x1F);
+                // Pre-validated by the newtypes — no silent mask needed.
+                w.sample_cnt().bits(config.sample_count.bits());
                 w.start_cnt().bits(config.start_count);
-                w.cast_cnt().bits(config.cast_count & 0x7F)
+                w.cast_cnt().bits(config.cast_count.bits())
             }
         });
     }
@@ -164,9 +226,11 @@ impl<'d> LsAdc<'d> {
         self.regs().lsadc_ctrl_8().write(|w| w.lsadc_stop().set_bit());
     }
 
-    /// Set the RX-FIFO interrupt waterline (`LSADC_CTRL_1.rxintsize`, 3-bit).
-    pub fn set_fifo_waterline(&mut self, level: u8) {
-        self.regs().lsadc_ctrl_1().modify(|_, w| unsafe { w.rxintsize().bits(level & 0x07) });
+    /// Set the RX-FIFO interrupt waterline (`LSADC_CTRL_1.rxintsize`, 3-bit). The
+    /// level is a validated [`FifoWaterline`] so an out-of-range value is rejected
+    /// at construction rather than silently masked here.
+    pub fn set_fifo_waterline(&mut self, level: FifoWaterline) {
+        self.regs().lsadc_ctrl_1().modify(|_, w| unsafe { w.rxintsize().bits(level.bits()) });
     }
 
     /// True if the RX FIFO holds at least one sample (`LSADC_CTRL_1.rne`).
@@ -260,9 +324,20 @@ mod tests {
     fn test_default_config_matches_sdk() {
         let c = AdcConfig::default();
         assert_eq!(c.averaging as u8, 3); // AVERAGE_OF_EIGHT_SAMPLES
-        assert_eq!(c.sample_count, 0x8);
+        assert_eq!(c.sample_count.bits(), 0x8);
         assert_eq!(c.start_count, 0x18);
-        assert_eq!(c.cast_count, 0x0);
+        assert_eq!(c.cast_count.bits(), 0x0);
+    }
+
+    #[test]
+    fn count_newtypes_reject_out_of_range() {
+        // 5-bit sample_cnt, 7-bit cast_cnt, 3-bit waterline — boundaries enforced.
+        assert!(SampleCount::new(0x1F).is_some());
+        assert!(SampleCount::new(0x20).is_none());
+        assert!(CastCount::new(0x7F).is_some());
+        assert!(CastCount::new(0x80).is_none());
+        assert!(FifoWaterline::new(7).is_some());
+        assert!(FifoWaterline::new(8).is_none());
     }
 }
 

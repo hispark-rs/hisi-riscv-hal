@@ -6,7 +6,15 @@
 //! drives the RTC0 instance (bs2x-pac `Rtc` @ 0x5702_4100).
 //!
 //! Reading the 64-bit counter requires the cnt_req → cnt_lock latch handshake
-//! (so the two 32-bit halves are coherent).
+//! (so the two 32-bit halves are coherent); the wait for `cnt_lock` is bounded.
+//!
+//! # Preconditions (board / analog)
+//!
+//! The RTC counts on the 32.768 kHz clock domain, sourced from an **external
+//! crystal that a board may not populate**. With the crystal absent the counter
+//! never advances and register access can stall the bus — a board provisioning
+//! fact with no software guard. Treat a populated 32.768 kHz crystal as a hard
+//! precondition before constructing the driver.
 
 use crate::peripherals::Rtc as RtcPeriph;
 use core::marker::PhantomData;
