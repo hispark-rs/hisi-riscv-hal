@@ -36,7 +36,7 @@ pub use crate::i2s::I2sDriver;
 #[cfg(feature = "chip-ws63")]
 pub use crate::lsadc::LsAdc;
 #[cfg(feature = "chip-ws63")]
-pub use crate::pwm::PwmChannel;
+pub use crate::pwm::{Duty, PwmChannel, PwmPeriod};
 #[cfg(feature = "chip-ws63")]
 pub use crate::rtc::RtcDriver;
 #[cfg(feature = "chip-ws63")]

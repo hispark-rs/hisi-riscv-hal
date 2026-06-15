@@ -509,35 +509,31 @@ mod tests {
         assert!(r.i2c_ctrl().read().i2c_en().bit_is_set(), "I2C0 i2c_en not set after new_i2c0");
     }
 
-    /// PWM clock gate + channel-0 config (pwm.rs / clock.rs). PWM is clock-gated
-    /// (CKEN_CTL0 field [10:2], base bit 2 — `pwm_porting.c`); enable the field via
-    /// the `CldoCrg` register (RMW-set, mirrors `clock_gate_uart0_enabled`) so the
-    /// PWM registers latch writes, then configure channel 0 at 10 kHz / 50 % and
-    /// assert the low frequency register latched `SYSTEM_CLOCK_HZ / freq` (24 000,
-    /// chosen to fit the 16-bit `pwm_freq_l0`) and the enable bit toggles. Register
-    /// level — no pin output asserted.
+    /// PWM typed config + clock-tree bring-up (pwm.rs). `configure` brings up the
+    /// PWM clock tree itself (CLK_SEL high-freq + CKEN_CTL0 [10:2] + DIV_CTL3
+    /// divider, per vendor `pwm_port_clock_enable`) and takes a validated
+    /// `PwmPeriod` + `Duty`, so an invalid frequency or duty is unrepresentable.
+    /// The usable period is **16-bit**: silicon was measured NOT to latch the
+    /// `pwm_freq_h0` half (it reads back 0 even with the full clock tree up), which
+    /// is exactly why `PwmPeriod` is a `u16`. Configures a 24 000-tick / 50 % duty
+    /// waveform and asserts `pwm_freq_l0` latched it, `pwm_freq_h0` stayed 0, and the
+    /// duty register holds 12 000; then enable/disable. No pin output asserted.
     #[cfg(feature = "chip-ws63")]
     #[test]
     fn pwm_configure_and_enable() {
-        use hal::clock::Peripheral;
-        use hal::pwm::PwmChannel;
-        let (_reg_idx, base_bit) = Peripheral::Pwm.cken_info().expect("PWM should be gated");
-        // SAFETY: RMW-set of clock-enable bits; keeps other clocks running.
-        let crg = unsafe { &*pac::CldoCrg::PTR };
-        crg.cken_ctl0().modify(|r, w| unsafe { w.bits(r.bits() | (0x1FF << base_bit)) });
-
+        use hal::pwm::{Duty, PwmChannel, PwmPeriod};
         // SAFETY: sequential single-hart run; PWM singleton not otherwise held.
         let pwm = unsafe { hal::peripherals::Pwm::steal() };
         let mut ch = PwmChannel::new(&pwm, 0);
-        const FREQ: u32 = 10_000; // period = 24_000, fits the 16-bit low register
-        ch.configure(FREQ, 50);
+        let period = PwmPeriod::from_count(24_000).expect("non-zero period");
+        ch.configure(period, Duty::HALF);
         ch.enable();
 
-        let expected_period = hal::soc::chip::SYSTEM_CLOCK_HZ / FREQ; // 24_000
         // SAFETY: read-only MMIO loads of the PWM ch0 registers.
         let r = unsafe { &*pac::Pwm::PTR };
-        let lo = r.pwm_freq_l0().read().bits() as u32;
-        assert_eq!(lo, expected_period, "PWM ch0 freq_l0 not latched: got {lo} want {expected_period}");
+        assert_eq!(r.pwm_freq_l0().read().bits() as u32, 24_000, "PWM freq_l0 not latched");
+        assert_eq!(r.pwm_freq_h0().read().bits() as u32, 0, "PWM freq_h0 unexpectedly non-zero");
+        assert_eq!(r.pwm_duty_l0().read().bits() as u32, 12_000, "PWM 50% duty not latched");
         assert_ne!(r.pwm_en0().read().bits() & 1, 0, "PWM ch0 not enabled");
 
         ch.disable();
