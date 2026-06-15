@@ -23,13 +23,17 @@ use core::marker::PhantomData;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Mode {
+    /// Count down once from `load` to zero, then stop.
     OneShot = 0,
+    /// Count down from `load`, reload and repeat (periodic interrupt).
     Periodic = 1,
+    /// Free-running counter (wraps past zero; bit pattern is 3, not 2).
     FreeRun = 3,
 }
 
 const POLL_LIMIT: u32 = 0xFFFF;
 
+/// Driver for the BS2X 64-bit v150 RTC (RTC0 instance).
 pub struct Rtc<'d> {
     _rtc: PhantomData<RtcPeriph<'d>>,
 }

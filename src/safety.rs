@@ -76,6 +76,7 @@ impl PeripheralIndex {
         PeripheralIndex(idx)
     }
 
+    /// Returns the wrapped peripheral index as a `usize`.
     pub const fn get(&self) -> usize {
         self.0 as usize
     }
@@ -93,6 +94,7 @@ impl TryFrom<usize> for PeripheralIndex {
 pub struct GpioPinIndex(#[allow(dead_code)] u8);
 
 impl GpioPinIndex {
+    /// Constructs a valid pin index, returning `None` if `pin` >= `GPIO_COUNT`.
     pub const fn new(pin: u8) -> Option<Self> {
         if pin < crate::soc::chip::GPIO_COUNT as u8 { Some(GpioPinIndex(pin)) } else { None }
     }

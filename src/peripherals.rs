@@ -4,6 +4,7 @@
 //! the underlying hardware registers. The [`Peripherals`] struct is obtained
 //! once via [`Peripherals::take()`].
 
+/// Chip-specific interrupt number enumeration re-exported from the SoC PAC.
 pub use crate::soc::chip::Interrupt;
 use core::marker::PhantomData;
 
@@ -60,6 +61,7 @@ macro_rules! peripheral {
 
 macro_rules! peripherals {
     ($($field:ident => $ty:ident),* $(,)?) => {
+        /// Owns every peripheral singleton for the selected chip; obtain once via [`Peripherals::take()`].
         #[allow(non_snake_case)]
         pub struct Peripherals {
             $(
@@ -69,6 +71,7 @@ macro_rules! peripherals {
         }
 
         impl Peripherals {
+            /// Take the peripheral singletons; returns `None` if already taken.
             pub fn take() -> Option<Self> {
                 let pac = crate::soc::pac::Peripherals::take()?;
                 Some(Self::from_pac(pac))

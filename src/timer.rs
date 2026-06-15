@@ -41,21 +41,13 @@ pub enum TimerError {
 /// 32-bit load/period register would overflow (the old silent `u32::MAX` clamp).
 const fn try_ticks_for_us(us: u32) -> Result<u32, TimerError> {
     let ticks = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
-    if ticks > u32::MAX as u64 {
-        Err(TimerError::TicksOverflow)
-    } else {
-        Ok(ticks as u32)
-    }
+    if ticks > u32::MAX as u64 { Err(TimerError::TicksOverflow) } else { Ok(ticks as u32) }
 }
 
 /// Convert milliseconds to timer ticks, or [`TimerError::TicksOverflow`] on overflow.
 const fn try_ticks_for_ms(ms: u32) -> Result<u32, TimerError> {
     let ticks = TIMER_CLOCK_HZ as u64 * ms as u64 / 1_000;
-    if ticks > u32::MAX as u64 {
-        Err(TimerError::TicksOverflow)
-    } else {
-        Ok(ticks as u32)
-    }
+    if ticks > u32::MAX as u64 { Err(TimerError::TicksOverflow) } else { Ok(ticks as u32) }
 }
 
 /// Saturating µs→ticks for the blocking `embedded_hal::delay::DelayNs` impl, whose
@@ -408,7 +400,7 @@ impl PeriodicTimer<'_> {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
-    use super::{try_ticks_for_us, TimerError};
+    use super::{TimerError, try_ticks_for_us};
     use crate::soc::chip::TIMER_CLOCK_HZ;
 
     // The timer counts at the TCXO crystal clock (TIMER_CLOCK_HZ = 24 MHz), so

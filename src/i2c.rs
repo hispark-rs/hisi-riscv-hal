@@ -32,6 +32,7 @@ impl Speed {
     }
 }
 
+/// I2C master driver bound to instance `T` (`I2c0`/`I2c1`).
 pub struct I2c<'d, T> {
     idx: u8,
     _peripheral: PhantomData<&'d T>,
@@ -48,6 +49,7 @@ fn i2c_regs(idx: u8) -> &'static crate::soc::pac::i2c0::RegisterBlock {
 }
 
 impl<'d> I2c<'d, I2c0<'d>> {
+    /// Create and configure the I2C0 master at the given bus [`Speed`].
     pub fn new_i2c0(_i2c: I2c0<'d>, speed: Speed) -> Self {
         configure_i2c(0, speed.hz());
         Self { idx: 0, _peripheral: PhantomData }
@@ -55,6 +57,7 @@ impl<'d> I2c<'d, I2c0<'d>> {
 }
 
 impl<'d> I2c<'d, I2c1<'d>> {
+    /// Create and configure the I2C1 master at the given bus [`Speed`].
     pub fn new_i2c1(_i2c: I2c1<'d>, speed: Speed) -> Self {
         configure_i2c(1, speed.hz());
         Self { idx: 1, _peripheral: PhantomData }
@@ -155,6 +158,7 @@ impl<T> I2c<'_, T> {
         self.wait_tx_ack()
     }
 
+    /// Write `data` to the 7-bit `addr` (START, address+W, bytes, STOP).
     pub fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
 
@@ -178,6 +182,8 @@ impl<T> I2c<'_, T> {
         Ok(())
     }
 
+    /// Read `buf.len()` bytes from the 7-bit `addr` (START, address+R, bytes with
+    /// NACK on the last, STOP).
     pub fn read(&mut self, addr: u8, buf: &mut [u8]) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
 
@@ -310,12 +316,16 @@ impl<T> I2c<'_, T> {
     }
 }
 
+/// WS63 I2C master transaction error.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum I2cError {
+    /// The addressed device did not acknowledge (NACK on address or data).
     Ack,
+    /// Bus-level fault (e.g. arbitration loss / SCL stuck).
     BusError,
+    /// A status bit never asserted within the bounded wait (stuck/absent slave).
     Timeout,
 }
 

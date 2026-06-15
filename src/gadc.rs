@@ -88,13 +88,21 @@ fn delay_us(us: u32) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum AdcChannel {
+    /// Analog input 0 (p-side one-hot `BIT(0)` in `cfg_amux_1`).
     Ain0 = 0,
+    /// Analog input 1 (p-side one-hot `BIT(1)` in `cfg_amux_1`).
     Ain1 = 1,
+    /// Analog input 2 (p-side one-hot `BIT(2)` in `cfg_amux_1`).
     Ain2 = 2,
+    /// Analog input 3 (p-side one-hot `BIT(3)` in `cfg_amux_1`).
     Ain3 = 3,
+    /// Analog input 4 (p-side one-hot `BIT(4)` in `cfg_amux_1`).
     Ain4 = 4,
+    /// Analog input 5 (p-side one-hot `BIT(5)` in `cfg_amux_1`).
     Ain5 = 5,
+    /// Analog input 6 (p-side one-hot `BIT(6)` in `cfg_amux_1`).
     Ain6 = 6,
+    /// Analog input 7 (p-side one-hot `BIT(7)` in `cfg_amux_1`).
     Ain7 = 7,
 }
 

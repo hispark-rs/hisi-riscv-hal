@@ -35,6 +35,7 @@ const fn speed_from_enumspd(enumspd: u8) -> Speed {
     }
 }
 
+/// Errors from bringing up the DWC2 OTG device controller.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -48,12 +49,17 @@ pub enum UsbError {
 /// The USB speed the host enumerated the device at (`DSTS.ENUMSPD`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Speed {
+    /// High speed (`ENUMSPD` = 0).
     High,
+    /// Full speed via the high-speed PHY (`ENUMSPD` = 3).
     Full,
+    /// Low speed (`ENUMSPD` = 2).
     Low,
+    /// Full speed via a full-speed PHY (`ENUMSPD` = 1).
     FullFs,
 }
 
+/// Driver for the BS2X DWC2 OTG controller in USB 2.0 device mode.
 pub struct Usb<'d> {
     _u: PhantomData<UsbPeriph<'d>>,
 }
@@ -64,6 +70,7 @@ impl<'d> Usb<'d> {
         unsafe { &*UsbPeriph::ptr() }
     }
 
+    /// Create the driver from the `Usb` peripheral token.
     pub fn new(_u: UsbPeriph<'d>) -> Self {
         Self { _u: PhantomData }
     }

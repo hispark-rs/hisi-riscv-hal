@@ -22,6 +22,7 @@ pub enum Speed {
     Fast,
 }
 
+/// Error returned by the BS2X I2C master operations.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -37,9 +38,9 @@ pub enum I2cError {
 impl embedded_hal::i2c::Error for I2cError {
     fn kind(&self) -> embedded_hal::i2c::ErrorKind {
         match self {
-            I2cError::Nack => embedded_hal::i2c::ErrorKind::NoAcknowledge(
-                embedded_hal::i2c::NoAcknowledgeSource::Unknown,
-            ),
+            I2cError::Nack => {
+                embedded_hal::i2c::ErrorKind::NoAcknowledge(embedded_hal::i2c::NoAcknowledgeSource::Unknown)
+            }
             I2cError::Timeout => embedded_hal::i2c::ErrorKind::Other,
         }
     }
@@ -50,11 +51,7 @@ impl<T> embedded_hal::i2c::ErrorType for I2c<'_, T> {
 }
 
 impl<T> embedded_hal::i2c::I2c for I2c<'_, T> {
-    fn transaction(
-        &mut self,
-        addr: u8,
-        operations: &mut [embedded_hal::i2c::Operation<'_>],
-    ) -> Result<(), I2cError> {
+    fn transaction(&mut self, addr: u8, operations: &mut [embedded_hal::i2c::Operation<'_>]) -> Result<(), I2cError> {
         for op in operations {
             match op {
                 embedded_hal::i2c::Operation::Read(buf) => self.read(addr, buf)?,
@@ -78,6 +75,7 @@ fn wait_until(mut ready: impl FnMut() -> bool) -> Result<(), I2cError> {
     Err(I2cError::Timeout)
 }
 
+/// BS2X I2C master driver over the DesignWare `ic_*` (v151) controller.
 pub struct I2c<'d, T> {
     idx: u8,
     _peripheral: PhantomData<&'d T>,
@@ -90,12 +88,14 @@ fn i2c_regs(idx: u8) -> &'static crate::soc::pac::i2c0::RegisterBlock {
 }
 
 impl<'d> I2c<'d, I2c0<'d>> {
+    /// Create the I2C0 master, configuring it for `speed`.
     pub fn new_i2c0(_i2c: I2c0<'d>, speed: Speed) -> Self {
         configure(0, speed);
         Self { idx: 0, _peripheral: PhantomData }
     }
 }
 impl<'d> I2c<'d, I2c1<'d>> {
+    /// Create the I2C1 master, configuring it for `speed`.
     pub fn new_i2c1(_i2c: I2c1<'d>, speed: Speed) -> Self {
         configure(1, speed);
         Self { idx: 1, _peripheral: PhantomData }

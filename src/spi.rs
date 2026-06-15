@@ -7,11 +7,16 @@
 use crate::peripherals::{Spi0, Spi1};
 use core::marker::PhantomData;
 
+/// SPI clock polarity/phase mode (CTRA.scpol bit 3 / scph bit 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpiMode {
+    /// CPOL=0, CPHA=0: idle-low clock, sample on leading edge.
     Mode0,
+    /// CPOL=0, CPHA=1: idle-low clock, sample on trailing edge.
     Mode1,
+    /// CPOL=1, CPHA=0: idle-high clock, sample on leading edge.
     Mode2,
+    /// CPOL=1, CPHA=1: idle-high clock, sample on trailing edge.
     Mode3,
 }
 
@@ -79,10 +84,14 @@ impl DataBits {
     }
 }
 
+/// SPI master configuration: bus clock, clock mode, and frame size.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
+    /// Target SCK bus clock (validated; programs the SCKDV divider).
     pub frequency: SpiHz,
+    /// Clock polarity/phase mode.
     pub mode: SpiMode,
+    /// Data frame size in bits (DFS, `4..=16`).
     pub data_bits: DataBits,
 }
 
@@ -92,6 +101,7 @@ impl Default for Config {
     }
 }
 
+/// SPI master driver bound to instance `T` (`Spi0`/`Spi1`).
 pub struct Spi<'d, T> {
     idx: u8,
     _peripheral: PhantomData<&'d T>,
@@ -141,12 +151,14 @@ fn wait_until(mut ready: impl FnMut() -> bool) -> Result<(), SpiError> {
 }
 
 impl<'d> Spi<'d, Spi0<'d>> {
+    /// Create and configure the SPI0 master from its peripheral token.
     pub fn new_spi0(_spi: Spi0<'d>, config: Config) -> Self {
         configure_spi(0, &config);
         Self { idx: 0, _peripheral: PhantomData }
     }
 }
 impl<'d> Spi<'d, Spi1<'d>> {
+    /// Create and configure the SPI1 master from its peripheral token.
     pub fn new_spi1(_spi: Spi1<'d>, config: Config) -> Self {
         configure_spi(1, &config);
         Self { idx: 1, _peripheral: PhantomData }
@@ -232,6 +244,8 @@ fn configure_spi(idx: u8, config: &Config) {
 }
 
 impl<T> Spi<'_, T> {
+    /// Full-duplex transfer: write `write` while reading into `read`, byte-paced
+    /// through the TX/RX FIFOs (zero-padded TX / discarded RX for the shorter slice).
     pub fn transfer(&mut self, write: &[u8], read: &mut [u8]) -> Result<(), SpiError> {
         let r = spi_regs(self.idx);
         let len = write.len().max(read.len());
@@ -248,6 +262,7 @@ impl<T> Spi<'_, T> {
         Ok(())
     }
 
+    /// Write-only transfer: push `data` into the TX FIFO, discarding any RX bytes.
     pub fn write(&mut self, data: &[u8]) -> Result<(), SpiError> {
         let r = spi_regs(self.idx);
         for &byte in data {
@@ -257,6 +272,7 @@ impl<T> Spi<'_, T> {
         Ok(())
     }
 
+    /// Borrow the underlying PAC register block for this SPI instance.
     pub fn register_block(&self) -> &'static crate::soc::pac::spi0::RegisterBlock {
         spi_regs(self.idx)
     }
@@ -283,11 +299,14 @@ fn transfer_in_place_on(idx: u8, buf: &mut [u8]) -> Result<(), SpiError> {
     Ok(())
 }
 
+/// Errors returned by the SPI driver.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum SpiError {
+    /// FIFO overrun (maps to [`embedded_hal::spi::ErrorKind::Overrun`]).
     Overflow,
+    /// A status bit never asserted within [`SPI_WAIT_LOOPS`] (no slave, stuck CS, wrong mode).
     Timeout,
 }
 

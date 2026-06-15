@@ -111,18 +111,23 @@ impl core::ops::Sub for Duration {
 pub struct Rate(u32);
 
 impl Rate {
+    /// Create a rate from a value in Hz.
     pub const fn from_hz(hz: u32) -> Self {
         Rate(hz)
     }
+    /// Create a rate from a value in kHz.
     pub const fn from_khz(khz: u32) -> Self {
         Rate(khz * 1_000)
     }
+    /// Create a rate from a value in MHz.
     pub const fn from_mhz(mhz: u32) -> Self {
         Rate(mhz * 1_000_000)
     }
+    /// Return the rate in Hz.
     pub const fn to_hz(&self) -> u32 {
         self.0
     }
+    /// Return the rate in kHz.
     pub const fn to_khz(&self) -> u32 {
         self.0 / 1_000
     }

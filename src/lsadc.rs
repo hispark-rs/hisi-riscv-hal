@@ -30,11 +30,17 @@ use crate::peripherals::Lsadc;
 /// LSADC channel (0-5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdcChannel {
+    /// Channel 0 (`LSADC_CTRL_0.channel` bit 0).
     Channel0 = 0,
+    /// Channel 1 (`LSADC_CTRL_0.channel` bit 1).
     Channel1 = 1,
+    /// Channel 2 (`LSADC_CTRL_0.channel` bit 2).
     Channel2 = 2,
+    /// Channel 3 (`LSADC_CTRL_0.channel` bit 3).
     Channel3 = 3,
+    /// Channel 4 (`LSADC_CTRL_0.channel` bit 4).
     Channel4 = 4,
+    /// Channel 5 (`LSADC_CTRL_0.channel` bit 5).
     Channel5 = 5,
 }
 

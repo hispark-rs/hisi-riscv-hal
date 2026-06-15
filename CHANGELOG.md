@@ -26,6 +26,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - **Silicon-validated**: the HIL `pwm_configure_and_enable` test programs a
     24 000-tick / 50 % waveform and confirms `pwm_freq_l0` = 24 000, `pwm_freq_h0`
     = 0, duty = 12 000.
+- **Typed config across all drivers** (BREAKING) — the "if it compiles, it runs on
+  silicon" pass: every writable config value is now one the hardware can actually
+  run (no silent clamp / truncate / unclocked path). Per driver:
+  - **spi**: `Config.frequency: SpiHz` (rejects an SCK outside
+    `[SPI_CLOCK_HZ/0xFFFE, /2]`) and `data_bits: DataBits` (validated `4..=16`),
+    replacing the old `u32`/`u8` that silently clamped the SCKDV divider.
+  - **i2c**: `new_i2c0/1(speed: Speed)` (`Standard`/`Fast` = 100/400 kHz, aligned
+    with the BS2X v151 core) instead of a raw frequency that could overflow the SCL
+    counter.
+  - **uart**: `Config.baudrate: BaudRate` — `BaudRate::try_new` rejects a baud whose
+    16-bit divider would under/overflow against the 160 MHz base, removing the
+    silent low-clamp inside `configure_uart`.
+  - **i2s** (rewrite): role is now type-state — `I2sDriver::new_master(&MasterConfig)`
+    / `new_slave(&SlaveConfig)` (fusing the old `new()+configure()`). A master derives
+    its BCLK/FS dividers from `(data_width, channels)` exactly as the vendor
+    `sio_porting` does, so a **zero-divider master is unrepresentable** and every
+    divider provably fits its field. Register bits (`mode`/`i2s_crg`/`data_width_set`)
+    and the `DataWidth` (16/18/20/24/32) + `ChannelCount` (2/4/8/16) enums are
+    re-tabled to the authoritative vendor `hal_sio_v151_regs_def.h` (the ws63-pac SVD
+    layout was fabricated). `new_master` self-enables the I2S clock tree (CMU + CKEN
+    bus/clk).
+  - **wdt**: `configure` takes a validated `WdtTimeout` (`from_ms` rejects 0 /
+    `> MAX_MS`) and returns `Result<(), WdtError>`; `counter_value` → `Result`. The
+    old silent saturation to `WDT_MAX_LOAD` is gone, and the counter-latch poll is
+    now bounded (`WdtError::Busy`).
+  - **timer**: `start_micros`/`start_millis` return `Result<(), TimerError>` and
+    reject `TicksOverflow` instead of clamping a too-long duration to `u32::MAX`
+    (≈178 s). The blocking `DelayNs` impl keeps saturating semantics (the trait has
+    no error channel).
+  - **gadc**: `read` → `Result<i32, GadcError>` with a **bounded** conversion-done
+    poll (`ConversionTimeout`) instead of a `while {}` that hangs on an unpowered
+    AFE; `new` documents the analog preconditions.
+  - **lsadc**: the silently-`& mask`-truncated `sample_cnt` / `cast_cnt` /
+    `rxintsize` fields are now validated `SampleCount` / `CastCount` /
+    `FifoWaterline` newtypes.
+  - **rtc**: the 32.768 kHz-crystal board precondition is documented (both the WS63
+    v100 and BS2X v150 modules); reads use a bounded latch poll.
+  - **sfc**: `command_with_data` rejects a `> 64`-byte write with
+    `SfcError::BufferTooLong` instead of silently truncating it.
+- **Drop-to-disable** (BREAKING semantics) — hazardous peripherals return to a safe
+  state when their handle drops, touching only the peripheral's own enable bit:
+  `Watchdog` stops, `PwmChannel` clears its `pwm_enN`, `Output` reverts to input /
+  high-Z. Escape hatches keep them live: `Watchdog::into_armed()`/`leak()`,
+  `PwmChannel::into_running()`, `Output::into_latched()`/`into_flex()` (each → a
+  zero-sized marker). `Timer` is deliberately exempt.
+- **chip-feature de-default** (BREAKING): the HAL no longer defaults to `chip-ws63`
+  (esp-hal style). `default = ["rt", "dep:critical-section"]`; building the HAL
+  standalone now requires an explicit `chip-ws63` *or* `chip-bs21` (a `compile_error!`
+  guides you otherwise). `cargo build`/`cargo check --workspace` still work via
+  feature unification from the default-member ws63 examples. `[package.metadata.docs.rs]`
+  pins the riscv target + chip-ws63.
+- **API cleanup** (BREAKING): removed the legacy type-state `GpioPin<MODE>` (and
+  `create_input_pin`/`create_output_pin`, `InputMode`/`OutputMode`) — use
+  `AnyPin::init_input`/`init_output`/`init_flex`. All `*Error` enums are
+  `#[non_exhaustive]` + `defmt::Format`-derivable; `SpiError::Overflow` maps to
+  `ErrorKind::Overrun`; the BS2X `i2c_v151::I2cError` implements
+  `embedded_hal::i2c::Error`. `io_config::get_gpio_mux` → `gpio_mux` (C-GETTER).
+  Added a safe `Peripheral::reborrow(&mut self)`. New optional `defmt` feature.
+- **docs**: `#![warn(missing_docs)]` enabled and every public item documented (flips
+  to `deny` once green).
 
 ### Added
 

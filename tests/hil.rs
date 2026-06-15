@@ -548,7 +548,7 @@ mod tests {
     #[cfg(feature = "chip-ws63")]
     #[test]
     fn wdt_configure_saturates_load() {
-        use hal::wdt::{ResetPulseLength, Watchdog, WdtMode, WdtTimeout, WDT_MAX_LOAD};
+        use hal::wdt::{ResetPulseLength, WDT_MAX_LOAD, Watchdog, WdtMode, WdtTimeout};
         // 300 s ≫ the field's ~178 s max → rejected at construction, no clamp.
         assert!(WdtTimeout::from_ms(300_000).is_none(), "over-range timeout must be rejected");
         assert!(WdtTimeout::from_ms(WdtTimeout::MAX_MS).is_some());
@@ -625,15 +625,13 @@ mod tests {
         // `new_master` self-enables the I2S clk (bit 12) + bus (bit 11) gates and the
         // CMU divider reset-sync, then configures the block (master, I2S, 16-bit).
         // SAFETY: sequential single-hart run; I2S singleton not otherwise held.
-        let i2s = I2sDriver::new_master(
-            unsafe { hal::peripherals::I2s::steal() },
-            &MasterConfig::default(),
-        );
+        let i2s = I2sDriver::new_master(unsafe { hal::peripherals::I2s::steal() }, &MasterConfig::default());
 
         let ver = i2s.version();
         assert!(
             ver != 0 && ver != 0xFF,
-            "I2S version register read an unsane value 0x{:02x} (block not clocked?)", ver
+            "I2S version register read an unsane value 0x{:02x} (block not clocked?)",
+            ver
         );
     }
 

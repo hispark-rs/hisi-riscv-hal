@@ -148,12 +148,15 @@ fn enable_pwm_clock() {
     }
 }
 
+/// A handle to one of the 8 PWM output channels. Disables its own output on
+/// `Drop` (unless consumed by [`into_running`](PwmChannel::into_running)).
 pub struct PwmChannel<'d> {
     channel: u8,
     _marker: PhantomData<&'d ()>,
 }
 
 impl<'d> PwmChannel<'d> {
+    /// Create a handle for `channel` (0..8); panics if `channel >= 8`.
     pub fn new(_pwm: &Pwm<'d>, channel: u8) -> Self {
         assert!(channel < 8);
         Self { channel, _marker: PhantomData }
@@ -247,6 +250,7 @@ impl<'d> PwmChannel<'d> {
         }
     }
 
+    /// Start driving the output by setting this channel's `pwm_enN` enable bit.
     pub fn enable(&mut self) {
         match self.channel {
             0 => self.regs().pwm_en0().write(|w| unsafe { w.bits(1u32) }),
@@ -260,6 +264,7 @@ impl<'d> PwmChannel<'d> {
             _ => unreachable!(),
         };
     }
+    /// Stop driving the output by clearing this channel's `pwm_enN` enable bit.
     pub fn disable(&mut self) {
         match self.channel {
             0 => self.regs().pwm_en0().write(|w| unsafe { w.bits(0u32) }),
@@ -273,6 +278,8 @@ impl<'d> PwmChannel<'d> {
             _ => unreachable!(),
         };
     }
+    /// Set the output polarity via this channel's `pwm_portityN` register
+    /// (`true` = active-high, `false` = active-low).
     pub fn set_polarity(&mut self, active_high: bool) {
         let val = if active_high { 1u32 } else { 0u32 };
         match self.channel {
@@ -287,9 +294,13 @@ impl<'d> PwmChannel<'d> {
             _ => unreachable!(),
         };
     }
+    /// Trigger output generation by writing this channel's bit (`1 << channel`)
+    /// to the shared `pwm_start0` register.
     pub fn start(&mut self) {
         self.regs().pwm_start0().write(|w| unsafe { w.bits(1u32 << self.channel) });
     }
+    /// Set the number of pulses to emit via this channel's `pwm_period_valN`
+    /// register (pulse-count / one-shot mode).
     pub fn set_pulse_count(&mut self, count: u32) {
         match self.channel {
             0 => self.regs().pwm_period_val0().write(|w| unsafe { w.bits(count) }),
@@ -388,7 +399,7 @@ impl embedded_hal::pwm::SetDutyCycle for PwmChannel<'_> {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
-    use super::{Duty, PwmPeriod, PwmRunning, PWM_CLOCK_HZ};
+    use super::{Duty, PWM_CLOCK_HZ, PwmPeriod, PwmRunning};
 
     /// The `into_running` escape-hatch marker is zero-sized (a pure type-level proof
     /// token). The disabling-Drop register effect is HIL-validated on silicon — the
@@ -485,7 +496,7 @@ mod tests {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod proptests {
-    use super::{Duty, PwmPeriod, PWM_CLOCK_HZ};
+    use super::{Duty, PWM_CLOCK_HZ, PwmPeriod};
     use proptest::prelude::*;
 
     proptest! {

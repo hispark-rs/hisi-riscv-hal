@@ -583,13 +583,7 @@ mod tests {
     /// unrepresentable instead of silently `& mask`-truncated.
     #[test]
     fn derived_dividers_in_range() {
-        let widths = [
-            DataWidth::Bits16,
-            DataWidth::Bits18,
-            DataWidth::Bits20,
-            DataWidth::Bits24,
-            DataWidth::Bits32,
-        ];
+        let widths = [DataWidth::Bits16, DataWidth::Bits18, DataWidth::Bits20, DataWidth::Bits24, DataWidth::Bits32];
         let chans = [ChannelCount::Two, ChannelCount::Four, ChannelCount::Eight, ChannelCount::Sixteen];
         for &dw in &widths {
             for &ch in &chans {

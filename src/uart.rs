@@ -11,24 +11,36 @@
 use crate::peripherals::{Uart0, Uart1, Uart2};
 use core::marker::PhantomData;
 
+/// Number of data bits per UART frame ([3:2] field of UART_CTL).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataBits {
+    /// 5 data bits (field code 0).
     Five,
+    /// 6 data bits (field code 1).
     Six,
+    /// 7 data bits (field code 2).
     Seven,
+    /// 8 data bits (field code 3).
     Eight,
 }
 
+/// UART parity mode (parity-enable bit 5 / even-select bit 4 of UART_CTL).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Parity {
+    /// No parity bit (parity disabled).
     None,
+    /// Even parity (enable + even-select set).
     Even,
+    /// Odd parity (enable set, even-select clear).
     Odd,
 }
 
+/// Number of stop bits per UART frame (2-stop = bit 7 of UART_CTL).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopBits {
+    /// One stop bit (bit 7 clear).
     One,
+    /// Two stop bits (bit 7 set).
     Two,
 }
 
@@ -68,11 +80,16 @@ impl BaudRate {
     }
 }
 
+/// UART frame and clock configuration passed to the `new_uartN` constructors.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
+    /// Validated baud rate.
     pub baudrate: BaudRate,
+    /// Number of data bits per frame.
     pub data_bits: DataBits,
+    /// Parity mode.
     pub parity: Parity,
+    /// Number of stop bits per frame.
     pub stop_bits: StopBits,
     /// UART baud-base clock in Hz. `None` = the post-`clock_init` PLL base
     /// ([`crate::soc::chip::UART_CLOCK_HZ`], 160 MHz). Examples that skip
@@ -97,6 +114,7 @@ impl Default for Config {
     }
 }
 
+/// UART driver instance, generic over the UART peripheral type `T` (Uart0/1/2).
 pub struct Uart<'d, T> {
     _peripheral: PhantomData<&'d T>,
 }
@@ -122,6 +140,7 @@ fn uart_regs(idx: u8) -> &'static crate::soc::pac::uart0::RegisterBlock {
 }
 
 impl<'d> Uart<'d, Uart0<'d>> {
+    /// Create and configure a UART0 driver from the peripheral token and config.
     pub fn new_uart0(_uart: Uart0<'d>, config: Config) -> Self {
         configure_uart(0, &config);
         Self { _peripheral: PhantomData }
@@ -129,6 +148,7 @@ impl<'d> Uart<'d, Uart0<'d>> {
 }
 
 impl<'d> Uart<'d, Uart1<'d>> {
+    /// Create and configure a UART1 driver from the peripheral token and config.
     pub fn new_uart1(_uart: Uart1<'d>, config: Config) -> Self {
         configure_uart(1, &config);
         Self { _peripheral: PhantomData }
@@ -136,6 +156,7 @@ impl<'d> Uart<'d, Uart1<'d>> {
 }
 
 impl<'d> Uart<'d, Uart2<'d>> {
+    /// Create and configure a UART2 driver from the peripheral token and config.
     pub fn new_uart2(_uart: Uart2<'d>, config: Config) -> Self {
         configure_uart(2, &config);
         Self { _peripheral: PhantomData }
@@ -201,17 +222,20 @@ fn configure_uart(idx: u8, config: &Config) {
 }
 
 impl<T> Uart<'_, T> {
+    /// Write one byte to UART `idx`, blocking while the TX FIFO is full.
     pub fn write_byte(&self, idx: u8, byte: u8) {
         let r = uart_regs(idx);
         while r.fifo_status().read().tx_fifo_full().bit_is_set() {}
         r.data().write(|w| unsafe { w.bits(byte as u16) });
     }
 
+    /// Read one byte from UART `idx`, or `None` if the RX FIFO is empty.
     pub fn read_byte(&self, idx: u8) -> Option<u8> {
         let r = uart_regs(idx);
         if r.fifo_status().read().rx_fifo_empty().bit_is_set() { None } else { Some(r.data().read().bits() as u8) }
     }
 
+    /// Block until UART `idx`'s TX FIFO is fully drained.
     pub fn flush_tx(&self, idx: u8) {
         let r = uart_regs(idx);
         while !r.fifo_status().read().tx_fifo_empty().bit_is_set() {}
@@ -222,12 +246,14 @@ impl<T> Uart<'_, T> {
         uart_regs(idx).fifo_status().read().tx_fifo_empty().bit_is_set()
     }
 
+    /// Write a byte slice to UART `idx`, blocking per byte.
     pub fn write(&self, idx: u8, data: &[u8]) {
         for &b in data {
             self.write_byte(idx, b);
         }
     }
 
+    /// Return the PAC register block for UART `idx` (0/1/2).
     pub fn uart_regs(&self, idx: u8) -> &'static crate::soc::pac::uart0::RegisterBlock {
         uart_regs(idx)
     }

@@ -359,7 +359,7 @@ impl Drop for Watchdog<'_> {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
-    use super::{ResetPulseLength, WatchdogArmed, WDT_CLOCK_HZ, WDT_LOAD_RESEV, WDT_MAX_LOAD, WdtMode, WdtTimeout};
+    use super::{ResetPulseLength, WDT_CLOCK_HZ, WDT_LOAD_RESEV, WDT_MAX_LOAD, WatchdogArmed, WdtMode, WdtTimeout};
 
     /// The `into_armed`/`leak` escape-hatch marker is zero-sized (a pure type-level
     /// proof token). The disabling-Drop register effect itself is HIL-validated on

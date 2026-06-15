@@ -57,35 +57,60 @@ pub enum PullResistor {
 /// GPIO pin mux selection (15 GPIO pins, 4 UART pads).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PinMux {
+    /// GPIO pin 0.
     Gpio00,
+    /// GPIO pin 1.
     Gpio01,
+    /// GPIO pin 2.
     Gpio02,
+    /// GPIO pin 3.
     Gpio03,
+    /// GPIO pin 4.
     Gpio04,
+    /// GPIO pin 5.
     Gpio05,
+    /// GPIO pin 6.
     Gpio06,
+    /// GPIO pin 7.
     Gpio07,
+    /// GPIO pin 8.
     Gpio08,
+    /// GPIO pin 9.
     Gpio09,
+    /// GPIO pin 10.
     Gpio10,
+    /// GPIO pin 11.
     Gpio11,
+    /// GPIO pin 12.
     Gpio12,
+    /// GPIO pin 13.
     Gpio13,
+    /// GPIO pin 14.
     Gpio14,
+    /// UART0 transmit data pad.
     Uart0Txd,
+    /// UART0 receive data pad.
     Uart0Rxd,
+    /// UART1 transmit data pad.
     Uart1Txd,
+    /// UART1 receive data pad.
     Uart1Rxd,
 }
 
 /// SFC pad selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SfcPad {
+    /// SFC clock pad.
     Clk,
+    /// SFC chip-select (active low) pad.
     Csn,
+    /// SFC data line 0 pad.
     Io0,
+    /// SFC data line 1 pad.
     Io1,
+    /// SFC data line 2 pad.
     Io2,
+    /// SFC data line 3 pad.
     Io3,
 }
 
