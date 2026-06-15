@@ -26,6 +26,8 @@ ws63-pac = { version = "0.2", default-features = false, features = ["critical-se
 bs2x-pac = { version = "0.1", default-features = false, features = ["critical-section"], optional = true }
 embedded-hal = "1.0.0"
 embedded-hal-nb = "1.0"
+# Owned-buffer DMA traits (`ReadBuffer`/`WriteBuffer`) for the `dma::Transfer` guard.
+embedded-dma = "0.2"
 # Async trait impls (interrupt + waker driven), gated behind the `async` feature.
 embedded-hal-async = { version = "1.0", optional = true }
 # 0.6 to match embedded-io 0.6 (the blocking impls' ErrorType); 0.7 would need embedded-io 0.7.

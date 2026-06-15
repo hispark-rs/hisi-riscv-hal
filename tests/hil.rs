@@ -308,6 +308,48 @@ mod tests {
         }
     }
 
+    /// The owned-buffer `Transfer` guard (Area C) over the SAME mem-to-mem path on
+    /// silicon: `start_mem_to_mem` cleans the source, launches, and returns a guard;
+    /// `wait()` polls completion, invalidates the destination cache, and hands back
+    /// the driver + both buffers. The guard owns the buffers (so a use-after-free is
+    /// unrepresentable) and folds the cache maintenance into the type. `'static`
+    /// 32-byte-aligned buffers satisfy embedded-dma's stable-deref contract.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn dma_transfer_guard() {
+        use hal::dma::{Dma0, DmaDriver};
+        #[repr(C, align(32))]
+        struct Aligned([u32; 8]);
+        static mut SRC: Aligned = Aligned([
+            0xbbbb_0001,
+            0xbbbb_0002,
+            0xbbbb_0003,
+            0xbbbb_0004,
+            0xbbbb_0005,
+            0xbbbb_0006,
+            0xbbbb_0007,
+            0xbbbb_0008,
+        ]);
+        static mut DST: Aligned = Aligned([0u32; 8]);
+        // SAFETY: sequential single-hart run; these statics are touched only here.
+        let src: &'static mut [u32] = unsafe { &mut (*core::ptr::addr_of_mut!(SRC)).0 };
+        let dst: &'static mut [u32] = unsafe { &mut (*core::ptr::addr_of_mut!(DST)).0 };
+        let want =
+            [0xbbbb_0001u32, 0xbbbb_0002, 0xbbbb_0003, 0xbbbb_0004, 0xbbbb_0005, 0xbbbb_0006, 0xbbbb_0007, 0xbbbb_0008];
+
+        // SAFETY: sequential single-hart run; DMA singleton not otherwise held.
+        let mut dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
+        dma.enable_controller();
+
+        let transfer = dma.start_mem_to_mem(0, &*src, dst);
+        let (_dma, _src, dst) = transfer.wait();
+
+        for (i, &w) in want.iter().enumerate() {
+            let got = unsafe { core::ptr::read_volatile(dst.as_ptr().add(i)) };
+            assert_eq!(got, w, "DMA guard mem→mem mismatch @{}: got=0x{:08x} want=0x{:08x}", i, got, w);
+        }
+    }
+
     /// Clock-gate enable (clock.rs). The HAL's CKEN bit map lives in
     /// `clock::Peripheral::cken_info()` (the old `ClockControl` RAII layer was
     /// removed as dead code — see clock.rs module docs). UART0's gate is
