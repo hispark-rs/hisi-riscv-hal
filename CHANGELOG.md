@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **pwm** (BREAKING): `PwmChannel::configure` now takes a validated
+  `PwmPeriod` + `Duty` instead of `(freq: u32, duty_percent: u8)`, so a config the
+  hardware cannot run is **unrepresentable** rather than silently wrong:
+  - `Duty::from_percent` rejects `> 100 %`; `PwmPeriod::from_count`/`try_from_hz`
+    reject a 0 period and (because WS63 silicon does **not** latch the `pwm_freq_h`
+    high half — measured, even with the full clock tree up) a period that exceeds
+    16 bits. `PwmPeriod` is a `u16` accordingly. New `PWM_CLOCK_HZ`
+    (`SYSTEM_CLOCK_HZ / 6`, the vendor high-freq ÷6 divider).
+  - `configure` now **brings up the PWM clock tree itself** (CLK_SEL + CKEN_CTL0
+    `[10:2]` + DIV_CTL3 divider, per vendor `pwm_port_clock_enable`) — the
+    precondition the old API silently assumed, without which the registers don't
+    latch. WS63-gated; a no-op on BS2X (different clock tree — follow-up).
+  - The `embedded_hal::pwm::SetDutyCycle` impl is unchanged in shape (the
+    operational layer stays standard `u16` + `Result`); `max_duty_cycle()` now
+    reflects the configured period instead of `u16::MAX`.
+  - **Silicon-validated**: the HIL `pwm_configure_and_enable` test programs a
+    24 000-tick / 50 % waveform and confirms `pwm_freq_l0` = 24 000, `pwm_freq_h0`
+    = 0, duty = 12 000.
+
 ### Added
 
 - **HIL suite**: five more on-target tests (`tests/hil.rs`), all passing on real

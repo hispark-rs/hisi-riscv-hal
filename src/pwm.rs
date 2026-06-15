@@ -1,6 +1,152 @@
-//! PWM driver for WS63 (8 channels, 32-bit).
+//! PWM driver for WS63 (8 channels; usable period is 16-bit on silicon — see
+//! [`PwmPeriod`]).
+//!
+//! ## Two-layer API: typed config + embedded-hal operations
+//!
+//! The configuration surface is **typed so that an unrunnable config is
+//! unrepresentable**: [`Duty`] cannot hold a value above 100 %, and a
+//! [`PwmPeriod`] is always a non-zero 32-bit counter value (and `try_from_hz`
+//! rejects frequencies that would round to a 0 count). `configure(period, duty)`
+//! therefore can never be handed garbage — there is no "compiles but writes a
+//! dead waveform" path. `configure` also brings up the PWM clock tree itself (the
+//! precondition the old `freq: u32` API silently assumed; without it the 32-bit
+//! `pwm_freq`/`pwm_duty` registers do not fully latch).
+//!
+//! The *operational* surface stays standard `embedded-hal`
+//! ([`embedded_hal::pwm::SetDutyCycle`]): its trait signatures are fixed
+//! (`u16` + `Result`), so it cannot take the typed values — that is the
+//! embedded-hal idiom and the two layers coexist (typed config for direct HAL
+//! users, the trait for generic drivers).
 use crate::peripherals::Pwm;
+use crate::soc::chip::SYSTEM_CLOCK_HZ;
 use core::marker::PhantomData;
+
+/// PWM counter clock rate. The vendor `pwm_port_clock_enable` on the default WS63
+/// build (`CONFIG_HIGH_FREQUENCY`) selects the high-frequency source (CLK_SEL
+/// bit 7) and divides it by 6 (`PWM_DIV_6`), so the counter ticks at
+/// `SYSTEM_CLOCK_HZ / 6` — **not** the raw CPU clock. Period/duty counts are in
+/// these ticks.
+///
+/// NOTE: the high-frequency source is taken as `SYSTEM_CLOCK_HZ` (240 MHz) per the
+/// vendor default; the resulting 40 MHz tick rate is not yet scope-confirmed.
+/// [`PwmPeriod::from_count`] is exact regardless; [`PwmPeriod::try_from_hz`]
+/// depends on this constant.
+pub const PWM_CLOCK_HZ: u32 = SYSTEM_CLOCK_HZ / 6;
+
+/// A duty-cycle percentage, validated to `0..=100` at construction.
+///
+/// Because a `Duty` cannot hold a value above 100, [`PwmChannel::configure`] can
+/// never be handed an out-of-range duty — the invalid state is unrepresentable,
+/// not caught at runtime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Duty(u8);
+
+impl Duty {
+    /// 0 % — output held inactive.
+    pub const ZERO: Duty = Duty(0);
+    /// 50 %.
+    pub const HALF: Duty = Duty(50);
+    /// 100 % — output held active.
+    pub const FULL: Duty = Duty(100);
+
+    /// Construct from a percentage. Returns `None` for `> 100`, so an invalid duty
+    /// can never reach the hardware.
+    pub const fn from_percent(percent: u8) -> Option<Self> {
+        if percent <= 100 { Some(Duty(percent)) } else { None }
+    }
+
+    /// The percentage (always `0..=100`).
+    pub const fn percent(self) -> u8 {
+        self.0
+    }
+}
+
+/// A validated PWM period: a non-zero **16-bit** count of [`PWM_CLOCK_HZ`] ticks.
+///
+/// The vendor `hal_pwm_v151_regs_def.h` documents a 32-bit period
+/// (`pwm_freq_l_j[15:0]` + `pwm_freq_h_j[15:0]`), but on WS63 silicon the high half
+/// **does not latch** — measured: writing `0x0001` to `pwm_freq_h0` reads back 0
+/// even with the full clock tree up (CKEN on, divider loaded, CLK_SEL set). So the
+/// *usable* period is 16-bit, and this newtype encodes exactly that: a period the
+/// hardware cannot actually run is **unrepresentable**, not silently truncated —
+/// the precise "compiles but won't run" failure this typed API removes.
+/// [`try_from_hz`](PwmPeriod::try_from_hz) likewise rejects a frequency whose count
+/// would exceed 16 bits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PwmPeriod(u16);
+
+impl PwmPeriod {
+    /// Wrap a raw counter period (in [`PWM_CLOCK_HZ`] ticks). `None` for 0.
+    pub const fn from_count(count: u16) -> Option<Self> {
+        if count == 0 { None } else { Some(PwmPeriod(count)) }
+    }
+
+    /// Derive the period from a target output frequency. Returns `None` when the
+    /// frequency is 0, above [`PWM_CLOCK_HZ`] (count rounds to 0), or so low that
+    /// the count would exceed the 16-bit hardware range.
+    pub const fn try_from_hz(hz: u32) -> Option<Self> {
+        if hz == 0 {
+            return None;
+        }
+        let count = PWM_CLOCK_HZ / hz;
+        if count == 0 || count > u16::MAX as u32 {
+            return None;
+        }
+        Some(PwmPeriod(count as u16))
+    }
+
+    /// The raw counter period (in [`PWM_CLOCK_HZ`] ticks), always `>= 1`.
+    pub const fn count(self) -> u16 {
+        self.0
+    }
+
+    /// The on-time counter value for `duty` at this period (`count * percent / 100`,
+    /// widened to `u32` so the product never overflows).
+    pub const fn duty_count(self, duty: Duty) -> u16 {
+        ((self.0 as u32 * duty.0 as u32) / 100) as u16
+    }
+}
+
+/// Bring up the PWM channel-0 clock tree the way the vendor `pwm_port_clock_enable`
+/// does on WS63 (high-frequency source, ÷6): select the source, enable the bus +
+/// channel clock gates, and load the divider. WITHOUT this the `pwm_freq`/`pwm_duty`
+/// registers do not fully latch (the high 16-bit halves read back 0) — the
+/// precondition the old `configure(freq, …)` silently assumed.
+///
+/// The register addresses are WS63-specific (CLDO_CRG), so the body is gated to
+/// `chip-ws63`; on BS2X this is a no-op (their PWM clock tree differs — a
+/// follow-up). Loads the PWM0 divider only (DIV_CTL3); channels 1–7 share the bus
+/// gate but their dividers live in DIV_CTL3/4/5.
+fn enable_pwm_clock() {
+    #[cfg(feature = "chip-ws63")]
+    {
+        const CLDO_CRG_CKEN_CTL0: usize = 0x4400_1100;
+        const CLDO_CRG_DIV_CTL3: usize = 0x4400_1114;
+        const CLDO_CRG_CLK_SEL: usize = 0x4400_1134;
+        const PWM_CKSEL_BIT: u32 = 7; // high-frequency source select
+        const PWM_BUS_CKEN: u32 = 2; // base of the 9-bit [10:2] bus+channel CKEN field
+        const PWM_CKEN_FIELD: u32 = 0x1FF; // all 9 clock-enable bits
+        const PWM0_DIV1_CFG: u32 = 16; // DIV_CTL3 [19:16] = PWM0 divider
+        const PWM0_LOAD_DIV_EN: u32 = 20; // DIV_CTL3 bit 20 = latch the divider
+        const PWM_DIV_6: u32 = 6; // CONFIG_HIGH_FREQUENCY default divider
+
+        // SAFETY: fixed 32-bit CLDO_CRG MMIO addresses; RMW of clock bits is benign.
+        unsafe fn rmw(addr: usize, clear: u32, set: u32) {
+            let p = addr as *mut u32;
+            let v = (unsafe { core::ptr::read_volatile(p) } & !clear) | set;
+            unsafe { core::ptr::write_volatile(p, v) };
+        }
+        unsafe {
+            rmw(CLDO_CRG_CLK_SEL, 0, 1 << PWM_CKSEL_BIT);
+            rmw(CLDO_CRG_CKEN_CTL0, 0, PWM_CKEN_FIELD << PWM_BUS_CKEN);
+            // Reload the PWM0 divider: clear LOAD_DIV_EN, set the 4-bit divider,
+            // then set LOAD_DIV_EN (the rising edge latches it).
+            rmw(CLDO_CRG_DIV_CTL3, 1 << PWM0_LOAD_DIV_EN, 0);
+            rmw(CLDO_CRG_DIV_CTL3, 0xF << PWM0_DIV1_CFG, PWM_DIV_6 << PWM0_DIV1_CFG);
+            rmw(CLDO_CRG_DIV_CTL3, 0, 1 << PWM0_LOAD_DIV_EN);
+        }
+    }
+}
 
 pub struct PwmChannel<'d> {
     channel: u8,
@@ -18,12 +164,36 @@ impl<'d> PwmChannel<'d> {
         unsafe { &*Pwm::ptr() }
     }
 
-    pub fn configure(&mut self, freq: u32, duty_percent: u8) {
-        assert!(freq > 0, "PWM frequency must be non-zero");
+    /// The configured 32-bit period count for this channel (reassembled from the
+    /// `pwm_freq_l`/`pwm_freq_h` register halves). 0 if never configured.
+    fn period_count(&self) -> u32 {
         let r = self.regs();
-        let pclk = crate::soc::chip::SYSTEM_CLOCK_HZ;
-        let period = pclk / freq;
-        let duty = (period as u64 * duty_percent as u64 / 100) as u32;
+        let (lo, hi) = match self.channel {
+            0 => (r.pwm_freq_l0().read().bits(), r.pwm_freq_h0().read().bits()),
+            1 => (r.pwm_freq_l1().read().bits(), r.pwm_freq_h1().read().bits()),
+            2 => (r.pwm_freq_l2().read().bits(), r.pwm_freq_h2().read().bits()),
+            3 => (r.pwm_freq_l3().read().bits(), r.pwm_freq_h3().read().bits()),
+            4 => (r.pwm_freq_l4().read().bits(), r.pwm_freq_h4().read().bits()),
+            5 => (r.pwm_freq_l5().read().bits(), r.pwm_freq_h5().read().bits()),
+            6 => (r.pwm_freq_l6().read().bits(), r.pwm_freq_h6().read().bits()),
+            7 => (r.pwm_freq_l7().read().bits(), r.pwm_freq_h7().read().bits()),
+            _ => unreachable!(),
+        };
+        (lo as u32 & 0xFFFF) | ((hi as u32 & 0xFFFF) << 16)
+    }
+
+    /// Configure this channel's period and duty cycle, bringing up the PWM clock
+    /// tree first so the 32-bit `pwm_freq`/`pwm_duty` registers actually latch.
+    /// Both arguments are pre-validated ([`PwmPeriod`] is non-zero, [`Duty`] is
+    /// `0..=100`), so any call programs a real waveform — there is no invalid input
+    /// to reject at runtime.
+    pub fn configure(&mut self, period_cfg: PwmPeriod, duty_cfg: Duty) {
+        enable_pwm_clock();
+        let r = self.regs();
+        // 16-bit usable period/duty (the *_h halves do not latch on silicon); the
+        // match below still writes both halves, so the high write clears to 0.
+        let period = period_cfg.count() as u32;
+        let duty = period_cfg.duty_count(duty_cfg) as u32;
         match self.channel {
             0 => {
                 r.pwm_freq_l0().write(|w| unsafe { w.bits(period & 0xFFFF) });
@@ -141,7 +311,9 @@ impl embedded_hal::pwm::ErrorType for PwmChannel<'_> {
 
 impl embedded_hal::pwm::SetDutyCycle for PwmChannel<'_> {
     fn max_duty_cycle(&self) -> u16 {
-        u16::MAX
+        // Full scale = the configured period (the duty register is in period
+        // units), saturated into embedded-hal's u16 duty granularity.
+        self.period_count().min(u16::MAX as u32) as u16
     }
 
     fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
@@ -190,83 +362,71 @@ impl embedded_hal::pwm::SetDutyCycle for PwmChannel<'_> {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
-    use crate::soc::chip::SYSTEM_CLOCK_HZ;
+    use super::{Duty, PwmPeriod, PWM_CLOCK_HZ};
 
-    // Mirrors the pure arithmetic in `PwmChannel::configure`: the PWM counter runs
-    // at the system clock, so the period (in ticks) is `SYSTEM_CLOCK_HZ / freq`, and
-    // the on-time `duty` is `period * duty_percent / 100` (computed in u64 to avoid
-    // intermediate overflow). Each value is then split into low/high 16-bit halves.
-    fn period_for(freq: u32) -> u32 {
-        SYSTEM_CLOCK_HZ / freq
-    }
-
-    fn duty_for(period: u32, duty_percent: u8) -> u32 {
-        (period as u64 * duty_percent as u64 / 100) as u32
-    }
-
-    fn lo(v: u32) -> u32 {
-        v & 0xFFFF
-    }
-
-    fn hi(v: u32) -> u32 {
-        (v >> 16) & 0xFFFF
+    #[test]
+    fn duty_rejects_over_100() {
+        // The whole point of the newtype: > 100 % is unrepresentable.
+        assert!(Duty::from_percent(0).is_some());
+        assert!(Duty::from_percent(100).is_some());
+        assert!(Duty::from_percent(101).is_none());
+        assert!(Duty::from_percent(255).is_none());
     }
 
     #[test]
-    fn period_is_clock_over_freq() {
-        // 1 kHz → SYSTEM_CLOCK_HZ counter ticks per period.
-        assert_eq!(period_for(1_000), SYSTEM_CLOCK_HZ / 1_000);
-        // Frequency equal to the clock yields a 1-tick period.
-        assert_eq!(period_for(SYSTEM_CLOCK_HZ), 1);
+    fn duty_consts() {
+        assert_eq!(Duty::ZERO.percent(), 0);
+        assert_eq!(Duty::HALF.percent(), 50);
+        assert_eq!(Duty::FULL.percent(), 100);
     }
 
     #[test]
-    fn duty_zero_and_full() {
-        // 0% duty is always zero on-time; 100% duty equals the full period.
-        let period = period_for(1_000);
-        assert_eq!(duty_for(period, 0), 0);
-        assert_eq!(duty_for(period, 100), period);
+    fn period_from_count_rejects_zero() {
+        // A 0-tick period (dead waveform) is unrepresentable.
+        assert!(PwmPeriod::from_count(0).is_none());
+        assert_eq!(PwmPeriod::from_count(1).unwrap().count(), 1);
+        assert_eq!(PwmPeriod::from_count(60_000).unwrap().count(), 60_000);
     }
 
     #[test]
-    fn duty_fifty_percent_is_half_period() {
-        // 50% duty is exactly half the period (period chosen even to divide cleanly).
-        let period = period_for(1_000);
-        assert_eq!(duty_for(period, 50), period / 2);
+    fn try_from_hz_basic_and_bounds() {
+        // Rejected: 0 Hz, above-clock (count rounds to 0), and too-low (count would
+        // exceed the 16-bit hardware range — 1 Hz → PWM_CLOCK_HZ count ≫ u16).
+        assert!(PwmPeriod::try_from_hz(0).is_none());
+        assert!(PwmPeriod::try_from_hz(PWM_CLOCK_HZ + 1).is_none());
+        assert!(PwmPeriod::try_from_hz(1).is_none());
+        // At the clock rate the period is exactly 1 tick.
+        assert_eq!(PwmPeriod::try_from_hz(PWM_CLOCK_HZ).unwrap().count(), 1);
+        // A normal frequency: count = PWM_CLOCK_HZ / hz (fits 16 bits).
+        assert_eq!(PwmPeriod::try_from_hz(1_000).unwrap().count(), (PWM_CLOCK_HZ / 1_000) as u16);
     }
 
     #[test]
-    fn duty_monotonic_in_percent() {
-        // On-time is non-decreasing as the duty percentage rises.
-        let period = period_for(1_000);
-        let mut prev = 0u32;
+    fn duty_count_zero_half_full() {
+        let p = PwmPeriod::from_count(1_000).unwrap();
+        assert_eq!(p.duty_count(Duty::ZERO), 0);
+        assert_eq!(p.duty_count(Duty::HALF), 500);
+        assert_eq!(p.duty_count(Duty::FULL), 1_000);
+    }
+
+    #[test]
+    fn duty_count_monotonic_and_bounded() {
+        let p = PwmPeriod::from_count(1_000).unwrap();
+        let mut prev = 0u16;
         for pct in 0u8..=100 {
-            let d = duty_for(period, pct);
+            let d = p.duty_count(Duty::from_percent(pct).unwrap());
             assert!(d >= prev, "duty must be monotonic: pct={pct} d={d} prev={prev}");
-            assert!(d <= period, "duty {d} must never exceed period {period}");
+            assert!(d <= p.count(), "duty {d} must never exceed period {}", p.count());
             prev = d;
         }
     }
 
     #[test]
-    fn duty_no_overflow_for_large_period() {
-        // The u64 widening means even a near-u32::MAX period * 100% never overflows
-        // the intermediate product, and the result truncates back to the period.
-        let period = u32::MAX;
-        assert_eq!(duty_for(period, 100), period);
-        // 1% of u32::MAX is computed exactly via u64.
-        assert_eq!(duty_for(period, 1), ((u32::MAX as u64) / 100) as u32);
-    }
-
-    #[test]
-    fn lo_hi_split_round_trips() {
-        // The low/high 16-bit halves written to the *_l/*_h registers reassemble
-        // back into the original 32-bit value.
-        for v in [0u32, 1, 0xFFFF, 0x1_0000, 0xDEAD_BEEF, u32::MAX] {
-            assert_eq!(lo(v) | (hi(v) << 16), v, "round-trip failed for {v:#x}");
-            assert!(lo(v) <= 0xFFFF);
-            assert!(hi(v) <= 0xFFFF);
-        }
+    fn duty_count_no_overflow_for_max_period() {
+        // The u32 widening means even the max 16-bit period * 100 % never overflows.
+        let p = PwmPeriod::from_count(u16::MAX).unwrap();
+        assert_eq!(p.duty_count(Duty::FULL), u16::MAX);
+        assert_eq!(p.duty_count(Duty::from_percent(1).unwrap()), u16::MAX / 100);
     }
 
     #[test]
@@ -291,39 +451,43 @@ mod tests {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod proptests {
-    use crate::soc::chip::SYSTEM_CLOCK_HZ;
+    use super::{Duty, PwmPeriod, PWM_CLOCK_HZ};
     use proptest::prelude::*;
 
-    fn duty_for(period: u32, duty_percent: u8) -> u32 {
-        (period as u64 * duty_percent as u64 / 100) as u32
-    }
-
     proptest! {
-        /// Fuzz: period = clock/freq never panics and never exceeds the full clock
-        /// count for any non-zero frequency.
+        /// Fuzz: a frequency whose count fits 16 bits always yields a valid period.
+        /// The valid band is `PWM_CLOCK_HZ/u16::MAX < hz <= PWM_CLOCK_HZ` (below it
+        /// the count would exceed 16 bits; above it it rounds to 0).
         #[test]
-        fn period_in_range(freq in 1u32..=SYSTEM_CLOCK_HZ) {
-            let period = SYSTEM_CLOCK_HZ / freq;
-            prop_assert!(period >= 1);
-            prop_assert!(period <= SYSTEM_CLOCK_HZ);
+        fn try_from_hz_in_range(hz in (PWM_CLOCK_HZ / u16::MAX as u32 + 1)..=PWM_CLOCK_HZ) {
+            let p = PwmPeriod::try_from_hz(hz).unwrap();
+            prop_assert!(p.count() >= 1);
         }
 
-        /// Fuzz: the u64-widened duty computation never panics and the on-time is
-        /// always within [0, period] for any period and any 0..=100 duty percent.
+        /// Fuzz: a too-low frequency (count would exceed the 16-bit range) is rejected.
         #[test]
-        fn duty_within_period(period in any::<u32>(), pct in 0u8..=100) {
-            let d = duty_for(period, pct);
-            prop_assert!(d <= period, "duty {} > period {} (pct {})", d, period, pct);
+        fn try_from_hz_rejects_too_low(hz in 1u32..(PWM_CLOCK_HZ / u16::MAX as u32)) {
+            prop_assert!(PwmPeriod::try_from_hz(hz).is_none());
         }
 
-        /// Fuzz: the low/high 16-bit register split always reassembles to the input.
+        /// Fuzz: an above-clock frequency is always rejected (can't program it).
         #[test]
-        fn lo_hi_round_trip(v in any::<u32>()) {
-            let lo = v & 0xFFFF;
-            let hi = (v >> 16) & 0xFFFF;
-            prop_assert_eq!(lo | (hi << 16), v);
-            prop_assert!(lo <= 0xFFFF);
-            prop_assert!(hi <= 0xFFFF);
+        fn try_from_hz_rejects_out_of_range(hz in (PWM_CLOCK_HZ + 1)..=u32::MAX) {
+            prop_assert!(PwmPeriod::try_from_hz(hz).is_none());
+        }
+
+        /// Fuzz: `duty_count` is always within [0, period] for any period/duty.
+        #[test]
+        fn duty_within_period(count in 1u16..=u16::MAX, pct in 0u8..=100) {
+            let p = PwmPeriod::from_count(count).unwrap();
+            let d = p.duty_count(Duty::from_percent(pct).unwrap());
+            prop_assert!(d <= p.count(), "duty {} > period {} (pct {})", d, p.count(), pct);
+        }
+
+        /// Fuzz: `Duty` accepts exactly 0..=100 and rejects everything above.
+        #[test]
+        fn duty_validates(pct in any::<u8>()) {
+            prop_assert_eq!(Duty::from_percent(pct).is_some(), pct <= 100);
         }
 
         /// Fuzz: the start-register mask is a single bit for every valid channel.
