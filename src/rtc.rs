@@ -82,6 +82,11 @@ impl<'d> RtcDriver<'d> {
     ///
     /// * `mode` - Operating mode (free-running or periodic).
     /// * `load_value` - In periodic mode, the counter resets when reaching this value.
+    ///
+    /// typed-config exemption: `load_value` is written verbatim into the full 32-bit
+    /// `rtc_load_count` register, so every `u32` is a valid, runnable value — nothing
+    /// to truncate or clamp. (The board-crystal precondition is documented at the
+    /// module level.)
     pub fn configure(&mut self, mode: RtcMode, load_value: u32) {
         unsafe {
             self.regs().rtc_load_count().write(|w| w.bits(load_value));

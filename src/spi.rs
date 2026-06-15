@@ -178,6 +178,9 @@ const SPI_PLL_ROOT_MHZ: u32 = 480; // FNPLL SPI/QSPI tap (2880 / 6)
 #[cfg(feature = "chip-ws63")]
 fn configure_spi_source_clock() {
     // CRG divider output = 480 MHz / div → div = 480 / SSI_CLK_MHz (e.g. 3 for 160 MHz).
+    // typed-config exemption: both inputs are compile-time constants (this fn takes
+    // no args), so the `.max`/`.clamp` guard the *constant* clock-tree math, not any
+    // user value — the user-facing SPI rate is the validated `SpiHz` newtype.
     let ssi_mhz = (crate::soc::chip::SPI_CLOCK_HZ / 1_000_000).max(1);
     let div = (SPI_PLL_ROOT_MHZ / ssi_mhz).clamp(1, 0x1F);
     // SAFETY: fixed CLDO_CRG MMIO registers (0x4400_11xx, within the SYS_CTL1

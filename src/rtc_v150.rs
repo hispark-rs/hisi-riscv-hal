@@ -42,6 +42,11 @@ impl<'d> Rtc<'d> {
 
     /// Start the RTC counting from `load` in `mode` (`hal_rtc_v150_config_load` +
     /// `_start`). For a free-running counter use `Mode::FreeRun`.
+    ///
+    /// typed-config exemption: `load` is written verbatim into the 32-bit
+    /// `load_count0` register (the low half of the 64-bit counter), so every `u32`
+    /// is a valid, runnable value — nothing to truncate or clamp. (The board-crystal
+    /// precondition is documented at the module level.)
     pub fn new(_rtc: RtcPeriph<'d>, load: u32, mode: Mode) -> Self {
         let this = Self { _rtc: PhantomData };
         let r = this.regs();
