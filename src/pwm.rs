@@ -182,7 +182,7 @@ impl<'d> PwmChannel<'d> {
             7 => (r.pwm_freq_l7().read().bits(), r.pwm_freq_h7().read().bits()),
             _ => unreachable!(),
         };
-        (lo as u32 & 0xFFFF) | ((hi as u32 & 0xFFFF) << 16)
+        (lo & 0xFFFF) | ((hi & 0xFFFF) << 16)
     }
 
     /// Configure this channel's period and duty cycle, bringing up the PWM clock

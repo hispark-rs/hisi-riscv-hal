@@ -313,11 +313,9 @@ pub enum SpiError {
 impl embedded_hal::spi::Error for SpiError {
     fn kind(&self) -> embedded_hal::spi::ErrorKind {
         match self {
-            SpiError::Overflow => return embedded_hal::spi::ErrorKind::Overrun,
-            _ => {}
+            SpiError::Overflow => embedded_hal::spi::ErrorKind::Overrun,
+            _ => embedded_hal::spi::ErrorKind::Other,
         }
-        #[allow(unreachable_code)]
-        embedded_hal::spi::ErrorKind::Other
     }
 }
 impl embedded_hal::spi::ErrorType for Spi<'_, Spi0<'_>> {

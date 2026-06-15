@@ -622,7 +622,11 @@ pub struct Transfer<'d, T: DmaInstance, SRC, DST> {
     channel: u8,
     src: SRC,
     dst: DST,
+    // Only read by the chip-ws63 cache maintenance in `wait()`; BS2X DMA is coherent
+    // here, so these are unused there.
+    #[cfg_attr(not(feature = "chip-ws63"), allow(dead_code))]
     dst_addr: usize,
+    #[cfg_attr(not(feature = "chip-ws63"), allow(dead_code))]
     bytes: usize,
 }
 
