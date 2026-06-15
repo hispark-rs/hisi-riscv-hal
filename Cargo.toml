@@ -83,7 +83,7 @@ embedded-test-linker-script = "0.1"
 # default-features=false so the chip + boot-header + bundled-memory-x selection is
 # driven by THIS crate's chip-* features (weak `hisi-riscv-rt?/...` pulls below),
 # never linked into the firmware/host graph (this is a riscv-only dev-dep).
-hisi-riscv-rt = { path = "../hisi-riscv-rt", default-features = false }
+hisi-riscv-rt = { version = "0.3", default-features = false }
 # The semihosting embedded-test harness needs a real critical-section impl in the
 # graph; portable-atomic's RMW polyfill on this no-atomic core also routes through
 # it (impl registered by hisi-riscv-rt). Mirrors tests-hil.
@@ -176,3 +176,6 @@ opt-level = "s"
 [patch.crates-io]
 ws63-pac = { git = "https://github.com/hispark-rs/ws63-pac" }
 bs2x-pac = { git = "https://github.com/hispark-rs/bs2x-pac" }
+# hisi-riscv-rt 0.3 (no-default-chip) is not yet on crates.io / main; pin the branch
+# for standalone builds until it publishes, then this can drop to the default branch.
+hisi-riscv-rt = { git = "https://github.com/hispark-rs/hisi-riscv-rt", branch = "chore/rt-de-default-chip" }
