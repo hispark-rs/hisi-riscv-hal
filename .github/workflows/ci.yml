@@ -60,6 +60,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo doc --no-deps --document-private-items
+      # The HAL has no default chip (esp-hal style) — docs must select one, matching
+      # the [package.metadata.docs.rs] feature set.
+      - run: cargo doc --no-deps --document-private-items --no-default-features --features "chip-ws63,rt,async,embassy"
         env:
           RUSTDOCFLAGS: -D warnings

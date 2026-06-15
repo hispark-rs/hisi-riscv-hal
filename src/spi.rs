@@ -306,7 +306,7 @@ fn transfer_in_place_on(idx: u8, buf: &mut [u8]) -> Result<(), SpiError> {
 pub enum SpiError {
     /// FIFO overrun (maps to [`embedded_hal::spi::ErrorKind::Overrun`]).
     Overflow,
-    /// A status bit never asserted within [`SPI_WAIT_LOOPS`] (no slave, stuck CS, wrong mode).
+    /// A status bit never asserted within the bounded wait (no slave, stuck CS, wrong mode).
     Timeout,
 }
 
