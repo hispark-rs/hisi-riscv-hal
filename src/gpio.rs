@@ -223,6 +223,12 @@ impl<'d> Input<'d> {
     pub fn interrupt_pending(&self) -> bool {
         (regs(self.pin.block).gpio_int_raw().read().bits() >> self.pin.bit) & 1 != 0
     }
+
+    /// Type-erase this input back to an [`AnyPin`] (consumes the driver). Safe: the
+    /// pad keeps its input direction/pull; only the typed wrapper is dropped.
+    pub fn degrade(self) -> AnyPin<'d> {
+        self.pin
+    }
 }
 
 impl embedded_hal::digital::ErrorType for Input<'_> {
@@ -289,6 +295,16 @@ impl<'d> Output<'d> {
         let pin = unsafe { core::ptr::read(&this.pin) };
         let config = unsafe { core::ptr::read(&this.config) };
         Flex { pin, config }
+    }
+
+    /// Type-erase this output back to an [`AnyPin`] (consumes the driver), **keeping
+    /// the pad driving** (the safe-state [`Drop`](Output#impl-Drop-for-Output) does
+    /// not run). Safe — only the typed wrapper is consumed.
+    pub fn degrade(self) -> AnyPin<'d> {
+        // Move `pin` out without running the safe-state Drop (which would revert OEN).
+        let this = core::mem::ManuallyDrop::new(self);
+        // SAFETY: `this` is never dropped (ManuallyDrop) and `pin` is read once.
+        unsafe { core::ptr::read(&this.pin) }
     }
 
     /// Consume the output, **latching its current drive state** past this scope —
@@ -404,9 +420,28 @@ impl<'d> Flex<'d> {
         !self.is_high()
     }
 
+    /// Explicitly set the pad direction to **output** (clears `OEN`). Pair this with
+    /// the data methods to make the direction switch visible instead of relying on
+    /// the implicit switch inside `set_high`/`set_low`/`toggle`.
+    pub fn set_as_output(&mut self) {
+        self.pin.set_oen(false);
+    }
+
+    /// Explicitly set the pad direction to **input / high-Z** (sets `OEN`). Pair this
+    /// with [`is_high`](Self::is_high) to sample without the implicit save/restore.
+    pub fn set_as_input(&mut self) {
+        self.pin.set_oen(true);
+    }
+
     /// Returns this pin's number (0-18).
     pub fn number(&self) -> u8 {
         self.pin.number()
+    }
+
+    /// Type-erase this Flex pin back to an [`AnyPin`] (consumes the driver). Safe:
+    /// the pad keeps its current direction/level; only the typed wrapper is dropped.
+    pub fn degrade(self) -> AnyPin<'d> {
+        self.pin
     }
 }
 

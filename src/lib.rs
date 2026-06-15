@@ -17,6 +17,11 @@
 //! // Now safe to construct peripheral drivers
 //! let uart = Uart::new_uart0(peripherals.UART0, Config::default());
 //! ```
+//!
+//! ## MSRV
+//!
+//! The minimum supported Rust version is **1.85** (declared as `rust-version` in
+//! `Cargo.toml`). An MSRV bump is a minor-version change, not a patch.
 // `no_std` for firmware builds; `std` is linked under `cfg(test)` ONLY on the
 // host so the lib unit tests can use the standard test harness (run via
 // `cargo test --target x86_64`). On the RISC-V target the lib stays `no_std`
