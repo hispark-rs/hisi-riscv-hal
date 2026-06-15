@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["chip-ws63,rt,async,embassy", "chip-bs21,rt"]
+        features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["chip-ws63,rt,async,embassy", "chip-bs21,rt"]
+        features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

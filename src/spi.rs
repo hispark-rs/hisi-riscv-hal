@@ -214,6 +214,8 @@ fn transfer_in_place_on(idx: u8, buf: &mut [u8]) -> Result<(), SpiError> {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum SpiError {
     Overflow,
     Timeout,
@@ -221,6 +223,11 @@ pub enum SpiError {
 
 impl embedded_hal::spi::Error for SpiError {
     fn kind(&self) -> embedded_hal::spi::ErrorKind {
+        match self {
+            SpiError::Overflow => return embedded_hal::spi::ErrorKind::Overrun,
+            _ => {}
+        }
+        #[allow(unreachable_code)]
         embedded_hal::spi::ErrorKind::Other
     }
 }

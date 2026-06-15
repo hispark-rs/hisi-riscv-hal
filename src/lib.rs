@@ -12,7 +12,7 @@
 //! Constructors like `I2c::new_i2c0()`, `Uart::new_uart0()`, and `Watchdog::new()`
 //! write configuration registers immediately. WDT/RTC/TCXO are always-on.
 //!
-//! ```ignore
+//! ```no_run
 //! let clocks = clock_init::init_clocks(&system.sys_ctl0, &system.cldo_crg);
 //! // Now safe to construct peripheral drivers
 //! let uart = Uart::new_uart0(peripherals.UART0, Config::default());

@@ -166,7 +166,7 @@ impl<'d> IoConfigDriver<'d> {
     }
 
     /// Get the function select value for a GPIO pin.
-    pub fn get_gpio_mux(&self, pin: u8) -> u8 {
+    pub fn gpio_mux(&self, pin: u8) -> u8 {
         assert!(pin < 15);
         let r = self.regs();
         (match pin {

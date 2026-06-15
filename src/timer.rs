@@ -7,7 +7,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! let timer = TimerDriver::new(peripherals.TIMER);
 //! let mut oneshot = timer.oneshot(0);
 //! oneshot.start(24_000); // 1ms at 24MHz

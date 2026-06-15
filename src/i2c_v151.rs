@@ -23,6 +23,8 @@ pub enum Speed {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum I2cError {
     /// A status bit never asserted within the bounded wait.
     Timeout,

@@ -41,6 +41,17 @@ macro_rules! peripheral {
                 // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
                 unsafe { &*Self::ptr() }
             }
+
+            /// Reborrow this peripheral with a shorter lifetime.
+            ///
+            /// Lets you hand the token to a driver constructor and keep using the
+            /// peripheral afterwards, without `unsafe steal()` — the borrow checker
+            /// enforces that the reborrow does not outlive `self`. (esp-hal
+            /// `reborrow` idiom; SemVer-safe additive helper.)
+            #[inline]
+            pub fn reborrow(&mut self) -> $name<'_> {
+                $name { _marker: PhantomData }
+            }
         }
 
         unsafe impl<'d> Send for $name<'d> {}

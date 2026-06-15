@@ -12,6 +12,8 @@ use core::marker::PhantomData;
 const POLL_LIMIT: u32 = 1_000_000;
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum TrngError {
     /// The FIFO never signalled ready+done within the bounded wait.
     Timeout,

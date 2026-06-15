@@ -287,6 +287,8 @@ impl<T> I2c<'_, T> {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum I2cError {
     Ack,
     BusError,

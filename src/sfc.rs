@@ -496,6 +496,8 @@ impl<'d> SfcDriver<'d> {
 
 /// SFC operation error.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum SfcError {
     /// Command timeout.
     Timeout,

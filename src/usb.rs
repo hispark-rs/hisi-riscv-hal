@@ -36,6 +36,8 @@ const fn speed_from_enumspd(enumspd: u8) -> Speed {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum UsbError {
     /// A status bit (reset-done / USB reset / enumeration done) never asserted.
     Timeout,
