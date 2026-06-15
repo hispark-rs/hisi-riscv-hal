@@ -7,6 +7,17 @@ license = "MIT"
 repository = "https://github.com/hispark-rs/hisi-riscv-hal"
 keywords = ["ws63", "hisilicon", "riscv", "embedded", "hal"]
 categories = ["embedded", "no-std", "hardware-support"]
+# MSRV: edition 2024 requires >= 1.85. The crate is built for the target with the
+# pinned custom `hisi-riscv` toolchain (1.96.0) and host-tested on CI stable; the
+# MSRV may bump in a minor release, never a patch.
+rust-version = "1.85"
+
+# docs.rs: chip-ws63/chip-bs21 are mutually exclusive (a compile_error), so docs.rs
+# cannot use --all-features. Pin one chip + the riscv target so the rendered docs
+# match the firmware build (not docs.rs's default host target). Mirrors esp-hal.
+[package.metadata.docs.rs]
+default-target = "riscv32imfc-unknown-none-elf"
+features = ["chip-ws63", "rt", "async", "embassy"]
 
 [dependencies]
 # Exactly one PAC is linked, selected by the chip feature below. Optional so the
@@ -73,7 +84,7 @@ hisi-riscv-rt = { path = "../hisi-riscv-rt", default-features = false }
 portable-atomic = { version = "1", default-features = false, features = ["critical-section"] }
 
 [features]
-default = ["chip-ws63", "rt", "dep:critical-section"]
+default = ["rt", "dep:critical-section"]
 # Chip selection (exactly one; enforced by a compile_error in lib.rs). Each pulls
 # its Peripheral Access Crate.
 #

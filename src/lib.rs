@@ -28,13 +28,17 @@
 #![allow(non_camel_case_types)]
 #![allow(rustdoc::broken_intra_doc_links)]
 
-// Exactly one chip must be selected (each pulls its PAC + soc/<chip>.rs).
+// Exactly one chip must be selected (each pulls its PAC + soc/<chip>.rs). There is
+// NO default chip (esp-hal style) — every consumer names one explicitly.
 #[cfg(all(feature = "chip-ws63", feature = "chip-bs21"))]
-compile_error!("hisi-riscv-hal: select exactly one chip — chip-ws63 (default) OR chip-bs21");
+compile_error!(
+    "hisi-riscv-hal: select exactly ONE chip feature — `chip-ws63` OR `chip-bs21`, not both."
+);
 #[cfg(not(any(feature = "chip-ws63", feature = "chip-bs21")))]
 compile_error!(
-    "hisi-riscv-hal: no chip selected — enable chip-ws63 (default) or chip-bs21 \
-     (e.g. --no-default-features --features chip-bs21)"
+    "hisi-riscv-hal: no chip selected — enable exactly one chip feature, e.g. \
+     `features = [\"chip-ws63\"]` (WS63) or `features = [\"chip-bs21\"]` (BS2X). \
+     There is no default chip."
 );
 
 // ── Chip-neutral core (compiles for every chip) ────────────────────────────
