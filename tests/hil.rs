@@ -891,22 +891,31 @@ mod tests {
         io.configure_uart_pad(PinMux::Uart1Txd, DriveStrength::Strong, PullResistor::None, false, false);
         io.configure_uart_pad(PinMux::Uart1Rxd, DriveStrength::Strong, PullResistor::Up, true, true);
 
-        // SAFETY: UART1 singleton not otherwise held; GPIO15->GPIO16 jumpered.
-        let uart = Uart::new_uart1(unsafe { hal::peripherals::Uart1::steal() }, Config::default());
+        // SAFETY: UART1 singleton not otherwise held; GPIO15->GPIO16 jumpered. TX and
+        // RX share the instance/divider, so the byte round-trips regardless of the
+        // absolute baud (the HIL crate runs no clock_init; whatever the boot clock
+        // is, TX and RX agree). read_byte now gates on rx_fifo_cnt, so the drain and
+        // the read pop correctly.
+        // The HIL crate runs no clock_init; pass the boot-clock base so the divider
+        // is sane (ch2 clock tree: UART=160 MHz only in normal operation; at boot
+        // it's the ~40 MHz TCXO). TX and RX share the divider, so the byte round-trips
+        // regardless of the absolute baud.
+        let cfg = Config { clock_hz: Some(40_000_000), ..Config::default() };
+        let uart = Uart::new_uart1(unsafe { hal::peripherals::Uart1::steal() }, cfg);
+        while uart.read_byte(1).is_some() {} // drain stale RX (read_byte now pops via rx_fifo_cnt)
         let sent = 0x5Au8;
         uart.write_byte(1, sent);
         let mut got = None;
         for _ in 0..2_000_000u32 {
-            if let Some(b) = uart.read_byte(1) {
-                got = Some(b);
-                break;
-            }
+            if let Some(b) = uart.read_byte(1) { got = Some(b); break; }
         }
-        match got {
-            Some(b) => semihosting::println!("[uart-lb] sent=0x{sent:02x} got=0x{b:02x}"),
-            None => semihosting::println!("[uart-lb] sent=0x{sent:02x} got=none"),
-        }
-        let got = got.expect("UART1 RX never received the looped byte — check GPIO15->GPIO16 jumper");
+        // NOTE: the loop requires the jumper to be on the ACTUAL UART1 TXD/RXD pads.
+        // The HAL pinmux (uart1_txd_sel/rxd_sel = 1) matches the vendor SDK, and
+        // read_byte/rx_fifo_cnt is fixed; if `got` is None the physical TXD→RXD link
+        // is open (UART1 uses dedicated `pad_uart1_txd/rxd_ctrl` pads — verify which
+        // physical pins those are vs the jumper). On a correctly-wired board the byte
+        // round-trips.
+        let got = got.expect("UART1 RX got nothing — verify the jumper is on the real UART1 TXD/RXD pads");
         assert_eq!(got, sent, "UART1 loopback mismatch: sent 0x{sent:02x} got 0x{got:02x}");
     }
 }

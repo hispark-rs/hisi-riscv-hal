@@ -232,7 +232,17 @@ impl<T> Uart<'_, T> {
     /// Read one byte from UART `idx`, or `None` if the RX FIFO is empty.
     pub fn read_byte(&self, idx: u8) -> Option<u8> {
         let r = uart_regs(idx);
-        if r.fifo_status().read().rx_fifo_empty().bit_is_set() { None } else { Some(r.data().read().bits() as u8) }
+        // Gate on the RX FIFO *count* (0x4c), not the `fifo_status.rx_fifo_empty`
+        // bit. The vendor `hal_uart_v151` polls `rx_fifo_cnt` to decide whether to
+        // read `data` (0x04), and on silicon the `rx_fifo_empty` status bit does not
+        // track a single-byte pop (gating on it loops forever / re-reads a stale
+        // byte — the cause of the long-broken `uart1_loopback`). `rx_fifo_cnt`
+        // decrements correctly as each `data` read drains the FIFO.
+        if r.rx_fifo_cnt().read().bits() == 0 {
+            None
+        } else {
+            Some(r.data().read().bits() as u8)
+        }
     }
 
     /// Block until UART `idx`'s TX FIFO is fully drained.
