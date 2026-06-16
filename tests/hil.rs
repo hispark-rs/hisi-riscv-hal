@@ -745,46 +745,43 @@ mod tests {
         assert_ne!(status, 0xFFFF_FFFF, "GADC status read returned the all-ones bus-floating pattern");
     }
 
-    /// **Area D — rt DIRECT-mode interrupt delivery + by-number named dispatch.**
-    /// The WS63 (Nuclei) core does not service its custom interrupts through the old
-    /// VECTORED `mtvec` path (proven: `mip[26]`/`mie[26]`/`mstatus.MIE` all set yet
-    /// never taken). hisi-riscv-rt now uses DIRECT mode: every trap reaches
-    /// `trap_entry`, which routes interrupts (mcause bit 31) by IRQ number to the
-    /// weak `__rt_irq_dispatch`. We override it here and fire TIMER channel 0
-    /// (`TIMER_INT0` = IRQ 26) — asserting the dispatcher actually runs proves the
-    /// core takes the interrupt and the rt routes it, end-to-end on real silicon.
-    /// No external wiring. (Foundation for full device.x-named routing.)
+    /// **Area D — full device.x-named interrupt routing.** hisi-riscv-rt runs in
+    /// DIRECT mtvec mode: every trap reaches `trap_entry`, which routes interrupts
+    /// (mcause bit 31) by IRQ number through `__rt_irq_dispatch` → the
+    /// `__INTERRUPTS` table → the **named `device.x` handler** for that IRQ. We
+    /// define `TIMER_INT0` (IRQ 26 = the embassy alarm channel) and fire TIMER
+    /// channel 0 — asserting our named handler runs proves the whole chain
+    /// end-to-end on real silicon, with no `mcause` test in the app. The WS63
+    /// (Nuclei ECLIC) only delivers a custom IRQ once its `LOCIPRI` priority >
+    /// threshold, which `interrupt::init()` sets. No external wiring.
     #[cfg(feature = "chip-ws63")]
     #[test]
-    fn timer_irq_direct_mode_dispatch() {
+    fn timer_int0_named_routing() {
         use core::sync::atomic::{AtomicBool, Ordering};
         use hal::interrupt;
         use hal::timer::{TimerDriver, TimerMode};
 
         static FIRED: AtomicBool = AtomicBool::new(false);
 
-        // Overrides the rt's weak `__rt_irq_dispatch`. `irq` is the mcause IRQ
-        // number; clear + stop the timer so it can't re-fire, then record the hit.
+        // The named device.x handler the rt routes IRQ 26 to (overrides the weak
+        // PROVIDE = DefaultHandler). Clear + stop the timer so it can't re-fire,
+        // then record the hit.
         #[unsafe(no_mangle)]
-        extern "C" fn __rt_irq_dispatch(irq: u32) {
-            if irq == 26 {
-                let t = TimerDriver::new(unsafe { hal::peripherals::Timer::steal() });
-                t.clear_interrupt(0);
-                t.disable(0);
-                FIRED.store(true, Ordering::SeqCst);
-            }
+        extern "C" fn TIMER_INT0() {
+            let t = TimerDriver::new(unsafe { hal::peripherals::Timer::steal() });
+            t.clear_interrupt(0);
+            t.disable(0);
+            FIRED.store(true, Ordering::SeqCst);
         }
 
         let t = TimerDriver::new(unsafe { hal::peripherals::Timer::steal() });
         // Periodic/user-defined mode counts from the load value (24 MHz TCXO → ~1
         // ms); the handler disables it on the first fire.
         t.configure(0, TimerMode::Periodic, 24_000);
-        // SAFETY: program the Nuclei local-interrupt priorities (LOCIPRI → 1 each;
-        // an IRQ is delivered only when priority > threshold, both 0 at reset on
-        // this silicon), enable TIMER_INT0 (mie 26) + the global machine-interrupt
-        // enable; the dispatcher above clears the source.
+        // SAFETY: `enable` now also raises this IRQ's LOCIPRI priority above the
+        // reset-0 threshold (no separate `interrupt::init()` needed for delivery);
+        // then the global machine-interrupt enable. The handler clears the source.
         unsafe {
-            interrupt::init();
             interrupt::enable(interrupt::Interrupt::TIMER_INT0);
             interrupt::enable_global();
         }
@@ -801,7 +798,7 @@ mod tests {
 
         assert!(
             FIRED.load(Ordering::SeqCst),
-            "direct-mode __rt_irq_dispatch(IRQ 26) never ran — rt interrupt delivery broken"
+            "named TIMER_INT0 (IRQ 26) handler never ran — rt device.x named routing broken"
         );
     }
 

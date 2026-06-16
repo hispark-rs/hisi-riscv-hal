@@ -276,6 +276,16 @@ pub unsafe fn enable(irq: Interrupt) {
         let reg = (n - LOCAL_IRQ_VECTOR_CNT) / LOCIEN_IRQ_NUM;
         unsafe { locien_write(reg, 1u32 << bit, true) };
     }
+    // Nuclei ECLIC delivers an IRQ only when its `LOCIPRI` priority is strictly
+    // greater than the `PRITHD` threshold (both reset to 0, so a just-enabled IRQ is
+    // masked). Give the IRQ a non-zero priority here so enabling it is sufficient —
+    // callers no longer need a separate `interrupt::init()` for delivery. (`init`
+    // remains for setting every priority at once / a custom threshold.)
+    if (SYS_VECTOR_CNT..PRIORITY_IRQ_END).contains(&n) {
+        let reg = (n - SYS_VECTOR_CNT) / LOCIPRI_IRQ_NUM;
+        let shift = ((n - SYS_VECTOR_CNT) % LOCIPRI_IRQ_NUM) * LOCIPRI_IRQ_BITS;
+        locipri_set_field(reg, shift, 1);
+    }
 }
 
 /// Disable an interrupt source at the controller and clear any latched pending
