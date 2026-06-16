@@ -72,8 +72,12 @@ jobs:
   # no bump turns the PR red — exactly when an API tightening (e.g. a `configure`
   # signature change) needs a 0.x-minor bump. Runs on the host (the lib compiles
   # for x86_64 — same as the unit tests); the action installs cargo-semver-checks
-  # and the nightly rustdoc it needs. chip-ws63/chip-bs21 are mutually exclusive,
-  # so we check the default-features group (chip-ws63) rather than --all-features.
+  # and the nightly rustdoc it needs. The HAL has NO default chip (esp-hal style)
+  # and its `default` pulls `rt` (whose startup asm does not assemble for the host),
+  # so we check ONLY the explicitly-listed `chip-ws63` feature — not the default
+  # group (which would fire the no-chip `compile_error!`) and not `--all-features`
+  # (chip-ws63/chip-bs21 are mutually exclusive). chip-ws63 is the core host-buildable
+  # surface; async/embassy/rt are riscv-target-only and out of the host semver scope.
   semver:
     name: SemVer
     runs-on: ubuntu-latest
@@ -82,4 +86,5 @@ jobs:
       - name: cargo-semver-checks (vs last crates.io release)
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          feature-group: default-features
+          feature-group: only-explicit-features
+          features: chip-ws63

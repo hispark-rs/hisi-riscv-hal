@@ -27,9 +27,11 @@ test:
 
 # SemVer check vs the last crates.io release — catches an accidental breaking API
 # change that the version bump does not reflect (the same gate CI enforces).
+# Only the explicit `chip-ws63` feature: the HAL has no default chip and `default`
+# pulls host-unbuildable `rt`, so the default group would fail to build rustdoc.
 # One-time install: `cargo install cargo-semver-checks`.
 semver:
-    cargo semver-checks --default-features
+    cargo semver-checks --only-explicit-features --features chip-ws63
 
 # Build + run the on-target HIL test suite on a real WS63 over probe-rs.
 # Needs the patched probe-rs fork + hisi-fwpkg (see ../../hil/README.md).
