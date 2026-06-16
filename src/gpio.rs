@@ -623,6 +623,23 @@ mod asynch_impl {
         interrupt::clear_pending(bank_irq(bank as usize));
     }
 
+    // Named device.x handlers: hisi-riscv-rt's direct-mode `__rt_irq_dispatch`
+    // routes GPIO bank IRQs (33/34/35) here by number, so an async GPIO app needs
+    // no `mcause` trap of its own. Strong symbols overriding the weak device.x
+    // PROVIDE; only present with `async`.
+    #[unsafe(no_mangle)]
+    extern "C" fn GPIO_INT0() {
+        on_interrupt(0);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn GPIO_INT1() {
+        on_interrupt(1);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn GPIO_INT2() {
+        on_interrupt(2);
+    }
+
     async fn arm_and_wait(input: &mut Input<'_>, trig: InterruptTrigger) {
         let bank = input.pin.block as usize;
         input.set_interrupt_trigger(trig);

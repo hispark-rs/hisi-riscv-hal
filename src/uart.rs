@@ -417,11 +417,28 @@ mod asynch_impl {
     /// (IRQ 53..55). Reading in the ISR avoids a level-triggered RX storm.
     pub fn on_interrupt(idx: u8) {
         let r = uart_regs(idx);
-        if !r.fifo_status().read().rx_fifo_empty().bit_is_set() {
+        // Gate on rx_fifo_cnt, not rx_fifo_empty (the status bit does not track a
+        // single-byte pop on silicon — same fix as the blocking `read_byte`).
+        if r.rx_fifo_cnt().read().bits() != 0 {
             let b = r.data().read().bits() as u8;
             critical_section::with(|cs| UART_BYTE[idx as usize].borrow(cs).set(b));
             UART_RX[idx as usize].signal();
         }
+    }
+
+    // Named device.x handlers (UART0/1/2_INT = IRQ 53/54/55): the rt routes the
+    // UART IRQ here by number, so an async UART app needs no `mcause` trap.
+    #[unsafe(no_mangle)]
+    extern "C" fn UART0_INT() {
+        on_interrupt(0);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn UART1_INT() {
+        on_interrupt(1);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn UART2_INT() {
+        on_interrupt(2);
     }
 
     struct RxFuture {

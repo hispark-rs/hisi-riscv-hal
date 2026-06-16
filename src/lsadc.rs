@@ -402,6 +402,13 @@ mod asynch_impl {
         interrupt::clear_pending(Interrupt::LSADC_INTR);
     }
 
+    /// Named device.x handler (LSADC_INTR = IRQ 72): the rt routes the LSADC IRQ
+    /// here by number, so an async LSADC app needs no `mcause` trap.
+    #[unsafe(no_mangle)]
+    extern "C" fn LSADC_INTR() {
+        on_interrupt();
+    }
+
     struct ConvFuture;
     impl Future for ConvFuture {
         type Output = ();

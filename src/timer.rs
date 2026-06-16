@@ -515,6 +515,25 @@ mod asynch_impl {
         TIMER_SIGNAL[ch].signal();
     }
 
+    // Named device.x handlers (TIMER_INT0..2 = IRQ 26..28). TIMER_INT0 is the
+    // embassy-time alarm channel; when the `embassy` feature is on, embassy.rs owns
+    // that symbol (routes to on_alarm_interrupt), so define it here only for
+    // async-without-embassy. The rt routes these IRQs here by number — no app
+    // `mcause` trap needed.
+    #[cfg(not(feature = "embassy"))]
+    #[unsafe(no_mangle)]
+    extern "C" fn TIMER_INT0() {
+        on_interrupt(0);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn TIMER_INT1() {
+        on_interrupt(1);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn TIMER_INT2() {
+        on_interrupt(2);
+    }
+
     /// Async delay backed by one WS63 TIMER channel (one-shot + completion IRQ).
     ///
     /// Implements [`embedded_hal_async::delay::DelayNs`]: each `delay_*().await`
