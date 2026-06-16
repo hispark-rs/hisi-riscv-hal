@@ -11,9 +11,7 @@ pub use nb::block;
 
 pub use crate::Peripherals;
 pub use crate::delay::Delay;
-pub use crate::gpio::{
-    AnyPin, Flex, GpioPin, Input, InputConfig, InputMode, InterruptTrigger, Output, OutputConfig, OutputMode, Pull,
-};
+pub use crate::gpio::{AnyPin, Flex, Input, InputConfig, InterruptTrigger, Output, OutputConfig, Pull};
 pub use crate::interrupt::{Interrupt, Priority};
 pub use crate::tcxo::TcxoDriver;
 pub use crate::time::{Duration, Instant, Rate};
@@ -36,7 +34,7 @@ pub use crate::i2s::I2sDriver;
 #[cfg(feature = "chip-ws63")]
 pub use crate::lsadc::LsAdc;
 #[cfg(feature = "chip-ws63")]
-pub use crate::pwm::PwmChannel;
+pub use crate::pwm::{Duty, PwmChannel, PwmPeriod};
 #[cfg(feature = "chip-ws63")]
 pub use crate::rtc::RtcDriver;
 #[cfg(feature = "chip-ws63")]

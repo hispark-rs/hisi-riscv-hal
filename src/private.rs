@@ -18,13 +18,8 @@ impl DmaWord for u16 {}
 impl Sealed for u32 {}
 impl DmaWord for u32 {}
 
-// ── GPIO-related sealed traits ───────────────────────────────────
-
-/// Types that can serve as peripheral inputs (signals from GPIO matrix towards peripherals).
-pub trait PeripheralOutput: Sealed {}
-
-/// Types that can serve as peripheral outputs (signals from peripherals towards GPIO matrix).
-pub trait PeripheralInput: Sealed {}
+// (The vestigial empty `PeripheralInput`/`PeripheralOutput` markers were removed —
+// the real signal traits live in `gpio.rs` and shadowed these.)
 
 // The `DriverMode` / `Blocking` / `Async` marker traits were removed: every
 // associated type was the identity (`type Async<D> = D`), nothing referenced

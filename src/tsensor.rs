@@ -24,7 +24,9 @@ pub struct TempSensor<'d> {
 }
 
 /// Temperature code range constants.
+/// Minimum valid 10-bit temperature code (approximate low end of the range).
 pub const TEMP_CODE_MIN: u16 = 114;
+/// Maximum valid 10-bit temperature code (approximate high end of the range).
 pub const TEMP_CODE_MAX: u16 = 896;
 
 impl<'d> TempSensor<'d> {

@@ -12,11 +12,15 @@ use core::marker::PhantomData;
 const POLL_LIMIT: u32 = 1_000_000;
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+/// Errors returned by the BS2X TRNG driver.
 pub enum TrngError {
     /// The FIFO never signalled ready+done within the bounded wait.
     Timeout,
 }
 
+/// BS2X true random number generator (IP v1) driver.
 pub struct Trng<'d> {
     _trng: PhantomData<TrngPeriph<'d>>,
 }

@@ -556,6 +556,125 @@ impl<'d> DmaDriver<'d, Sdma0> {
     }
 }
 
+// ── Owned-buffer transfer guard (embedded-dma) ──────────────────────────────
+
+use core::mem::ManuallyDrop;
+use embedded_dma::{ReadBuffer, WriteBuffer};
+
+/// The DMA cache-maintenance granularity (the 32-byte D-cache line). Source and
+/// destination buffers should be [`DMA_ALIGN`]-aligned so a partial-line invalidate
+/// on `wait()` cannot clobber a neighbouring allocation's dirty data (see
+/// [`crate::cache::invalidate_range`]).
+pub const DMA_ALIGN: usize = 32;
+
+/// Bounded completion poll for [`Transfer::wait`] — a wedged channel returns control
+/// (the transfer is then treated as done) instead of spinning the CPU forever.
+const DMA_WAIT_LOOPS: u32 = 5_000_000;
+
+impl<'d, T: DmaInstance> DmaDriver<'d, T> {
+    /// Launch a **memory-to-memory** transfer on `channel` that OWNS both buffers
+    /// for its whole lifetime, returning a [`Transfer`] guard you [`wait`] to reclaim
+    /// the driver + buffers.
+    ///
+    /// Because the guard owns the buffers (and aborts the channel on `Drop`), a
+    /// use-after-free of an in-flight DMA region is **unrepresentable in safe code**:
+    /// the buffers cannot be touched, moved, or freed while the DMA reads/writes them.
+    /// The source cache lines are cleaned before launch and the destination
+    /// invalidated on `wait()` (the WS63 core is non-coherent), so the cache
+    /// maintenance lives inside the type rather than being a caller obligation.
+    ///
+    /// The DMA beat is a 32-bit word (`Word = u32`); buffers should be
+    /// [`DMA_ALIGN`]-aligned. The transfer length is `min(src.len(), dst.len())` words.
+    ///
+    /// [`wait`]: Transfer::wait
+    pub fn start_mem_to_mem<SRC, DST>(mut self, channel: u8, src: SRC, mut dst: DST) -> Transfer<'d, T, SRC, DST>
+    where
+        SRC: ReadBuffer<Word = u32>,
+        DST: WriteBuffer<Word = u32>,
+    {
+        // SAFETY: `src`/`dst` are moved into the returned Transfer and held until
+        // wait() reclaims them, so these pointers stay valid for the whole transfer.
+        let (src_ptr, src_len) = unsafe { src.read_buffer() };
+        let (dst_ptr, dst_len) = unsafe { dst.write_buffer() };
+        let words = src_len.min(dst_len);
+        let bytes = words * core::mem::size_of::<u32>();
+
+        // Clean the source so the DMA master reads CPU-written data (non-coherent core).
+        #[cfg(feature = "chip-ws63")]
+        unsafe {
+            crate::cache::clean_range(src_ptr as usize, bytes);
+        }
+
+        // mem-to-mem, 32-bit, both addresses incrementing (the Default config).
+        let cfg = DmaChannelConfig::default();
+        self.configure_channel(channel, src_ptr as u32, dst_ptr as u32, words as u16, &cfg);
+
+        Transfer { driver: self, channel, src, dst, dst_addr: dst_ptr as usize, bytes }
+    }
+}
+
+/// An in-flight DMA transfer that **owns the driver and both buffers**. Reclaim them
+/// with [`wait`](Self::wait); dropping the guard early aborts the channel (so the DMA
+/// stops touching the buffers before they are freed). Owning the buffers is what makes
+/// a use-after-free of an active DMA region unrepresentable in safe code.
+pub struct Transfer<'d, T: DmaInstance, SRC, DST> {
+    driver: DmaDriver<'d, T>,
+    channel: u8,
+    src: SRC,
+    dst: DST,
+    // Only read by the chip-ws63 cache maintenance in `wait()`; BS2X DMA is coherent
+    // here, so these are unused there.
+    #[cfg_attr(not(feature = "chip-ws63"), allow(dead_code))]
+    dst_addr: usize,
+    #[cfg_attr(not(feature = "chip-ws63"), allow(dead_code))]
+    bytes: usize,
+}
+
+impl<'d, T: DmaInstance, SRC, DST> Transfer<'d, T, SRC, DST> {
+    /// True once the channel has auto-cleared its enable bit (single-block done).
+    pub fn is_done(&self) -> bool {
+        !self.driver.channel_enabled(self.channel)
+    }
+
+    /// Block (bounded) until the transfer completes, invalidate the destination cache
+    /// lines, and return the driver + both buffers. Consumes the guard, so no abort
+    /// `Drop` runs.
+    pub fn wait(self) -> (DmaDriver<'d, T>, SRC, DST) {
+        // Skip the abort-on-drop: the transfer is completing normally.
+        let this = ManuallyDrop::new(self);
+        let mut n = DMA_WAIT_LOOPS;
+        while this.driver.channel_enabled(this.channel) {
+            n -= 1;
+            if n == 0 {
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        // Drop the stale destination cache lines so the CPU re-reads what DMA wrote.
+        #[cfg(feature = "chip-ws63")]
+        unsafe {
+            crate::cache::invalidate_range(this.dst_addr, this.bytes);
+        }
+        // SAFETY: `this` is ManuallyDrop (its Drop never runs) and each field is read
+        // exactly once, so there is no double-read or double-drop.
+        unsafe {
+            let driver = core::ptr::read(&this.driver);
+            let src = core::ptr::read(&this.src);
+            let dst = core::ptr::read(&this.dst);
+            (driver, src, dst)
+        }
+    }
+}
+
+impl<T: DmaInstance, SRC, DST> Drop for Transfer<'_, T, SRC, DST> {
+    /// Abort the channel so the engine stops reading/writing the owned buffers before
+    /// they are dropped — the use-after-free guard for an early-dropped transfer.
+    fn drop(&mut self) {
+        self.driver.halt_channel(self.channel);
+        self.driver.disable_channel(self.channel);
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
@@ -923,6 +1042,13 @@ mod asynch_impl {
     pub fn on_interrupt() {
         DMA_SIGNAL.signal();
         interrupt::clear_pending(Interrupt::DMA_INT);
+    }
+
+    /// Named device.x handler (DMA_INT = IRQ 59): the rt routes the DMA IRQ here by
+    /// number, so an async DMA app needs no `mcause` trap.
+    #[unsafe(no_mangle)]
+    extern "C" fn DMA_INT() {
+        on_interrupt();
     }
 
     struct DmaDoneFuture;

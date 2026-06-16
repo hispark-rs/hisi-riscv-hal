@@ -7,6 +7,17 @@
 //! # Clock source
 //!
 //! The RTC runs from a 32.768 kHz clock.
+//!
+//! # Preconditions (board / analog)
+//!
+//! The 32.768 kHz domain comes from an **external crystal that many boards do not
+//! populate**. If the crystal is absent its clock domain never comes up, the
+//! counter never advances, and touching the RTC registers can stall the bus / drop
+//! the debug link. There is no software guard for a missing crystal — it is a board
+//! provisioning fact — so the on-silicon RTC test is gated behind the opt-in
+//! `hil-rtc` feature (OFF by default). Treat a populated 32.768 kHz crystal as a
+//! hard precondition before constructing an `RtcDriver`; with it absent, prefer the
+//! `timer` (TCXO) driver instead.
 
 use crate::peripherals::Rtc;
 
@@ -71,6 +82,11 @@ impl<'d> RtcDriver<'d> {
     ///
     /// * `mode` - Operating mode (free-running or periodic).
     /// * `load_value` - In periodic mode, the counter resets when reaching this value.
+    ///
+    /// typed-config exemption: `load_value` is written verbatim into the full 32-bit
+    /// `rtc_load_count` register, so every `u32` is a valid, runnable value — nothing
+    /// to truncate or clamp. (The board-crystal precondition is documented at the
+    /// module level.)
     pub fn configure(&mut self, mode: RtcMode, load_value: u32) {
         unsafe {
             self.regs().rtc_load_count().write(|w| w.bits(load_value));

@@ -6,7 +6,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! let trng = Trng::new(peripherals.TRNG);
 //! let random_word: u32 = trng.read_blocking().unwrap();
 //! ```
@@ -15,6 +15,8 @@ use crate::peripherals::Trng;
 
 /// TRNG error type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum TrngError {
     /// No data available in the FIFO.
     NoData,

@@ -7,7 +7,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! let timer = TimerDriver::new(peripherals.TIMER);
 //! let mut oneshot = timer.oneshot(0);
 //! oneshot.start(24_000); // 1ms at 24MHz
@@ -26,6 +26,44 @@ pub enum TimerMode {
     Periodic = 1,
 }
 
+/// Timer configuration error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum TimerError {
+    /// The requested duration exceeds the 32-bit counter at [`TIMER_CLOCK_HZ`]
+    /// (≈178 s at 24 MHz). The old API silently clamped to `u32::MAX`; the typed
+    /// API rejects it so a too-long duration cannot masquerade as ~178 s.
+    TicksOverflow,
+}
+
+/// Convert microseconds to timer ticks, or [`TimerError::TicksOverflow`] if the
+/// 32-bit load/period register would overflow (the old silent `u32::MAX` clamp).
+const fn try_ticks_for_us(us: u32) -> Result<u32, TimerError> {
+    let ticks = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
+    if ticks > u32::MAX as u64 { Err(TimerError::TicksOverflow) } else { Ok(ticks as u32) }
+}
+
+/// Convert milliseconds to timer ticks, or [`TimerError::TicksOverflow`] on overflow.
+const fn try_ticks_for_ms(ms: u32) -> Result<u32, TimerError> {
+    let ticks = TIMER_CLOCK_HZ as u64 * ms as u64 / 1_000;
+    if ticks > u32::MAX as u64 { Err(TimerError::TicksOverflow) } else { Ok(ticks as u32) }
+}
+
+/// Saturating µs→ticks for the blocking `embedded_hal::delay::DelayNs` impl, whose
+/// trait contract has no error channel — a clamped (rather than rejected) delay is
+/// the accepted embedded-hal semantics for an out-of-range request.
+const fn ticks_for_us_saturating(us: u32) -> u32 {
+    let ticks = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
+    if ticks > u32::MAX as u64 { u32::MAX } else { ticks as u32 }
+}
+
+/// Saturating ms→ticks for the blocking `DelayNs` impl (see [`ticks_for_us_saturating`]).
+const fn ticks_for_ms_saturating(ms: u32) -> u32 {
+    let ticks = TIMER_CLOCK_HZ as u64 * ms as u64 / 1_000;
+    if ticks > u32::MAX as u64 { u32::MAX } else { ticks as u32 }
+}
+
 /// Timer driver managing 3 independent timer channels.
 pub struct TimerDriver<'d> {
     _timer: Timer<'d>,
@@ -42,7 +80,12 @@ impl<'d> TimerDriver<'d> {
         unsafe { &*Timer::ptr() }
     }
 
-    /// Configure a timer channel.
+    /// Configure a timer channel with a raw 32-bit load count.
+    ///
+    /// typed-config exemption: `load_value` is written verbatim into the **full
+    /// 32-bit** `timerN_load_count` register, so every `u32` is a valid, runnable
+    /// value — there is nothing to truncate or clamp. The fallible duration helpers
+    /// ([`OneShotTimer::start_micros`] etc.) are the typed path for time units.
     pub fn configure(&self, n: usize, mode: TimerMode, load_value: u32) {
         let r = self.regs();
         match n {
@@ -125,6 +168,25 @@ impl<'d> TimerDriver<'d> {
             2 => r.timer0_current_value(2).read().bits(),
             _ => unreachable!(),
         };
+        // cnt_req (bit 5) / cnt_lock (bit 6) of TIMER_V150's control register. WS63's
+        // ws63-pac models them as named fields; BS2X's bs2x-pac does not (same V150
+        // IP, the field just isn't in its SVD), so chip-bs21 pokes the raw bits.
+        let set_cnt_req = |n: usize| {
+            #[cfg(feature = "chip-ws63")]
+            ctrl(n).modify(|_, w| w.cnt_req().set_bit());
+            #[cfg(feature = "chip-bs21")]
+            ctrl(n).modify(|r, w| unsafe { w.bits(r.bits() | (1 << 5)) });
+        };
+        let cnt_locked = |n: usize| -> bool {
+            #[cfg(feature = "chip-ws63")]
+            {
+                ctrl(n).read().cnt_lock().bit_is_set()
+            }
+            #[cfg(feature = "chip-bs21")]
+            {
+                (ctrl(n).read().bits() & (1 << 6)) != 0
+            }
+        };
 
         // A disabled timer holds a stale latch; the vendor HAL returns 0.
         if ctrl(n).read().enable().bit_is_clear() {
@@ -132,11 +194,11 @@ impl<'d> TimerDriver<'d> {
         }
         // Request a fresh snapshot of the down-counter into current_value0
         // (modify preserves enable/mode/int_mask)…
-        ctrl(n).modify(|_, w| w.cnt_req().set_bit());
+        set_cnt_req(n);
         // …then wait (bounded) for the hardware to latch it.
         let mut timeout = 0u32;
         while timeout < LOCK_TIMEOUT {
-            if ctrl(n).read().cnt_lock().bit_is_set() {
+            if cnt_locked(n) {
                 return read_value(n);
             }
             timeout += 1;
@@ -205,23 +267,27 @@ impl OneShotTimer<'_> {
 
     /// Start the timer for the given duration in microseconds.
     ///
-    /// Max duration: ~178 seconds at 24MHz (u32 ticks limit).
-    /// For longer durations, use `start_millis()` or loop `start_micros()`.
-    pub fn start_micros(&mut self, us: u32) {
-        let ticks64 = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
-        // Clamp to u32 max — delays longer than ~178s at 24MHz
-        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-        self.start(ticks);
+    /// Max duration: ~178 seconds at 24MHz (the 32-bit tick counter).
+    ///
+    /// # Errors
+    ///
+    /// [`TimerError::TicksOverflow`] if `us` exceeds the counter's range — split it
+    /// or use `start_millis` for longer waits rather than getting a silent ~178 s.
+    pub fn start_micros(&mut self, us: u32) -> Result<(), TimerError> {
+        self.start(try_ticks_for_us(us)?);
+        Ok(())
     }
 
     /// Start the timer for the given duration in milliseconds.
     ///
     /// Max duration: ~178,956ms (~178s) at 24MHz.
-    /// For longer durations, repeat this call in a loop.
-    pub fn start_millis(&mut self, ms: u32) {
-        let ticks64 = TIMER_CLOCK_HZ as u64 * ms as u64 / 1_000;
-        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-        self.start(ticks);
+    ///
+    /// # Errors
+    ///
+    /// [`TimerError::TicksOverflow`] if `ms` exceeds the counter's range.
+    pub fn start_millis(&mut self, ms: u32) -> Result<(), TimerError> {
+        self.start(try_ticks_for_ms(ms)?);
+        Ok(())
     }
 
     /// Check if the timer has expired.
@@ -262,12 +328,15 @@ impl embedded_hal::delay::DelayNs for OneShotTimer<'_> {
     }
 
     fn delay_us(&mut self, us: u32) {
-        self.start_micros(us);
+        // The DelayNs trait has no error channel; clamp (don't reject) per
+        // embedded-hal blocking-delay semantics. The fallible inherent
+        // `start_micros` is the typed path for callers that want rejection.
+        self.start(ticks_for_us_saturating(us));
         self.wait();
     }
 
     fn delay_ms(&mut self, ms: u32) {
-        self.start_millis(ms);
+        self.start(ticks_for_ms_saturating(ms));
         self.wait();
     }
 }
@@ -290,10 +359,14 @@ impl PeriodicTimer<'_> {
     }
 
     /// Start the periodic timer with the period in microseconds.
-    pub fn start_micros(&mut self, us: u32) {
-        let ticks64 = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
-        let ticks = if ticks64 > u32::MAX as u64 { u32::MAX } else { ticks64 as u32 };
-        self.start(ticks);
+    ///
+    /// # Errors
+    ///
+    /// [`TimerError::TicksOverflow`] if `us` exceeds the 32-bit period register's
+    /// range (≈178 s at 24 MHz).
+    pub fn start_micros(&mut self, us: u32) -> Result<(), TimerError> {
+        self.start(try_ticks_for_us(us)?);
+        Ok(())
     }
 
     /// Check if a period has elapsed (interrupt pending).
@@ -327,36 +400,36 @@ impl PeriodicTimer<'_> {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
+    use super::{TimerError, try_ticks_for_us};
     use crate::soc::chip::TIMER_CLOCK_HZ;
 
     // The timer counts at the TCXO crystal clock (TIMER_CLOCK_HZ = 24 MHz), so
     // there are TICKS_PER_US ticks per microsecond and the u32 one-shot caps at
-    // MAX_SAFE_US (≈178 s at 24 MHz) before the conversion saturates.
+    // MAX_SAFE_US (≈178 s at 24 MHz) before the conversion would overflow.
     const TICKS_PER_US: u64 = TIMER_CLOCK_HZ as u64 / 1_000_000;
     const MAX_SAFE_US: u64 = u32::MAX as u64 / TICKS_PER_US;
 
-    fn ticks_for_us(us: u64) -> u32 {
-        let t = TIMER_CLOCK_HZ as u64 * us / 1_000_000;
-        if t > u32::MAX as u64 { u32::MAX } else { t as u32 }
+    #[test]
+    fn oneshot_overflow_rejected() {
+        // µs beyond the safe range is REJECTED (was silently clamped to u32::MAX).
+        let us = (MAX_SAFE_US + 1_000_000).min(u32::MAX as u64) as u32;
+        assert_eq!(try_ticks_for_us(us), Err(TimerError::TicksOverflow));
+        assert_eq!(try_ticks_for_us(u32::MAX), Err(TimerError::TicksOverflow));
     }
 
     #[test]
-    fn oneshot_overflow_clamps() {
-        // µs beyond the safe range saturates to u32::MAX (no wrap, no panic).
-        assert_eq!(ticks_for_us(MAX_SAFE_US + 1_000_000), u32::MAX);
-    }
-
-    #[test]
-    fn small_value_does_not_clamp() {
+    fn small_value_converts() {
         // 100 µs → 100 * TICKS_PER_US ticks, well within u32.
-        assert_eq!(ticks_for_us(100), (100 * TICKS_PER_US) as u32);
+        assert_eq!(try_ticks_for_us(100), Ok((100 * TICKS_PER_US) as u32));
     }
 
     #[test]
-    fn max_safe_value_not_clamped() {
-        let ticks64 = TIMER_CLOCK_HZ as u64 * MAX_SAFE_US / 1_000_000;
+    fn max_safe_value_accepted() {
+        // The largest in-range µs converts; one past it is rejected (exact boundary).
+        let max_us = MAX_SAFE_US as u32;
+        let ticks64 = TIMER_CLOCK_HZ as u64 * max_us as u64 / 1_000_000;
         assert!(ticks64 <= u32::MAX as u64);
-        assert_eq!(ticks_for_us(MAX_SAFE_US), ticks64 as u32);
+        assert_eq!(try_ticks_for_us(max_us), Ok(ticks64 as u32));
     }
 }
 
@@ -364,33 +437,32 @@ mod tests {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod proptests {
+    use super::try_ticks_for_us;
     use crate::soc::chip::TIMER_CLOCK_HZ;
     use proptest::prelude::*;
 
     const MAX_SAFE_US: u64 = u32::MAX as u64 / (TIMER_CLOCK_HZ as u64 / 1_000_000);
 
-    fn ticks64(us: u64) -> u64 {
-        TIMER_CLOCK_HZ as u64 * us / 1_000_000
-    }
-
     proptest! {
-        /// Fuzz: ticks calculation + clamp never panics for any u32 µs input.
+        /// Fuzz: the µs→ticks conversion never panics for any u32 input — it returns
+        /// `Err(TicksOverflow)` out of range instead of overflowing.
         #[test]
-        fn ticks_never_panics(us in any::<u32>()) {
-            let t = ticks64(us as u64);
-            let _ = if t > u32::MAX as u64 { u32::MAX } else { t as u32 };
+        fn try_ticks_never_panics(us in any::<u32>()) {
+            let _ = try_ticks_for_us(us);
         }
 
-        /// Fuzz: µs within the safe range never overflow u32.
+        /// Fuzz: every µs within the safe range is ACCEPTED and its tick count fits u32.
         #[test]
-        fn safe_range_not_clamped(us in 0u64..=MAX_SAFE_US) {
-            prop_assert!(ticks64(us) <= u32::MAX as u64, "safe us={} -> ticks64={}", us, ticks64(us));
+        fn safe_range_accepted(us in 0u64..=MAX_SAFE_US) {
+            let r = try_ticks_for_us(us as u32);
+            prop_assert!(r.is_ok(), "safe us={} rejected", us);
+            prop_assert!((r.unwrap() as u64) <= u32::MAX as u64);
         }
 
-        /// Fuzz: µs beyond the safe range always overflow u32 (and thus clamp).
+        /// Fuzz: every µs beyond the safe range is REJECTED.
         #[test]
-        fn overflow_always_clamps(us in (MAX_SAFE_US + 1)..=u32::MAX as u64) {
-            prop_assert!(ticks64(us) > u32::MAX as u64);
+        fn overflow_always_rejected(us in (MAX_SAFE_US + 1)..=u32::MAX as u64) {
+            prop_assert!(try_ticks_for_us(us as u32).is_err());
         }
     }
 }
@@ -441,6 +513,25 @@ mod asynch_impl {
             }
         }
         TIMER_SIGNAL[ch].signal();
+    }
+
+    // Named device.x handlers (TIMER_INT0..2 = IRQ 26..28). TIMER_INT0 is the
+    // embassy-time alarm channel; when the `embassy` feature is on, embassy.rs owns
+    // that symbol (routes to on_alarm_interrupt), so define it here only for
+    // async-without-embassy. The rt routes these IRQs here by number — no app
+    // `mcause` trap needed.
+    #[cfg(not(feature = "embassy"))]
+    #[unsafe(no_mangle)]
+    extern "C" fn TIMER_INT0() {
+        on_interrupt(0);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn TIMER_INT1() {
+        on_interrupt(1);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn TIMER_INT2() {
+        on_interrupt(2);
     }
 
     /// Async delay backed by one WS63 TIMER channel (one-shot + completion IRQ).

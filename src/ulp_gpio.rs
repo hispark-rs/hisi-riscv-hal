@@ -12,6 +12,7 @@ use core::marker::PhantomData;
 
 /// ULP GPIO pin mode marker types.
 pub struct Input;
+/// Marker type for a ULP GPIO pin configured in output mode.
 pub struct Output;
 
 /// ULP GPIO pin driver.

@@ -8,6 +8,31 @@
 use crate::peripherals::{I2c0, I2c1};
 use core::marker::PhantomData;
 
+/// I2C bus speed. A finite set of standard-defined modes — so a frequency the SCL
+/// divider can't actually realise is unrepresentable (the old `freq: u32` could
+/// divide to a 0 / overflowed SCL count). Matches the BS2X `i2c_v151::Speed`
+/// surface, so `hal::i2c::Speed` reads the same on both chips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Speed {
+    /// Standard mode (100 kHz).
+    Standard,
+    /// Fast mode (400 kHz).
+    Fast,
+}
+
+impl Speed {
+    /// The SCL frequency in Hz.
+    pub const fn hz(self) -> u32 {
+        match self {
+            Speed::Standard => 100_000,
+            Speed::Fast => 400_000,
+        }
+    }
+}
+
+/// I2C master driver bound to instance `T` (`I2c0`/`I2c1`).
 pub struct I2c<'d, T> {
     idx: u8,
     _peripheral: PhantomData<&'d T>,
@@ -24,15 +49,17 @@ fn i2c_regs(idx: u8) -> &'static crate::soc::pac::i2c0::RegisterBlock {
 }
 
 impl<'d> I2c<'d, I2c0<'d>> {
-    pub fn new_i2c0(_i2c: I2c0<'d>, freq: u32) -> Self {
-        configure_i2c(0, freq);
+    /// Create and configure the I2C0 master at the given bus [`Speed`].
+    pub fn new_i2c0(_i2c: I2c0<'d>, speed: Speed) -> Self {
+        configure_i2c(0, speed.hz());
         Self { idx: 0, _peripheral: PhantomData }
     }
 }
 
 impl<'d> I2c<'d, I2c1<'d>> {
-    pub fn new_i2c1(_i2c: I2c1<'d>, freq: u32) -> Self {
-        configure_i2c(1, freq);
+    /// Create and configure the I2C1 master at the given bus [`Speed`].
+    pub fn new_i2c1(_i2c: I2c1<'d>, speed: Speed) -> Self {
+        configure_i2c(1, speed.hz());
         Self { idx: 1, _peripheral: PhantomData }
     }
 }
@@ -131,6 +158,7 @@ impl<T> I2c<'_, T> {
         self.wait_tx_ack()
     }
 
+    /// Write `data` to the 7-bit `addr` (START, address+W, bytes, STOP).
     pub fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
 
@@ -154,6 +182,8 @@ impl<T> I2c<'_, T> {
         Ok(())
     }
 
+    /// Read `buf.len()` bytes from the 7-bit `addr` (START, address+R, bytes with
+    /// NACK on the last, STOP).
     pub fn read(&mut self, addr: u8, buf: &mut [u8]) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
 
@@ -286,10 +316,16 @@ impl<T> I2c<'_, T> {
     }
 }
 
+/// WS63 I2C master transaction error.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum I2cError {
+    /// The addressed device did not acknowledge (NACK on address or data).
     Ack,
+    /// Bus-level fault (e.g. arbitration loss / SCL stuck).
     BusError,
+    /// A status bit never asserted within the bounded wait (stuck/absent slave).
     Timeout,
 }
 
@@ -339,6 +375,13 @@ impl embedded_hal::i2c::I2c for I2c<'_, I2c1<'_>> {
 
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
+    #[test]
+    fn speed_hz_values() {
+        use super::Speed;
+        assert_eq!(Speed::Standard.hz(), 100_000);
+        assert_eq!(Speed::Fast.hz(), 400_000);
+    }
+
     #[test]
     fn test_i2c_address_write_encoding() {
         // I2C write address = addr << 1 (R/W=0)
