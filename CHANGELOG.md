@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-16
+
 ### Changed
 
 - **pwm** (BREAKING): `PwmChannel::configure` now takes a validated
@@ -86,6 +88,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   Added a safe `Peripheral::reborrow(&mut self)`. New optional `defmt` feature.
 - **docs**: `#![warn(missing_docs)]` enabled and every public item documented (flips
   to `deny` once green).
+- **interrupt routing → device.x named handlers** (BREAKING; requires
+  `hisi-riscv-rt 0.4`): with the `async` feature, each driver now exports the
+  rt-named handler symbol its IRQ vectors to (`TIMER_INT0..2`, `UART0..2_INT`,
+  `GPIO_INT0..2`, `DMA_INT`, `LSADC_INTR`), and that handler calls the driver's
+  static `on_interrupt`. rt 0.4 runs `mtvec` in **direct mode** and dispatches a
+  custom IRQ through its `__INTERRUPTS` table to these named symbols — so an enabled
+  IRQ is delivered to the right driver with no app-side `mcause` trap shim. Bumps the
+  `hisi-riscv-rt` dev-dep `0.3 → 0.4`. (Area D / #7; silicon-validated by the HIL
+  `timer_irq_direct_mode_dispatch` + `gpio_int0_named_routing` tests.)
+- **interrupt::enable** now also raises the IRQ's `LOCIPRI` priority above the
+  `PRITHD` threshold (both reset to 0 on the WS63 Nuclei ECLIC), so a custom IRQ
+  (≥ 26) is actually **deliverable** after `enable()` alone — previously delivery
+  silently required a separate `interrupt::init()`.
+- **embassy**: the `embassy` feature exports a named `TIMER_INT0` handler that drives
+  the alarm callback through rt's direct-mode dispatch (no app `#[interrupt]` shim);
+  it is `cfg`-exclusive with the `async` timer's own `TIMER_INT0` to avoid a
+  duplicate symbol.
 
 ### Added
 
@@ -101,6 +120,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   new **`hil-rtc`** feature (the common WS63 EVB does not populate the RTC's
   32.768 kHz crystal, so touching the RTC stalls the bus / drops the debug link;
   enable only on a board that has the crystal).
+
+### Fixed
+
+- **uart**: `read_byte` now gates on the `rx_fifo_cnt` register (offset 0x4c, the
+  field the vendor `hal_uart_v151` polls) instead of the `rx_fifo_empty` status bit,
+  which on real silicon does **not** track a single-byte pop — the old check could
+  return a stale byte or miss a fresh one. The async `on_interrupt` RX path uses the
+  same count.
 
 ## [0.4.0] - 2026-06-15
 
