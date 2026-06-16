@@ -6,7 +6,15 @@
 //! drives the RTC0 instance (bs2x-pac `Rtc` @ 0x5702_4100).
 //!
 //! Reading the 64-bit counter requires the cnt_req → cnt_lock latch handshake
-//! (so the two 32-bit halves are coherent).
+//! (so the two 32-bit halves are coherent); the wait for `cnt_lock` is bounded.
+//!
+//! # Preconditions (board / analog)
+//!
+//! The RTC counts on the 32.768 kHz clock domain, sourced from an **external
+//! crystal that a board may not populate**. With the crystal absent the counter
+//! never advances and register access can stall the bus — a board provisioning
+//! fact with no software guard. Treat a populated 32.768 kHz crystal as a hard
+//! precondition before constructing the driver.
 
 use crate::peripherals::Rtc as RtcPeriph;
 use core::marker::PhantomData;
@@ -15,13 +23,17 @@ use core::marker::PhantomData;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Mode {
+    /// Count down once from `load` to zero, then stop.
     OneShot = 0,
+    /// Count down from `load`, reload and repeat (periodic interrupt).
     Periodic = 1,
+    /// Free-running counter (wraps past zero; bit pattern is 3, not 2).
     FreeRun = 3,
 }
 
 const POLL_LIMIT: u32 = 0xFFFF;
 
+/// Driver for the BS2X 64-bit v150 RTC (RTC0 instance).
 pub struct Rtc<'d> {
     _rtc: PhantomData<RtcPeriph<'d>>,
 }
@@ -34,6 +46,11 @@ impl<'d> Rtc<'d> {
 
     /// Start the RTC counting from `load` in `mode` (`hal_rtc_v150_config_load` +
     /// `_start`). For a free-running counter use `Mode::FreeRun`.
+    ///
+    /// typed-config exemption: `load` is written verbatim into the 32-bit
+    /// `load_count0` register (the low half of the 64-bit counter), so every `u32`
+    /// is a valid, runnable value — nothing to truncate or clamp. (The board-crystal
+    /// precondition is documented at the module level.)
     pub fn new(_rtc: RtcPeriph<'d>, load: u32, mode: Mode) -> Self {
         let this = Self { _rtc: PhantomData };
         let r = this.regs();

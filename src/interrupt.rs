@@ -24,6 +24,7 @@
 // surrounding `unsafe` blocks empty — silence the resulting lints there.
 #![cfg_attr(not(target_arch = "riscv32"), allow(unused_unsafe, unused_variables, unused_mut))]
 
+/// Chip-specific interrupt-source enumeration (IRQ numbers) for this SoC.
 pub use crate::soc::chip::Interrupt;
 
 // --- model constants (fbb_ws63 vectors.h / riscv_interrupt.h) ---------------
@@ -211,12 +212,19 @@ fn locipri_read(idx: u16) -> u32 {
 pub struct Priority(u8);
 
 impl Priority {
+    /// Priority level 1 (lowest deliverable).
     pub const P1: Self = Priority(1);
+    /// Priority level 2.
     pub const P2: Self = Priority(2);
+    /// Priority level 3.
     pub const P3: Self = Priority(3);
+    /// Priority level 4.
     pub const P4: Self = Priority(4);
+    /// Priority level 5.
     pub const P5: Self = Priority(5);
+    /// Priority level 6.
     pub const P6: Self = Priority(6);
+    /// Priority level 7 (highest).
     pub const P7: Self = Priority(7);
 
     /// Lowest deliverable priority (1).
@@ -267,6 +275,16 @@ pub unsafe fn enable(irq: Interrupt) {
         let bit = (n - LOCAL_IRQ_VECTOR_CNT) % LOCIEN_IRQ_NUM;
         let reg = (n - LOCAL_IRQ_VECTOR_CNT) / LOCIEN_IRQ_NUM;
         unsafe { locien_write(reg, 1u32 << bit, true) };
+    }
+    // Nuclei ECLIC delivers an IRQ only when its `LOCIPRI` priority is strictly
+    // greater than the `PRITHD` threshold (both reset to 0, so a just-enabled IRQ is
+    // masked). Give the IRQ a non-zero priority here so enabling it is sufficient —
+    // callers no longer need a separate `interrupt::init()` for delivery. (`init`
+    // remains for setting every priority at once / a custom threshold.)
+    if (SYS_VECTOR_CNT..PRIORITY_IRQ_END).contains(&n) {
+        let reg = (n - SYS_VECTOR_CNT) / LOCIPRI_IRQ_NUM;
+        let shift = ((n - SYS_VECTOR_CNT) % LOCIPRI_IRQ_NUM) * LOCIPRI_IRQ_BITS;
+        locipri_set_field(reg, shift, 1);
     }
 }
 

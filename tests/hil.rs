@@ -308,6 +308,48 @@ mod tests {
         }
     }
 
+    /// The owned-buffer `Transfer` guard (Area C) over the SAME mem-to-mem path on
+    /// silicon: `start_mem_to_mem` cleans the source, launches, and returns a guard;
+    /// `wait()` polls completion, invalidates the destination cache, and hands back
+    /// the driver + both buffers. The guard owns the buffers (so a use-after-free is
+    /// unrepresentable) and folds the cache maintenance into the type. `'static`
+    /// 32-byte-aligned buffers satisfy embedded-dma's stable-deref contract.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn dma_transfer_guard() {
+        use hal::dma::{Dma0, DmaDriver};
+        #[repr(C, align(32))]
+        struct Aligned([u32; 8]);
+        static mut SRC: Aligned = Aligned([
+            0xbbbb_0001,
+            0xbbbb_0002,
+            0xbbbb_0003,
+            0xbbbb_0004,
+            0xbbbb_0005,
+            0xbbbb_0006,
+            0xbbbb_0007,
+            0xbbbb_0008,
+        ]);
+        static mut DST: Aligned = Aligned([0u32; 8]);
+        // SAFETY: sequential single-hart run; these statics are touched only here.
+        let src: &'static mut [u32] = unsafe { &mut (*core::ptr::addr_of_mut!(SRC)).0 };
+        let dst: &'static mut [u32] = unsafe { &mut (*core::ptr::addr_of_mut!(DST)).0 };
+        let want =
+            [0xbbbb_0001u32, 0xbbbb_0002, 0xbbbb_0003, 0xbbbb_0004, 0xbbbb_0005, 0xbbbb_0006, 0xbbbb_0007, 0xbbbb_0008];
+
+        // SAFETY: sequential single-hart run; DMA singleton not otherwise held.
+        let mut dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
+        dma.enable_controller();
+
+        let transfer = dma.start_mem_to_mem(0, &*src, dst);
+        let (_dma, _src, dst) = transfer.wait();
+
+        for (i, &w) in want.iter().enumerate() {
+            let got = unsafe { core::ptr::read_volatile(dst.as_ptr().add(i)) };
+            assert_eq!(got, w, "DMA guard mem→mem mismatch @{}: got=0x{:08x} want=0x{:08x}", i, got, w);
+        }
+    }
+
     /// Clock-gate enable (clock.rs). The HAL's CKEN bit map lives in
     /// `clock::Peripheral::cken_info()` (the old `ClockControl` RAII layer was
     /// removed as dead code — see clock.rs module docs). UART0's gate is
@@ -394,7 +436,7 @@ mod tests {
 
         // Recompute the expected divider exactly as configure_uart() does.
         let pclk = hal::soc::chip::UART_CLOCK_HZ; // 160 MHz
-        let div64 = ((pclk as u64) * 4 / (cfg.baudrate as u64)) as u32; // = div * 64
+        let div64 = ((pclk as u64) * 4 / (cfg.baudrate.baud() as u64)) as u32; // = div * 64
         let div = div64 >> 6;
         let exp_div_fra = (div64 & 0x3F) as u16;
         let exp_div_l = (div & 0xFF) as u16;
@@ -495,13 +537,12 @@ mod tests {
     #[cfg(feature = "chip-ws63")]
     #[test]
     fn i2c0_scl_config() {
-        use hal::i2c::I2c;
-        const FREQ: u32 = 100_000;
+        use hal::i2c::{I2c, Speed};
         // SAFETY: sequential single-hart run; I2C0 singleton not otherwise held.
-        let _i2c = I2c::new_i2c0(unsafe { hal::peripherals::I2c0::steal() }, FREQ);
+        let _i2c = I2c::new_i2c0(unsafe { hal::peripherals::I2c0::steal() }, Speed::Standard);
 
         let pclk = hal::soc::chip::I2C_CLOCK_HZ; // 24 MHz TCXO
-        let expected_half = (pclk / (2 * FREQ)) / 2;
+        let expected_half = (pclk / (2 * Speed::Standard.hz())) / 2;
         // SAFETY: read-only MMIO loads of the I2C0 config registers.
         let r = unsafe { &*pac::I2c0::PTR };
         assert_eq!(r.i2c_scl_h().read().bits(), expected_half, "I2C0 scl_h mismatch");
@@ -509,66 +550,107 @@ mod tests {
         assert!(r.i2c_ctrl().read().i2c_en().bit_is_set(), "I2C0 i2c_en not set after new_i2c0");
     }
 
-    /// PWM clock gate + channel-0 config (pwm.rs / clock.rs). PWM is clock-gated
-    /// (CKEN_CTL0 field [10:2], base bit 2 — `pwm_porting.c`); enable the field via
-    /// the `CldoCrg` register (RMW-set, mirrors `clock_gate_uart0_enabled`) so the
-    /// PWM registers latch writes, then configure channel 0 at 10 kHz / 50 % and
-    /// assert the low frequency register latched `SYSTEM_CLOCK_HZ / freq` (24 000,
-    /// chosen to fit the 16-bit `pwm_freq_l0`) and the enable bit toggles. Register
-    /// level — no pin output asserted.
+    /// PWM typed config + clock-tree bring-up (pwm.rs). `configure` brings up the
+    /// PWM clock tree itself (CLK_SEL high-freq + CKEN_CTL0 [10:2] + DIV_CTL3
+    /// divider, per vendor `pwm_port_clock_enable`) and takes a validated
+    /// `PwmPeriod` + `Duty`, so an invalid frequency or duty is unrepresentable.
+    /// The usable period is **16-bit**: silicon was measured NOT to latch the
+    /// `pwm_freq_h0` half (it reads back 0 even with the full clock tree up), which
+    /// is exactly why `PwmPeriod` is a `u16`. Configures a 24 000-tick / 50 % duty
+    /// waveform and asserts `pwm_freq_l0` latched it, `pwm_freq_h0` stayed 0, and the
+    /// duty register holds 12 000; then enable/disable. No pin output asserted.
     #[cfg(feature = "chip-ws63")]
     #[test]
     fn pwm_configure_and_enable() {
-        use hal::clock::Peripheral;
-        use hal::pwm::PwmChannel;
-        let (_reg_idx, base_bit) = Peripheral::Pwm.cken_info().expect("PWM should be gated");
-        // SAFETY: RMW-set of clock-enable bits; keeps other clocks running.
-        let crg = unsafe { &*pac::CldoCrg::PTR };
-        crg.cken_ctl0().modify(|r, w| unsafe { w.bits(r.bits() | (0x1FF << base_bit)) });
-
+        use hal::pwm::{Duty, PwmChannel, PwmPeriod};
         // SAFETY: sequential single-hart run; PWM singleton not otherwise held.
         let pwm = unsafe { hal::peripherals::Pwm::steal() };
         let mut ch = PwmChannel::new(&pwm, 0);
-        const FREQ: u32 = 10_000; // period = 24_000, fits the 16-bit low register
-        ch.configure(FREQ, 50);
+        let period = PwmPeriod::from_count(24_000).expect("non-zero period");
+        ch.configure(period, Duty::HALF);
         ch.enable();
 
-        let expected_period = hal::soc::chip::SYSTEM_CLOCK_HZ / FREQ; // 24_000
         // SAFETY: read-only MMIO loads of the PWM ch0 registers.
         let r = unsafe { &*pac::Pwm::PTR };
-        let lo = r.pwm_freq_l0().read().bits() as u32;
-        assert_eq!(lo, expected_period, "PWM ch0 freq_l0 not latched: got {lo} want {expected_period}");
+        assert_eq!(r.pwm_freq_l0().read().bits() as u32, 24_000, "PWM freq_l0 not latched");
+        assert_eq!(r.pwm_freq_h0().read().bits() as u32, 0, "PWM freq_h0 unexpectedly non-zero");
+        assert_eq!(r.pwm_duty_l0().read().bits() as u32, 12_000, "PWM 50% duty not latched");
         assert_ne!(r.pwm_en0().read().bits() & 1, 0, "PWM ch0 not enabled");
 
         ch.disable();
         assert_eq!(r.pwm_en0().read().bits() & 1, 0, "PWM ch0 still enabled after disable");
     }
 
-    /// Watchdog `configure` load-field **saturation** (wdt.rs / examples/ws63/reset_demo).
-    /// Validates the load-field u64-saturation fix on silicon: request a 300 s
-    /// timeout — far beyond the 24-bit `wdt_load[31:8]` field's ~178 s ceiling at
-    /// 24 MHz — and assert the programmed load CLAMPS to `WDT_MAX_LOAD` (0xFFFFFF)
-    /// instead of truncating/wrapping to a bogus small load (the bug the fix
-    /// addresses). Configured with **reset DISABLED** so the WDT can never reboot
-    /// the board. Register CONFIG only — the 256-cycle-resolution counter is not
-    /// polled (counting is validated by the timer test; this isolates the fix).
+    /// Watchdog timeout **validation + load programming** (wdt.rs).
+    /// The old silent u64-saturation is gone: an out-of-range timeout (300 s, far
+    /// beyond the 24-bit `wdt_load[31:8]` field's ~178 s ceiling at 24 MHz) is now
+    /// REJECTED at `WdtTimeout::from_ms` (returns `None`), while a valid in-range
+    /// timeout programs the exact computed load field on silicon. Configured with
+    /// **reset DISABLED** so the WDT can never reboot the board.
     #[cfg(feature = "chip-ws63")]
     #[test]
     fn wdt_configure_saturates_load() {
-        use hal::wdt::{ResetPulseLength, Watchdog, WdtMode, WDT_MAX_LOAD};
+        use hal::wdt::{ResetPulseLength, WDT_MAX_LOAD, Watchdog, WdtMode, WdtTimeout};
+        // 300 s ≫ the field's ~178 s max → rejected at construction, no clamp.
+        assert!(WdtTimeout::from_ms(300_000).is_none(), "over-range timeout must be rejected");
+        assert!(WdtTimeout::from_ms(WdtTimeout::MAX_MS).is_some());
+        assert!(WdtTimeout::from_ms(WdtTimeout::MAX_MS + 1).is_none());
+
+        // A valid 1 s timeout programs the exact load field on silicon.
+        let timeout = WdtTimeout::from_ms(1_000).unwrap();
         // SAFETY: sequential single-hart run; WDT singleton not otherwise held.
         let mut wdt = Watchdog::new(unsafe { hal::peripherals::Wdt::steal() });
-        // 300 s ≫ the field's ~178 s max → must clamp in u64 before narrowing.
-        wdt.configure(300_000, WdtMode::SingleInterrupt, false, ResetPulseLength::Cycles2);
+        wdt.configure(timeout, WdtMode::SingleInterrupt, false, ResetPulseLength::Cycles2)
+            .expect("configure should succeed on live silicon");
 
+        // Expected field = (1000 ms · 24 MHz / 1000) >> 8 = 24_000_000 >> 8 = 93_750.
+        let expected = (timeout.as_ms() as u64 * hal::wdt::WDT_CLOCK_HZ as u64 / 1000 >> 8) as u32;
+        assert!(expected <= WDT_MAX_LOAD);
         // SAFETY: read-only MMIO load of the WDT load register; field is in [31:8].
         let r = unsafe { &*pac::Wdt::PTR };
         let load = r.wdt_load().read().bits() >> 8;
-        assert_eq!(
-            load, WDT_MAX_LOAD,
-            "WDT load did not saturate: got 0x{:06x} want 0x{:06x}", load, WDT_MAX_LOAD
-        );
+        assert_eq!(load, expected, "WDT load mismatch: got 0x{:06x} want 0x{:06x}", load, expected);
         wdt.disable();
+    }
+
+    /// drop-to-disable (Area E) on silicon: a dropped `Watchdog` clears `WDT_CR.wdt_en`
+    /// (scoped safety — it cannot reset the board after its scope), while
+    /// `into_armed()` is the escape hatch that keeps it enabled. Configured with
+    /// **reset DISABLED**, so even the briefly-armed window cannot reboot the board.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn wdt_drop_disables_unless_armed() {
+        use hal::wdt::{ResetPulseLength, Watchdog, WdtMode, WdtTimeout};
+        let r = unsafe { &*pac::Wdt::PTR };
+        let cfg = |wdt: &mut Watchdog| {
+            wdt.configure(
+                WdtTimeout::from_ms(1_000).unwrap(),
+                WdtMode::SingleInterrupt,
+                false, // reset DISABLED — armed window cannot reboot the board
+                ResetPulseLength::Cycles2,
+            )
+            .expect("configure on live silicon");
+        };
+
+        // Dropping the handle clears the enable bit.
+        {
+            // SAFETY: sequential single-hart run; WDT singleton not otherwise held.
+            let mut wdt = Watchdog::new(unsafe { hal::peripherals::Wdt::steal() });
+            cfg(&mut wdt);
+            assert_eq!(r.wdt_cr().read().bits() & 0x1, 0x1, "WDT not enabled after configure");
+        } // <- Drop runs here
+        assert_eq!(r.wdt_cr().read().bits() & 0x1, 0x0, "drop did not clear WDT_CR.wdt_en");
+
+        // The escape hatch keeps it armed past the scope.
+        {
+            let mut wdt = Watchdog::new(unsafe { hal::peripherals::Wdt::steal() });
+            cfg(&mut wdt);
+            let _armed = wdt.into_armed(); // no disabling Drop
+        }
+        assert_eq!(r.wdt_cr().read().bits() & 0x1, 0x1, "into_armed must keep WDT enabled");
+
+        // Cleanup: stop the armed watchdog so the harness continues cleanly.
+        Watchdog::new(unsafe { hal::peripherals::Wdt::steal() }).disable();
     }
 
     /// I2S register liveness (i2s.rs). I2S is clock-gated (CKEN_CTL0 bit 12 = clk,
@@ -581,20 +663,17 @@ mod tests {
     #[cfg(feature = "chip-ws63")]
     #[test]
     fn i2s_version_live() {
-        use hal::i2s::{I2sConfig, I2sDriver};
-        // Enable the I2S clk (bit 12) + bus (bit 11) gates so the block is live.
-        // SAFETY: RMW-set of clock-enable bits; keeps other clocks running.
-        let crg = unsafe { &*pac::CldoCrg::PTR };
-        crg.cken_ctl0().modify(|r, w| unsafe { w.bits(r.bits() | (1 << 12) | (1 << 11)) });
-
+        use hal::i2s::{I2sDriver, MasterConfig};
+        // `new_master` self-enables the I2S clk (bit 12) + bus (bit 11) gates and the
+        // CMU divider reset-sync, then configures the block (master, I2S, 16-bit).
         // SAFETY: sequential single-hart run; I2S singleton not otherwise held.
-        let mut i2s = I2sDriver::new(unsafe { hal::peripherals::I2s::steal() });
-        i2s.configure(&I2sConfig::default());
+        let i2s = I2sDriver::new_master(unsafe { hal::peripherals::I2s::steal() }, &MasterConfig::default());
 
         let ver = i2s.version();
         assert!(
             ver != 0 && ver != 0xFF,
-            "I2S version register read an unsane value 0x{:02x} (block not clocked?)", ver
+            "I2S version register read an unsane value 0x{:02x} (block not clocked?)",
+            ver
         );
     }
 
@@ -620,7 +699,7 @@ mod tests {
         let ctrl0 = r.lsadc_ctrl_0().read();
         assert_ne!(ctrl0.channel().bits() & (1 << 0), 0, "LSADC channel-0 select bit not set");
         assert_eq!(ctrl0.equ_model_sel().bits(), cfg.averaging as u8, "LSADC averaging field mismatch");
-        assert_eq!(ctrl0.sample_cnt().bits(), cfg.sample_count & 0x1F, "LSADC sample_cnt field mismatch");
+        assert_eq!(ctrl0.sample_cnt().bits(), cfg.sample_count.bits(), "LSADC sample_cnt field mismatch");
     }
 
     /// RTC free-running counter advances (rtc.rs) — **opt-in** (`hil-rtc` feature).
@@ -664,6 +743,116 @@ mod tests {
         let r = unsafe { &*pac::Gadc::PTR };
         let status = r.rpt_gadc_data_3().read().bits();
         assert_ne!(status, 0xFFFF_FFFF, "GADC status read returned the all-ones bus-floating pattern");
+    }
+
+    /// **Area D — full device.x-named interrupt routing.** hisi-riscv-rt runs in
+    /// DIRECT mtvec mode: every trap reaches `trap_entry`, which routes interrupts
+    /// (mcause bit 31) by IRQ number through `__rt_irq_dispatch` → the
+    /// `__INTERRUPTS` table → the **named `device.x` handler** for that IRQ. We
+    /// define `TIMER_INT0` (IRQ 26 = the embassy alarm channel) and fire TIMER
+    /// channel 0 — asserting our named handler runs proves the whole chain
+    /// end-to-end on real silicon, with no `mcause` test in the app. The WS63
+    /// (Nuclei ECLIC) only delivers a custom IRQ once its `LOCIPRI` priority >
+    /// threshold, which `interrupt::init()` sets. No external wiring.
+    ///
+    /// Gated to non-async/non-embassy builds: with those features the HAL itself
+    /// defines `TIMER_INT0` (async timer / embassy alarm), so this test cannot also
+    /// define it. The async path is covered by `gpio_int0_named_routing` instead.
+    #[cfg(all(feature = "chip-ws63", not(feature = "async"), not(feature = "embassy")))]
+    #[test]
+    fn timer_int0_named_routing() {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        use hal::interrupt;
+        use hal::timer::{TimerDriver, TimerMode};
+
+        static FIRED: AtomicBool = AtomicBool::new(false);
+
+        // The named device.x handler the rt routes IRQ 26 to (overrides the weak
+        // PROVIDE = DefaultHandler). Clear + stop the timer so it can't re-fire,
+        // then record the hit.
+        #[unsafe(no_mangle)]
+        extern "C" fn TIMER_INT0() {
+            let t = TimerDriver::new(unsafe { hal::peripherals::Timer::steal() });
+            t.clear_interrupt(0);
+            t.disable(0);
+            FIRED.store(true, Ordering::SeqCst);
+        }
+
+        let t = TimerDriver::new(unsafe { hal::peripherals::Timer::steal() });
+        // Periodic/user-defined mode counts from the load value (24 MHz TCXO → ~1
+        // ms); the handler disables it on the first fire.
+        t.configure(0, TimerMode::Periodic, 24_000);
+        // SAFETY: `enable` now also raises this IRQ's LOCIPRI priority above the
+        // reset-0 threshold (no separate `interrupt::init()` needed for delivery);
+        // then the global machine-interrupt enable. The handler clears the source.
+        unsafe {
+            interrupt::enable(interrupt::Interrupt::TIMER_INT0);
+            interrupt::enable_global();
+        }
+        t.enable(0);
+
+        let mut spun = 0u32;
+        while !FIRED.load(Ordering::SeqCst) && spun < 20_000_000 {
+            spun += 1;
+            core::hint::spin_loop();
+        }
+        unsafe { interrupt::disable(interrupt::Interrupt::TIMER_INT0) };
+        t.disable(0);
+        t.clear_interrupt(0);
+
+        assert!(
+            FIRED.load(Ordering::SeqCst),
+            "named TIMER_INT0 (IRQ 26) handler never ran — rt device.x named routing broken"
+        );
+    }
+
+    /// **Area D / #7 — async-driver named interrupt routing on silicon.** A real
+    /// GPIO edge interrupt must reach the HAL's named `GPIO_INT0` handler (which the
+    /// rt routes by IRQ number) and run `Gpio::on_interrupt(0)` — with NO app
+    /// `mcause` trap. Uses the GPIO0→GPIO3 jumper: arm GPIO3 for a rising edge, drive
+    /// GPIO0 high, and assert `on_interrupt` ran by checking it masked GPIO3's
+    /// `gpio_int_en` bit (its documented side effect). Needs `async` (the named
+    /// handler is async-gated) + the jumper.
+    #[cfg(all(feature = "chip-ws63", feature = "async", feature = "hil-loopback"))]
+    #[test]
+    fn gpio_int0_named_routing() {
+        use hal::gpio::{AnyPin, InputConfig, InterruptTrigger, OutputConfig};
+        use hal::interrupt;
+        use hal::io_config::IoConfigDriver;
+
+        let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
+        io.set_gpio_mux(0, 0); // plain-GPIO on both pads
+        io.set_gpio_mux(3, 0);
+
+        // SAFETY: GPIO0/3 owned by this test; jumpered 0->3.
+        let mut out = unsafe { AnyPin::steal(0) }.init_output(OutputConfig::new().with_initial(false));
+        let inp = unsafe { AnyPin::steal(3) }.init_input(InputConfig::default());
+        inp.set_interrupt_trigger(InterruptTrigger::RisingEdge);
+        inp.enable_interrupt(); // GPIO0 bank `gpio_int_en` bit 3 = 1
+
+        // SAFETY: enabling GPIO_INT0 (IRQ 33; enable also raises its LOCIPRI) + global.
+        unsafe {
+            interrupt::enable(interrupt::Interrupt::GPIO_INT0);
+            interrupt::enable_global();
+        }
+
+        let g0 = unsafe { &*pac::Gpio0::PTR };
+        assert_ne!(g0.gpio_int_en().read().bits() & (1 << 3), 0, "GPIO3 int-enable not set");
+
+        out.set_high(); // 0->3 rising edge -> GPIO_INT0 -> on_interrupt(0) masks bit 3
+
+        let mut spun = 0u32;
+        while (g0.gpio_int_en().read().bits() & (1 << 3)) != 0 && spun < 20_000_000 {
+            spun += 1;
+            core::hint::spin_loop();
+        }
+        unsafe { interrupt::disable(interrupt::Interrupt::GPIO_INT0) };
+
+        assert_eq!(
+            g0.gpio_int_en().read().bits() & (1 << 3),
+            0,
+            "named GPIO_INT0 handler never ran — on_interrupt(0) did not mask GPIO3 (rt async named routing broken)"
+        );
     }
 
     // ── Loopback tests (opt-in `hil-loopback` feature; need board jumpers) ──
@@ -755,8 +944,18 @@ mod tests {
         io.configure_uart_pad(PinMux::Uart1Txd, DriveStrength::Strong, PullResistor::None, false, false);
         io.configure_uart_pad(PinMux::Uart1Rxd, DriveStrength::Strong, PullResistor::Up, true, true);
 
-        // SAFETY: UART1 singleton not otherwise held; GPIO15->GPIO16 jumpered.
-        let uart = Uart::new_uart1(unsafe { hal::peripherals::Uart1::steal() }, Config::default());
+        // SAFETY: UART1 singleton not otherwise held; GPIO15->GPIO16 jumpered. TX and
+        // RX share the instance/divider, so the byte round-trips regardless of the
+        // absolute baud (the HIL crate runs no clock_init; whatever the boot clock
+        // is, TX and RX agree). read_byte now gates on rx_fifo_cnt, so the drain and
+        // the read pop correctly.
+        // The HIL crate runs no clock_init; pass the boot-clock base so the divider
+        // is sane (ch2 clock tree: UART=160 MHz only in normal operation; at boot
+        // it's the ~40 MHz TCXO). TX and RX share the divider, so the byte round-trips
+        // regardless of the absolute baud.
+        let cfg = Config { clock_hz: Some(40_000_000), ..Config::default() };
+        let uart = Uart::new_uart1(unsafe { hal::peripherals::Uart1::steal() }, cfg);
+        while uart.read_byte(1).is_some() {} // drain stale RX (read_byte now pops via rx_fifo_cnt)
         let sent = 0x5Au8;
         uart.write_byte(1, sent);
         let mut got = None;
@@ -766,11 +965,13 @@ mod tests {
                 break;
             }
         }
-        match got {
-            Some(b) => semihosting::println!("[uart-lb] sent=0x{sent:02x} got=0x{b:02x}"),
-            None => semihosting::println!("[uart-lb] sent=0x{sent:02x} got=none"),
-        }
-        let got = got.expect("UART1 RX never received the looped byte — check GPIO15->GPIO16 jumper");
+        // NOTE: the loop requires the jumper to be on the ACTUAL UART1 TXD/RXD pads.
+        // The HAL pinmux (uart1_txd_sel/rxd_sel = 1) matches the vendor SDK, and
+        // read_byte/rx_fifo_cnt is fixed; if `got` is None the physical TXD→RXD link
+        // is open (UART1 uses dedicated `pad_uart1_txd/rxd_ctrl` pads — verify which
+        // physical pins those are vs the jumper). On a correctly-wired board the byte
+        // round-trips.
+        let got = got.expect("UART1 RX got nothing — verify the jumper is on the real UART1 TXD/RXD pads");
         assert_eq!(got, sent, "UART1 loopback mismatch: sent 0x{sent:02x} got 0x{got:02x}");
     }
 }

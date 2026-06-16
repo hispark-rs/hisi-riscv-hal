@@ -19,8 +19,11 @@ use core::marker::PhantomData;
 /// Pull resistor configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pull {
+    /// No pull resistor (high-impedance input).
     None,
+    /// Pull-up resistor enabled ({PE,PS} = 11).
     Up,
+    /// Pull-down resistor enabled ({PE,PS} = 10).
     Down,
 }
 
@@ -40,6 +43,7 @@ pub enum InterruptTrigger {
 /// Digital input configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct InputConfig {
+    /// Pull resistor applied to the pad.
     pub pull: Pull,
 }
 
@@ -50,9 +54,11 @@ impl Default for InputConfig {
 }
 
 impl InputConfig {
+    /// Create a default input config (no pull resistor).
     pub const fn new() -> Self {
         Self { pull: Pull::None }
     }
+    /// Set the pull resistor configuration.
     pub const fn with_pull(mut self, pull: Pull) -> Self {
         self.pull = pull;
         self
@@ -62,27 +68,28 @@ impl InputConfig {
 /// Digital output configuration.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OutputConfig {
+    /// Use open-drain drive instead of push-pull.
     pub open_drain: bool,
+    /// Drive the pin high on initialization (otherwise low).
     pub initial_high: bool,
 }
 
 impl OutputConfig {
+    /// Create a default output config (push-pull, starts low).
     pub const fn new() -> Self {
         Self { open_drain: false, initial_high: false }
     }
+    /// Set whether the output is open-drain.
     pub const fn with_open_drain(mut self, od: bool) -> Self {
         self.open_drain = od;
         self
     }
+    /// Set the initial drive level (true = high).
     pub const fn with_initial(mut self, high: bool) -> Self {
         self.initial_high = high;
         self
     }
 }
-
-/// Mode marker types.
-pub struct InputMode;
-pub struct OutputMode;
 
 // ── Type-erased pin ────────────────────────────────────────────────
 
@@ -163,28 +170,34 @@ pub struct Input<'d> {
 }
 
 impl<'d> Input<'d> {
+    /// Returns `true` if the pin reads high (from `GPIO_SW_OUT`).
     pub fn is_high(&self) -> bool {
         (regs(self.pin.block).gpio_sw_out().read().bits() >> self.pin.bit) & 1 != 0
     }
 
+    /// Returns `true` if the pin reads low.
     pub fn is_low(&self) -> bool {
         !self.is_high()
     }
 
+    /// Returns this pin's number (0-18).
     pub fn number(&self) -> u8 {
         self.pin.number()
     }
 
+    /// Enable the interrupt for this pin (sets its bit in `GPIO_INT_EN`).
     pub fn enable_interrupt(&self) {
         let r = regs(self.pin.block);
         r.gpio_int_en().modify(|r, w| unsafe { w.bits(r.bits() | (1 << self.pin.bit)) });
     }
 
+    /// Disable the interrupt for this pin (clears its bit in `GPIO_INT_EN`).
     pub fn disable_interrupt(&self) {
         let r = regs(self.pin.block);
         r.gpio_int_en().modify(|r, w| unsafe { w.bits(r.bits() & !(1 << self.pin.bit)) });
     }
 
+    /// Clear this pin's pending interrupt (writes its bit to `GPIO_INT_EOI`).
     pub fn clear_interrupt(&self) {
         unsafe { regs(self.pin.block).gpio_int_eoi().write(|w| w.bits(1 << self.pin.bit)) };
     }
@@ -206,8 +219,15 @@ impl<'d> Input<'d> {
         r.gpio_int_polarity().modify(|r, w| unsafe { w.bits(if high { r.bits() | mask } else { r.bits() & !mask }) });
     }
 
+    /// Returns `true` if this pin's interrupt is pending (set in `GPIO_INT_RAW`).
     pub fn interrupt_pending(&self) -> bool {
         (regs(self.pin.block).gpio_int_raw().read().bits() >> self.pin.bit) & 1 != 0
+    }
+
+    /// Type-erase this input back to an [`AnyPin`] (consumes the driver). Safe: the
+    /// pad keeps its input direction/pull; only the typed wrapper is dropped.
+    pub fn degrade(self) -> AnyPin<'d> {
+        self.pin
     }
 }
 
@@ -233,14 +253,17 @@ pub struct Output<'d> {
 }
 
 impl<'d> Output<'d> {
+    /// Drive the pin high (writes its bit to `GPIO_DATA_SET`).
     pub fn set_high(&mut self) {
         unsafe { regs(self.pin.block).gpio_data_set().write(|w| w.bits(1 << self.pin.bit)) };
     }
 
+    /// Drive the pin low (writes its bit to `GPIO_DATA_CLR`).
     pub fn set_low(&mut self) {
         unsafe { regs(self.pin.block).gpio_data_clr().write(|w| w.bits(1 << self.pin.bit)) };
     }
 
+    /// Toggle the pin's drive level based on its current `GPIO_SW_OUT` state.
     pub fn toggle(&mut self) {
         let r = regs(self.pin.block);
         let val = r.gpio_sw_out().read().bits();
@@ -251,17 +274,63 @@ impl<'d> Output<'d> {
         }
     }
 
+    /// Returns `true` if the pin is currently driven high (from `GPIO_SW_OUT`).
     pub fn is_set_high(&self) -> bool {
         (regs(self.pin.block).gpio_sw_out().read().bits() >> self.pin.bit) & 1 != 0
     }
 
+    /// Returns this pin's number (0-18).
     pub fn number(&self) -> u8 {
         self.pin.number()
     }
 
-    /// Convert this output into a Flex pin.
+    /// Convert this output into a Flex pin, **keeping the current drive state** (the
+    /// safe-state [`Drop`](Output#impl-Drop-for-Output) does not run — the pad stays
+    /// an output as it transfers to the `Flex` driver).
     pub fn into_flex(self) -> Flex<'d> {
-        Flex { pin: self.pin, config: self.config }
+        // Move the fields out without running Output's safe-state Drop.
+        let this = core::mem::ManuallyDrop::new(self);
+        // SAFETY: `this` is never dropped (ManuallyDrop) and we read each field
+        // exactly once, so there is no double-read or double-drop.
+        let pin = unsafe { core::ptr::read(&this.pin) };
+        let config = unsafe { core::ptr::read(&this.config) };
+        Flex { pin, config }
+    }
+
+    /// Type-erase this output back to an [`AnyPin`] (consumes the driver), **keeping
+    /// the pad driving** (the safe-state [`Drop`](Output#impl-Drop-for-Output) does
+    /// not run). Safe — only the typed wrapper is consumed.
+    pub fn degrade(self) -> AnyPin<'d> {
+        // Move `pin` out without running the safe-state Drop (which would revert OEN).
+        let this = core::mem::ManuallyDrop::new(self);
+        // SAFETY: `this` is never dropped (ManuallyDrop) and `pin` is read once.
+        unsafe { core::ptr::read(&this.pin) }
+    }
+
+    /// Consume the output, **latching its current drive state** past this scope —
+    /// the escape hatch from the safe-state [`Drop`](Output#impl-Drop-for-Output)
+    /// (e.g. an enable line that must stay asserted after setup returns). Returns an
+    /// [`OutputLatched`] marker so the intent is explicit.
+    #[must_use = "the pin is now latched in its current state; bind the marker to make that explicit"]
+    pub fn into_latched(self) -> OutputLatched {
+        core::mem::forget(self); // skip the safe-state Drop — hold the current level
+        OutputLatched(())
+    }
+}
+
+/// Proof token from [`Output::into_latched`]: the pad was intentionally left driving
+/// its last level past the driver's scope (no safe-state `Drop` ran).
+#[derive(Debug)]
+#[must_use]
+pub struct OutputLatched(());
+
+impl Drop for Output<'_> {
+    /// Scoped safety: a dropped output reverts its pad to **input / high-impedance**
+    /// (sets `OEN`, clearing only this pad's output-enable — never a shared clock
+    /// gate), so a stale handle cannot keep driving a line. Use
+    /// [`Output::into_latched`] or [`Output::into_flex`] to keep the pad driving.
+    fn drop(&mut self) {
+        self.pin.set_oen(true);
     }
 }
 
@@ -299,16 +368,19 @@ pub struct Flex<'d> {
 }
 
 impl<'d> Flex<'d> {
+    /// Switch to output and drive the pin high (writes `GPIO_DATA_SET`).
     pub fn set_high(&mut self) {
         self.pin.set_oen(false);
         unsafe { regs(self.pin.block).gpio_data_set().write(|w| w.bits(1 << self.pin.bit)) };
     }
 
+    /// Switch to output and drive the pin low (writes `GPIO_DATA_CLR`).
     pub fn set_low(&mut self) {
         self.pin.set_oen(false);
         unsafe { regs(self.pin.block).gpio_data_clr().write(|w| w.bits(1 << self.pin.bit)) };
     }
 
+    /// Switch to output and toggle the pin's drive level.
     pub fn toggle(&mut self) {
         let r = regs(self.pin.block);
         self.pin.set_oen(false);
@@ -320,10 +392,13 @@ impl<'d> Flex<'d> {
         }
     }
 
+    /// Returns `true` if the pin is currently driven high (from `GPIO_SW_OUT`).
     pub fn is_set_high(&self) -> bool {
         (regs(self.pin.block).gpio_sw_out().read().bits() >> self.pin.bit) & 1 != 0
     }
 
+    /// Read the pin level as an input: temporarily switch to input, sample, then
+    /// restore the previous output-enable state.
     pub fn is_high(&self) -> bool {
         // Save output enable state, switch to input, read, restore
         let r = regs(self.pin.block);
@@ -340,12 +415,33 @@ impl<'d> Flex<'d> {
         val
     }
 
+    /// Returns `true` if the pin reads low (see [`is_high`](Self::is_high)).
     pub fn is_low(&self) -> bool {
         !self.is_high()
     }
 
+    /// Explicitly set the pad direction to **output** (clears `OEN`). Pair this with
+    /// the data methods to make the direction switch visible instead of relying on
+    /// the implicit switch inside `set_high`/`set_low`/`toggle`.
+    pub fn set_as_output(&mut self) {
+        self.pin.set_oen(false);
+    }
+
+    /// Explicitly set the pad direction to **input / high-Z** (sets `OEN`). Pair this
+    /// with [`is_high`](Self::is_high) to sample without the implicit save/restore.
+    pub fn set_as_input(&mut self) {
+        self.pin.set_oen(true);
+    }
+
+    /// Returns this pin's number (0-18).
     pub fn number(&self) -> u8 {
         self.pin.number()
+    }
+
+    /// Type-erase this Flex pin back to an [`AnyPin`] (consumes the driver). Safe:
+    /// the pad keeps its current direction/level; only the typed wrapper is dropped.
+    pub fn degrade(self) -> AnyPin<'d> {
+        self.pin
     }
 }
 
@@ -444,123 +540,6 @@ fn apply_pull(pin: u8, pull: Pull) {
     }
 }
 
-// ── Legacy GpioPin (backward-compatible type-state GPIO) ──────────
-
-/// Legacy GPIO pin with type-state (Input/Output mode).
-pub struct GpioPin<'d, MODE> {
-    block: u8,
-    bit: u8,
-    _mode: PhantomData<&'d MODE>,
-}
-
-impl<MODE> GpioPin<'_, MODE> {
-    pub fn number(&self) -> u8 {
-        self.block * 8 + self.bit
-    }
-}
-
-impl GpioPin<'_, OutputMode> {
-    pub fn set_high(&mut self) {
-        unsafe { regs(self.block).gpio_data_set().write(|w| w.bits(1 << self.bit)) };
-    }
-    pub fn set_low(&mut self) {
-        unsafe { regs(self.block).gpio_data_clr().write(|w| w.bits(1 << self.bit)) };
-    }
-    pub fn toggle(&mut self) {
-        let r = regs(self.block);
-        let val = r.gpio_sw_out().read().bits();
-        if val & (1 << self.bit) != 0 {
-            unsafe { r.gpio_data_clr().write(|w| w.bits(1 << self.bit)) };
-        } else {
-            unsafe { r.gpio_data_set().write(|w| w.bits(1 << self.bit)) };
-        }
-    }
-    pub fn is_set_high(&self) -> bool {
-        (regs(self.block).gpio_sw_out().read().bits() >> self.bit) & 1 != 0
-    }
-    pub fn into_input(self) -> GpioPin<'static, InputMode> {
-        regs(self.block).gpio_sw_oen().modify(|r, w| unsafe { w.bits(r.bits() | (1 << self.bit)) });
-        GpioPin { block: self.block, bit: self.bit, _mode: PhantomData }
-    }
-}
-
-impl GpioPin<'_, InputMode> {
-    pub fn is_high(&self) -> bool {
-        (regs(self.block).gpio_sw_out().read().bits() >> self.bit) & 1 != 0
-    }
-    pub fn is_low(&self) -> bool {
-        !self.is_high()
-    }
-    pub fn enable_interrupt(&self) {
-        regs(self.block).gpio_int_en().modify(|r, w| unsafe { w.bits(r.bits() | (1 << self.bit)) });
-    }
-    pub fn disable_interrupt(&self) {
-        regs(self.block).gpio_int_en().modify(|r, w| unsafe { w.bits(r.bits() & !(1 << self.bit)) });
-    }
-    pub fn clear_interrupt(&self) {
-        unsafe { regs(self.block).gpio_int_eoi().write(|w| w.bits(1 << self.bit)) };
-    }
-    pub fn interrupt_pending(&self) -> bool {
-        (regs(self.block).gpio_int_raw().read().bits() >> self.bit) & 1 != 0
-    }
-    pub fn into_output(self) -> GpioPin<'static, OutputMode> {
-        regs(self.block).gpio_sw_oen().modify(|r, w| unsafe { w.bits(r.bits() & !(1 << self.bit)) });
-        GpioPin { block: self.block, bit: self.bit, _mode: PhantomData }
-    }
-}
-
-// Legacy embedded-hal impls for GpioPin
-impl embedded_hal::digital::ErrorType for GpioPin<'_, OutputMode> {
-    type Error = core::convert::Infallible;
-}
-impl embedded_hal::digital::OutputPin for GpioPin<'_, OutputMode> {
-    fn set_low(&mut self) -> Result<(), Self::Error> {
-        GpioPin::set_low(self);
-        Ok(())
-    }
-    fn set_high(&mut self) -> Result<(), Self::Error> {
-        GpioPin::set_high(self);
-        Ok(())
-    }
-}
-impl embedded_hal::digital::StatefulOutputPin for GpioPin<'_, OutputMode> {
-    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
-        Ok(GpioPin::is_set_high(self))
-    }
-    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
-        Ok(!GpioPin::is_set_high(self))
-    }
-}
-impl embedded_hal::digital::ErrorType for GpioPin<'_, InputMode> {
-    type Error = core::convert::Infallible;
-}
-impl embedded_hal::digital::InputPin for GpioPin<'_, InputMode> {
-    fn is_high(&mut self) -> Result<bool, Self::Error> {
-        Ok(GpioPin::is_high(self))
-    }
-    fn is_low(&mut self) -> Result<bool, Self::Error> {
-        Ok(GpioPin::is_low(self))
-    }
-}
-
-// ── Pin creation functions ────────────────────────────────────────
-
-/// Create an input pin from a pin number (0-18).
-pub fn create_input_pin(pin: u8) -> GpioPin<'static, InputMode> {
-    let block = pin / 8;
-    let bit = pin % 8;
-    regs(block).gpio_sw_oen().modify(|r, w| unsafe { w.bits(r.bits() | (1 << bit)) });
-    GpioPin { block, bit, _mode: PhantomData }
-}
-
-/// Create an output pin from a pin number (0-18).
-pub fn create_output_pin(pin: u8) -> GpioPin<'static, OutputMode> {
-    let block = pin / 8;
-    let bit = pin % 8;
-    regs(block).gpio_sw_oen().modify(|r, w| unsafe { w.bits(r.bits() & !(1 << bit)) });
-    GpioPin { block, bit, _mode: PhantomData }
-}
-
 // ── InputSignal / OutputSignal (peripheral interconnect) ──────────
 
 /// An output signal from a peripheral that can be routed to a GPIO pin.
@@ -573,11 +552,13 @@ pub struct InputSignal(pub(crate) u8);
 
 /// Types that can serve as peripheral outputs (signals towards GPIO matrix).
 pub trait PeripheralOutput: crate::private::Sealed {
+    /// Returns the output signal this type drives into the GPIO matrix.
     fn output_signal(&self) -> OutputSignal;
 }
 
 /// Types that can serve as peripheral inputs (signals from GPIO matrix towards peripherals).
 pub trait PeripheralInput: crate::private::Sealed {
+    /// Returns the input signal this type sources from the GPIO matrix.
     fn input_signal(&self) -> InputSignal;
 }
 
@@ -585,22 +566,23 @@ pub trait PeripheralInput: crate::private::Sealed {
 impl crate::private::Sealed for Output<'_> {}
 impl crate::private::Sealed for Input<'_> {}
 impl crate::private::Sealed for Flex<'_> {}
-impl crate::private::Sealed for GpioPin<'_, OutputMode> {}
-impl crate::private::Sealed for GpioPin<'_, InputMode> {}
 
 // ── IO MUX configuration ──────────────────────────────────────────
 
 /// IO MUX configuration (WS63 pinmux; BS21's IO_CONFIG differs — ported later).
 #[cfg(feature = "chip-ws63")]
 pub struct Io<'d> {
+    /// The underlying IO_CONFIG peripheral wrapper.
     pub io_config: IoConfig<'d>,
 }
 
 #[cfg(feature = "chip-ws63")]
 impl<'d> Io<'d> {
+    /// Create an `Io` from the IO_CONFIG peripheral.
     pub fn new(io_config: IoConfig<'d>) -> Self {
         Self { io_config }
     }
+    /// Returns the raw IO_CONFIG register block.
     pub fn register_block(&self) -> &crate::soc::pac::io_config::RegisterBlock {
         self.io_config.register_block()
     }
@@ -639,6 +621,23 @@ mod asynch_impl {
         unsafe { r.gpio_int_eoi().write(|w| w.bits(fired)) };
         GPIO_SIGNAL[bank as usize].signal();
         interrupt::clear_pending(bank_irq(bank as usize));
+    }
+
+    // Named device.x handlers: hisi-riscv-rt's direct-mode `__rt_irq_dispatch`
+    // routes GPIO bank IRQs (33/34/35) here by number, so an async GPIO app needs
+    // no `mcause` trap of its own. Strong symbols overriding the weak device.x
+    // PROVIDE; only present with `async`.
+    #[unsafe(no_mangle)]
+    extern "C" fn GPIO_INT0() {
+        on_interrupt(0);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn GPIO_INT1() {
+        on_interrupt(1);
+    }
+    #[unsafe(no_mangle)]
+    extern "C" fn GPIO_INT2() {
+        on_interrupt(2);
     }
 
     async fn arm_and_wait(input: &mut Input<'_>, trig: InterruptTrigger) {
@@ -710,6 +709,14 @@ pub use asynch_impl::on_interrupt;
 #[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::*;
+
+    /// The `into_latched` escape-hatch marker is zero-sized (a pure type-level proof
+    /// token). The safe-state Drop (revert pad to input) register effect is
+    /// HIL-validated on silicon — the host has no MMIO.
+    #[test]
+    fn output_latched_marker_is_zero_sized() {
+        assert_eq!(core::mem::size_of::<OutputLatched>(), 0);
+    }
 
     // `steal(pin)` splits a pin into `block = pin / 8`, `bit = pin % 8`, and
     // `number()` recombines them as `block * 8 + bit`. The two are inverses, so

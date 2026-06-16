@@ -332,7 +332,12 @@ impl<'d> SfcDriver<'d> {
         read: bool,
     ) -> Result<[u8; 64], SfcError> {
         let r = self.regs();
-        let data_len = write_data.len().min(64);
+        // The command data buffer is 64 bytes; reject an over-long write rather than
+        // silently truncating it (the old `.min(64)` dropped the tail).
+        if write_data.len() > 64 {
+            return Err(SfcError::BufferTooLong);
+        }
+        let data_len = write_data.len();
 
         if !read && !write_data.is_empty() {
             // Load write data into data buffer
@@ -496,11 +501,16 @@ impl<'d> SfcDriver<'d> {
 
 /// SFC operation error.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum SfcError {
     /// Command timeout.
     Timeout,
     /// DMA transfer error.
     DmaError,
+    /// A `write_data` slice longer than the 64-byte command data buffer was passed
+    /// — rejected rather than silently truncated to the first 64 bytes.
+    BufferTooLong,
 }
 
 // ── Tests ──────────────────────────────────────────────────────
@@ -726,20 +736,21 @@ mod tests {
     #[test]
     fn data_count_field_encodes_len_minus_one() {
         // cmd_cfg packs (data_len - 1) into a 6-bit field [9:14], saturating at 0.
+        // `command_with_data` rejects len > 64 up front, so the field never wraps.
         let encode = |data_len: usize| ((data_len.saturating_sub(1)) as u32) & 0x3F;
         assert_eq!(encode(0), 0); // saturating_sub keeps 0 (empty)
         assert_eq!(encode(1), 0); // 1 byte → count 0
         assert_eq!(encode(64), 63); // full buffer → max 6-bit value
-        assert_eq!(encode(65), 0); // 64 masks 0x3F → would wrap, but len is min(64) first
     }
 
     #[test]
-    fn data_len_clamped_to_buffer_size() {
-        // command_with_data does write_data.len().min(64) — never exceeds 64.
-        assert_eq!(100usize.min(64), 64);
-        assert_eq!(64usize.min(64), 64);
-        assert_eq!(10usize.min(64), 10);
-        assert_eq!(0usize.min(64), 0);
+    fn over_long_write_is_rejected_not_truncated() {
+        // command_with_data returns Err(BufferTooLong) for len > 64 (was a silent
+        // .min(64) truncation that dropped the tail of the write).
+        // This re-derives the guard's boundary without touching MMIO.
+        let accepts = |len: usize| len <= 64;
+        assert!(accepts(0) && accepts(64));
+        assert!(!accepts(65) && !accepts(100));
     }
 }
 

@@ -59,6 +59,8 @@ const fn pack_byte(value: u8, byte_addr: u16) -> u32 {
 
 /// eFuse access error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum EfuseError {
     /// Byte address is outside the eFuse array (`>= EFUSE_MAX_BYTES`).
     OutOfRange,

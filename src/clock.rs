@@ -25,22 +25,39 @@
 /// Enumeration of all peripheral clocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Peripheral {
+    /// UART0 clock (`CKEN_CTL1` bit 18).
     Uart0,
+    /// UART1 clock (`CKEN_CTL1` bit 19).
     Uart1,
+    /// UART2 clock (`CKEN_CTL1` bit 20).
     Uart2,
+    /// I2C0 clock (not individually gated by the SDK; reset-default on).
     I2c0,
+    /// I2C1 clock (not individually gated by the SDK; reset-default on).
     I2c1,
+    /// SPI0 clock (`CKEN_CTL1` bit 25).
     Spi0,
+    /// SPI1 clock (not individually gated by the SDK; reset-default on).
     Spi1,
+    /// PWM clock (`CKEN_CTL0` bits 2..=10; base bit 2).
     Pwm,
+    /// Timer clock (not individually gated by the SDK; reset-default on).
     Timer,
+    /// LSADC clock (not individually gated by the SDK; reset-default on).
     Lsadc,
+    /// Temperature-sensor clock (not individually gated by the SDK; reset-default on).
     Tsensor,
+    /// I2S clock (`CKEN_CTL0` bit 12 clk; bit 11 bus).
     I2s,
+    /// DMA-controller clock (not individually gated by the SDK; reset-default on).
     Dma,
+    /// Secure-DMA clock (not individually gated by the SDK; reset-default on).
     Sdma,
+    /// SFC (serial flash controller) clock (not individually gated by the SDK; reset-default on).
     Sfc,
+    /// TRNG clock (not individually gated by the SDK; reset-default on).
     Trng,
+    /// Security-group clock (not individually gated by the SDK; reset-default on).
     SecurityGroup,
 }
 

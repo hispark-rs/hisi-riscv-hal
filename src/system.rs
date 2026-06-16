@@ -7,12 +7,16 @@ use crate::peripherals::{CldoCrg, GlbCtlM, SysCtl0};
 /// Holds the SYS_CTL0, GLB_CTL_M, and CLDO_CRG peripherals for clock and
 /// reset configuration.
 pub struct System<'d> {
+    /// SYS_CTL0 peripheral, controlling core system clock and reset settings.
     pub sys_ctl0: SysCtl0<'d>,
+    /// GLB_CTL_M peripheral, controlling global clock/reset and chip reset.
     pub glb_ctl_m: GlbCtlM<'d>,
+    /// CLDO_CRG peripheral (clock and reset generator) for peripheral gates.
     pub cldo_crg: CldoCrg<'d>,
 }
 
 impl<'d> System<'d> {
+    /// Create a `System` handle from the SYS_CTL0, GLB_CTL_M, and CLDO_CRG peripherals.
     pub fn new(sys_ctl0: SysCtl0<'d>, glb_ctl_m: GlbCtlM<'d>, cldo_crg: CldoCrg<'d>) -> Self {
         Self { sys_ctl0, glb_ctl_m, cldo_crg }
     }
