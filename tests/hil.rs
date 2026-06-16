@@ -754,7 +754,11 @@ mod tests {
     /// end-to-end on real silicon, with no `mcause` test in the app. The WS63
     /// (Nuclei ECLIC) only delivers a custom IRQ once its `LOCIPRI` priority >
     /// threshold, which `interrupt::init()` sets. No external wiring.
-    #[cfg(feature = "chip-ws63")]
+    ///
+    /// Gated to non-async/non-embassy builds: with those features the HAL itself
+    /// defines `TIMER_INT0` (async timer / embassy alarm), so this test cannot also
+    /// define it. The async path is covered by `gpio_int0_named_routing` instead.
+    #[cfg(all(feature = "chip-ws63", not(feature = "async"), not(feature = "embassy")))]
     #[test]
     fn timer_int0_named_routing() {
         use core::sync::atomic::{AtomicBool, Ordering};
@@ -799,6 +803,55 @@ mod tests {
         assert!(
             FIRED.load(Ordering::SeqCst),
             "named TIMER_INT0 (IRQ 26) handler never ran — rt device.x named routing broken"
+        );
+    }
+
+    /// **Area D / #7 — async-driver named interrupt routing on silicon.** A real
+    /// GPIO edge interrupt must reach the HAL's named `GPIO_INT0` handler (which the
+    /// rt routes by IRQ number) and run `Gpio::on_interrupt(0)` — with NO app
+    /// `mcause` trap. Uses the GPIO0→GPIO3 jumper: arm GPIO3 for a rising edge, drive
+    /// GPIO0 high, and assert `on_interrupt` ran by checking it masked GPIO3's
+    /// `gpio_int_en` bit (its documented side effect). Needs `async` (the named
+    /// handler is async-gated) + the jumper.
+    #[cfg(all(feature = "chip-ws63", feature = "async", feature = "hil-loopback"))]
+    #[test]
+    fn gpio_int0_named_routing() {
+        use hal::gpio::{AnyPin, InputConfig, InterruptTrigger, OutputConfig};
+        use hal::interrupt;
+        use hal::io_config::IoConfigDriver;
+
+        let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
+        io.set_gpio_mux(0, 0); // plain-GPIO on both pads
+        io.set_gpio_mux(3, 0);
+
+        // SAFETY: GPIO0/3 owned by this test; jumpered 0->3.
+        let mut out = unsafe { AnyPin::steal(0) }.init_output(OutputConfig::new().with_initial(false));
+        let inp = unsafe { AnyPin::steal(3) }.init_input(InputConfig::default());
+        inp.set_interrupt_trigger(InterruptTrigger::RisingEdge);
+        inp.enable_interrupt(); // GPIO0 bank `gpio_int_en` bit 3 = 1
+
+        // SAFETY: enabling GPIO_INT0 (IRQ 33; enable also raises its LOCIPRI) + global.
+        unsafe {
+            interrupt::enable(interrupt::Interrupt::GPIO_INT0);
+            interrupt::enable_global();
+        }
+
+        let g0 = unsafe { &*pac::Gpio0::PTR };
+        assert_ne!(g0.gpio_int_en().read().bits() & (1 << 3), 0, "GPIO3 int-enable not set");
+
+        out.set_high(); // 0->3 rising edge -> GPIO_INT0 -> on_interrupt(0) masks bit 3
+
+        let mut spun = 0u32;
+        while (g0.gpio_int_en().read().bits() & (1 << 3)) != 0 && spun < 20_000_000 {
+            spun += 1;
+            core::hint::spin_loop();
+        }
+        unsafe { interrupt::disable(interrupt::Interrupt::GPIO_INT0) };
+
+        assert_eq!(
+            g0.gpio_int_en().read().bits() & (1 << 3),
+            0,
+            "named GPIO_INT0 handler never ran — on_interrupt(0) did not mask GPIO3 (rt async named routing broken)"
         );
     }
 
