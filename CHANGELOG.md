@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-01
+
+### Changed (BREAKING)
+
+- **Stable/unstable API gating** (esp-hal `instability` pattern): a new `unstable`
+  cargo feature (OFF by default) gates every surface that has **no on-silicon HIL
+  test**. Without `unstable`, the default build exposes only the HIL-proven stable
+  API; experimental surfaces require `features = ["unstable"]`. This is a breaking
+  change — previously-`pub` items are now `pub(crate)` (soft-gate) or absent when
+  `unstable` is off.
+  - Adopted the `instability = "0.3.12"` proc-macro crate (`#[instability::unstable]`
+    → `pub` when on, `pub(crate)` + `#[allow(dead_code)]` when off). MSRV 1.85 → 1.88
+    (instability requires 1.88).
+  - The old broken `unstable_module!`/`unstable_driver!` macros (`src/macros.rs`)
+    were rewritten in esp-hal crate-local form (NO `#[macro_export]`, `#[doc(hidden)]`,
+    `$(#[$meta])*` forwarding incl. `#[path]`, `#[allow(unused)]` on the `pub(crate)`
+    copy). `mod macros` is now private + `#[macro_use]`.
+  - docs.rs: `features += "unstable"` + `rustdoc-args=["--cfg","docsrs"]`; crate-level
+    `#![cfg_attr(docsrs, feature(doc_cfg, custom_inner_attributes, proc_macro_hygiene))]`
+    + `allow(invalid_doc_attributes)` + `doc(auto_cfg = false)` for "requires unstable"
+    markers (docs.rs-only nightly, esp-hal-exact).
+
+### UNSTABLE surfaces (now gated — add `unstable` to restore)
+
+- **Peripheral-DMA unproven subset**: `SpiDma::transfer_dma_async`/`release`,
+  `UartDma` (ALL methods + `UartDmaError` + `Uart::with_dma`), `PeripheralTransfer`
+  + `start_mem_to_peripheral`/`start_peripheral_to_mem`, `DmaChannelConfig` builders
+  (`mem_to_peripheral`/`peripheral_to_mem`/`with_width`/`with_transfer_int`),
+  `DmaFrame`/`PeriKind`/`PeriDmaCtl`/`DmaError`/`DmaDirection`. (The HIL-proven
+  subset — `write_dma`/`transfer_dma`/`write_dma_async` + `with_dma`/`split_channels`/
+  `DmaChannel`/`DmaPeripheral`/`DmaChannelConfig` struct — stays STABLE.)
+- **`embassy`** — no end-to-end HIL (the module is now `unstable`-gated; the
+  `embassy` feature still exists but the module requires `all(embassy, unstable)`).
+- **WS63 untested drivers**: `clock_init`, `km`, `pke`, `safety`, `sfc`, `spacc`,
+  `ulp_gpio`, `rtc`-WS63 (the `hil-rtc` test is opt-in + this board lacks the crystal,
+  so it never ran on connected silicon), `delay` (no HIL).
+- **Entire BS2X-specific series**: `gadc`, `keyscan`, `pdm`, `qdec`, `usb`,
+  `i2c`-v151, `rtc`-v150, `trng`-v1 (no BS2X silicon board — QEMU only per ROADMAP).
+- **`prelude`**: the `sfc::SfcDriver` + `ulp_gpio::UlpGpioPin` re-exports are now
+  `unstable`-gated (both re-export from now-UNSTABLE modules).
+
+### Fixed
+
+- `dma_mem_to_mem` HIL test: was NOT chip-gated but calls `hal::cache`
+  (chip-ws63-only) → failed to compile on `chip-bs21`. Now `#[cfg(feature="chip-ws63")]`.
+- `uart.rs` UartDma doc comment: the FALSE "write_dma is silicon-verified" claim
+  (it timed out on silicon per `hisi-riscv-hal#5`; no UartDma HIL test exists)
+  was corrected to "UNSTABLE, blocked by #5".
+
 ## [0.5.1] - 2026-06-30
 
 ### Added
