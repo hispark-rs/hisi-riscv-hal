@@ -36,6 +36,12 @@
 // 0.5.0: every public item is documented; `deny` so a future undocumented pub item
 // fails the build (and the doc CI job) rather than silently regressing.
 #![deny(missing_docs)]
+// docs.rs-only nightly features for the `#[instability::unstable]` "requires unstable"
+// markers (the `doc(cfg(feature="unstable"))` annotations). Only active under
+// `--cfg docsrs` (set by docs.rs); stable builds are unaffected. Mirrors esp-hal.
+#![cfg_attr(docsrs, feature(doc_cfg, custom_inner_attributes, proc_macro_hygiene))]
+#![cfg_attr(docsrs, allow(invalid_doc_attributes))]
+#![cfg_attr(docsrs, doc(auto_cfg = false))]
 
 // Exactly one chip must be selected (each pulls its PAC + soc/<chip>.rs). There is
 // NO default chip (esp-hal style) — every consumer names one explicitly.
@@ -56,7 +62,13 @@ pub mod gpio;
 /// Interrupt controller access and IRQ enable/handler registration.
 pub mod interrupt;
 /// Internal helper macros shared across the HAL.
-pub mod macros;
+// Internal helper macros (crate-local `unstable_module!`/`unstable_driver!` + the
+// `#[macro_export]`'d `any_peripheral!`/`infallible!`). Private module — the gating
+// macros are NOT `#[macro_export]` (esp-hal pattern: crate-internal helpers), and
+// `#[macro_use]` makes them visible crate-wide. The two `#[macro_export]` macros
+// still land at the crate root for downstream use regardless.
+#[macro_use]
+mod macros;
 /// Peripheral singleton tokens and the `Peripherals` struct (`take()`/`steal()`).
 pub mod peripherals;
 /// Common re-exports for `use hisi_riscv_hal::prelude::*;`.

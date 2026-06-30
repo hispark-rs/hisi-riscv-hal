@@ -7,17 +7,21 @@ license = "MIT"
 repository = "https://github.com/hispark-rs/hisi-riscv-hal"
 keywords = ["ws63", "hisilicon", "riscv", "embedded", "hal"]
 categories = ["embedded", "no-std", "hardware-support"]
-# MSRV: edition 2024 requires >= 1.85. The crate is built for the target with the
-# pinned custom `hisi-riscv` toolchain (1.96.0) and host-tested on CI stable; the
-# MSRV may bump in a minor release, never a patch.
-rust-version = "1.85"
+# MSRV: edition 2024 requires >= 1.85; `instability = "0.3.12"` (the stable/unstable
+# gating proc-macro, esp-hal's pattern) requires >= 1.88. The crate is built for the
+# pinned custom `hisi-riscv` toolchain (1.96.0) and host-tested on CI stable; the MSRV
+# may bump in a minor release, never a patch.
+rust-version = "1.88"
 
 # docs.rs: chip-ws63/chip-bs21 are mutually exclusive (a compile_error), so docs.rs
 # cannot use --all-features. Pin one chip + the riscv target so the rendered docs
-# match the firmware build (not docs.rs's default host target). Mirrors esp-hal.
+# match the firmware build (not docs.rs's default host target). `unstable` so the
+# experimental surface is documented (marked "requires unstable" via the instability
+# `doc(cfg)`). Mirrors esp-hal.
 [package.metadata.docs.rs]
 default-target = "riscv32imfc-unknown-none-elf"
-features = ["chip-ws63", "rt", "async", "embassy"]
+features = ["chip-ws63", "rt", "async", "embassy", "unstable"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 # Exactly one PAC is linked, selected by the chip feature below. Optional so the
@@ -41,6 +45,10 @@ cfg-if = "1"
 # The WS63 core has no atomic extension; on the no-atomic target portable-atomic
 # uses a critical-section polyfill instead of native lr.w/sc.w (which would trap).
 portable-atomic = { version = "1", default-features = false, features = ["critical-section"] }
+# Stable/unstable API gating (esp-hal pattern): `#[instability::unstable]` soft-gates
+# an item — `pub` when the `unstable` feature is on, `pub(crate)` + `#[allow(dead_code)]`
+# when off. A build-time proc-macro (no runtime code); safe for no_std. MSRV 1.88.
+instability = "0.3.12"
 
 critical-section = { version = "1", optional = true }
 # Optional on-target logging/format: every public Debug-deriving error/config type
@@ -149,6 +157,12 @@ defmt = ["dep:defmt"]
 # RTC registers stalls the bus / drops the debug link. Enable only on a board that
 # DOES populate the crystal: `--features chip-ws63,hil-rtc`.
 hil-rtc = []
+# `unstable`: opt-in to not-yet-HIL-proven surfaces (peripheral-DMA unproven subset,
+# UartDma, embassy, untested WS63 drivers, the entire BS2X-specific series).
+# `#[instability::unstable]` items are `pub` when this is on, `pub(crate)` when off
+# (soft-gate, esp-hal pattern). OFF by default — enabling is consent to breakage in
+# a minor release. Add to your Cargo.toml: `features = ["unstable"]`.
+unstable = []
 
 # On-target (semihosting) HIL integration test (RISC-V only; flashed to a real
 # WS63 board by `probe-rs run`). embedded-test IS the harness — the default
