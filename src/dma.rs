@@ -1580,18 +1580,37 @@ mod proptests {
 // ── Async DMA completion (bespoke; DMA_INT = IRQ 59) ────────────────────────
 #[cfg(feature = "async")]
 mod asynch_impl {
-    use super::{Dma0, DmaDriver};
+    use super::{Dma0, DmaDriver, DmaInstance};
     use crate::asynch::IrqSignal;
     use crate::interrupt::{self, Interrupt};
     use core::future::Future;
     use core::pin::Pin;
     use core::task::{Context, Poll};
 
-    static DMA_SIGNAL: IrqSignal = IrqSignal::new();
+    // Per-physical-channel signal (Dma0 has 4 physical channels 0..=3). Replaces the
+    // earlier single global `DMA_SIGNAL` so two concurrent transfers (e.g. SPI
+    // full-duplex TX + RX on ch0 + ch1) don't false-wake each other.
+    static DMA_SIGNAL: [IrqSignal; 4] = [IrqSignal::new(), IrqSignal::new(), IrqSignal::new(), IrqSignal::new()];
 
-    /// DMA trap hook (IRQ 59): wake the awaiting transfer.
+    /// DMA trap hook (IRQ 59): **demux per channel** — for each completed channel,
+    /// signal its waker AND clear its `dmac_int_clr` done bit **in-ISR** (a
+    /// level-triggered done line would re-fire forever otherwise), then clear the
+    /// ECLIC pending bit. Reads the raw transfer-done mask (`dmac_ori_int_st[7:0]`).
     pub fn on_interrupt() {
-        DMA_SIGNAL.signal();
+        // SAFETY: Dma0::ptr() is a static physical MMIO address, always valid.
+        let r = unsafe { &*Dma0::ptr() };
+        let done = (r.dmac_ori_int_st().read().bits() & 0xFF) as u8;
+        let mut clr = 0u32;
+        for ch in 0..4u8 {
+            if done & (1 << ch) != 0 {
+                DMA_SIGNAL[ch as usize].signal();
+                clr |= 1 << ch;
+            }
+        }
+        if clr != 0 {
+            // SAFETY: writing the per-channel done-clear bits (bit n = channel n).
+            unsafe { r.dmac_int_clr().write(|w| w.bits(clr)) };
+        }
         interrupt::clear_pending(Interrupt::DMA_INT);
     }
 
@@ -1602,14 +1621,19 @@ mod asynch_impl {
         on_interrupt();
     }
 
-    struct DmaDoneFuture;
+    /// A future that resolves once `DMA_SIGNAL[ch]` fires (the ISR signals it when
+    /// channel `ch`'s transfer-done bit asserts).
+    struct DmaDoneFuture {
+        ch: u8,
+    }
     impl Future for DmaDoneFuture {
         type Output = ();
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-            if DMA_SIGNAL.take_fired() {
+            let sig = &DMA_SIGNAL[(self.ch as usize).min(3)];
+            if sig.take_fired() {
                 Poll::Ready(())
             } else {
-                DMA_SIGNAL.register(cx.waker());
+                sig.register(cx.waker());
                 Poll::Pending
             }
         }
@@ -1617,16 +1641,19 @@ mod asynch_impl {
 
     impl DmaDriver<'_, Dma0> {
         /// Await transfer-complete for `channel` (after configuring + enabling it),
-        /// then clear its interrupt. Parks on the DMA IRQ on hardware; the WS63
-        /// model completes the copy synchronously, so the fast path returns at once.
+        /// then clear its interrupt. Parks on the DMA IRQ (IRQ 59) on hardware; the
+        /// per-channel demux means a concurrent transfer on another channel won't
+        /// false-wake this one. Silicon-verified: IRQ 59 fires for both mem-to-mem
+        /// and peripheral-paced single-block completion (spi_dma_irq59 test).
         pub async fn wait_transfer_done(&mut self, channel: u8) {
             let bit = 1u8 << channel; // Dma0: physical channel == logical channel
             if self.raw_interrupt_status().0 & bit == 0 {
-                DMA_SIGNAL.reset();
-                // SAFETY: enabling a known, fixed WS63 IRQ line.
+                DMA_SIGNAL[(channel as usize).min(3)].reset();
+                // SAFETY: enabling a known, fixed WS63 IRQ line; enable() also raises
+                // its LOCIPRI above the reset-0 threshold so it is deliverable.
                 unsafe { interrupt::enable(Interrupt::DMA_INT) };
                 if self.raw_interrupt_status().0 & bit == 0 {
-                    DmaDoneFuture.await;
+                    DmaDoneFuture { ch: channel }.await;
                 }
             }
             self.clear_transfer_interrupt(channel);
