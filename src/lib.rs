@@ -54,21 +54,24 @@ compile_error!(
      There is no default chip."
 );
 
+// ── Internal helper macros (must come before any `unstable_module!` use) ────
+// Crate-local `unstable_module!`/`unstable_driver!` + the `#[macro_export]`'d
+// `any_peripheral!`/`infallible!`. Private module — the gating macros are NOT
+// `#[macro_export]` (esp-hal pattern: crate-internal helpers), and `#[macro_use]`
+// makes them visible crate-wide from this point on. The two `#[macro_export]`
+// macros still land at the crate root for downstream use regardless.
+#[macro_use]
+mod macros;
+
 // ── Chip-neutral core (compiles for every chip) ────────────────────────────
-/// Busy-wait delay providers (`embedded-hal` `DelayNs`).
-pub mod delay;
+unstable_module! {
+    /// Busy-wait delay providers (`embedded-hal` `DelayNs`).
+    pub mod delay;
+}
 /// GPIO drivers: type-erased `AnyPin`, typed `Input`/`Output`/`Flex`.
 pub mod gpio;
 /// Interrupt controller access and IRQ enable/handler registration.
 pub mod interrupt;
-/// Internal helper macros shared across the HAL.
-// Internal helper macros (crate-local `unstable_module!`/`unstable_driver!` + the
-// `#[macro_export]`'d `any_peripheral!`/`infallible!`). Private module — the gating
-// macros are NOT `#[macro_export]` (esp-hal pattern: crate-internal helpers), and
-// `#[macro_use]` makes them visible crate-wide. The two `#[macro_export]` macros
-// still land at the crate root for downstream use regardless.
-#[macro_use]
-mod macros;
 /// Peripheral singleton tokens and the `Peripherals` struct (`take()`/`steal()`).
 pub mod peripherals;
 /// Common re-exports for `use hisi_riscv_hal::prelude::*;`.
@@ -103,9 +106,11 @@ pub mod cache;
 /// Clock and reset generator control: clock gates and RAII `PeripheralGuard`s.
 #[cfg(feature = "chip-ws63")]
 pub mod clock;
-/// System clock setup for firmware that does not boot through flashboot.
-#[cfg(feature = "chip-ws63")]
-pub mod clock_init;
+unstable_module! {
+    /// System clock setup for firmware that does not boot through flashboot.
+    #[cfg(feature = "chip-ws63")]
+    pub mod clock_init;
+}
 // DMA: the register block + the mem-to-mem path are chip-neutral (Dma0 uses the
 // chip-neutral PAC base). Peripheral-paced flow control (DmaPeripheral request IDs)
 // is chip-ws63-only within the module; BS2X gets mem-to-mem.
@@ -117,9 +122,11 @@ pub mod efuse;
 // Chip-neutral: the embassy-time driver reads TCXO_HZ/TIMER_CLOCK_HZ and the
 // alarm interrupt from `soc::chip`, and the TCXO/TIMER register blocks are
 // register-identical across WS63 and BS2X (verified vs fbb_ws63 / fbb_bs2x).
-/// embassy-time `Driver` implementation backed by TCXO/TIMER for `embassy-executor`.
-#[cfg(feature = "embassy")]
-pub mod embassy;
+unstable_module! {
+    /// embassy-time `Driver` implementation backed by TCXO/TIMER for `embassy-executor`.
+    #[cfg(feature = "embassy")]
+    pub mod embassy;
+}
 // I2C is a DIFFERENT IP per chip: WS63 has a custom v150 core (i2c.rs), BS2X has a
 // Synopsys DesignWare v151 core (i2c_v151.rs). Both are exposed as `hal::i2c`; the
 // register blocks come from each chip's PAC (the BS2X v151 layout was rewritten
@@ -137,9 +144,11 @@ pub mod i2s;
 /// Pin mux / pad I/O configuration helpers.
 #[cfg(feature = "chip-ws63")]
 pub mod io_config;
-/// Key management (KM) crypto block driver.
-#[cfg(feature = "chip-ws63")]
-pub mod km;
+unstable_module! {
+    /// Key management (KM) crypto block driver.
+    #[cfg(feature = "chip-ws63")]
+    pub mod km;
+}
 /// Low-speed ADC (v154) driver.
 #[cfg(feature = "chip-ws63")]
 pub mod lsadc;
@@ -159,9 +168,11 @@ pub mod keyscan;
 #[cfg(feature = "chip-bs21")]
 pub mod pdm;
 // BS2X USB 2.0 OTG (Synopsys DWC OTG) — config-level (core-ID; full stack deferred).
-/// Public-key engine (PKE) crypto accelerator driver.
-#[cfg(feature = "chip-ws63")]
-pub mod pke;
+unstable_module! {
+    /// Public-key engine (PKE) crypto accelerator driver.
+    #[cfg(feature = "chip-ws63")]
+    pub mod pke;
+}
 /// BS2X quadrature decoder (HID) driver.
 #[cfg(feature = "chip-bs21")]
 pub mod qdec;
@@ -184,24 +195,32 @@ pub mod usb;
 // and the clock/crypto/system stack (deeper port).
 /// PWM driver (v151) with typed `PwmPeriod`/`Duty` config.
 pub mod pwm;
-/// Real-time clock driver (WS63 v100).
 // RTC is a different IP per chip: WS63 v100 (rtc.rs), BS2X v150 (rtc_v150.rs, a
 // 64-bit counter with a coherent-read handshake). Both exposed as `hal::rtc`.
-#[cfg(feature = "chip-ws63")]
-pub mod rtc;
+unstable_module! {
+    /// Real-time clock driver (WS63 v100).
+    #[cfg(feature = "chip-ws63")]
+    pub mod rtc;
+}
 /// Real-time clock driver (BS2X v150, 64-bit counter with coherent-read handshake).
 #[cfg(feature = "chip-bs21")]
 #[path = "rtc_v150.rs"]
 pub mod rtc;
-/// Functional-safety / lockstep support driver.
-#[cfg(feature = "chip-ws63")]
-pub mod safety;
-/// SFC (serial flash controller) driver.
-#[cfg(feature = "chip-ws63")]
-pub mod sfc;
-/// SPACC symmetric-crypto accelerator driver.
-#[cfg(feature = "chip-ws63")]
-pub mod spacc;
+unstable_module! {
+    /// Functional-safety / lockstep support driver.
+    #[cfg(feature = "chip-ws63")]
+    pub mod safety;
+}
+unstable_module! {
+    /// SFC (serial flash controller) driver.
+    #[cfg(feature = "chip-ws63")]
+    pub mod sfc;
+}
+unstable_module! {
+    /// SPACC symmetric-crypto accelerator driver.
+    #[cfg(feature = "chip-ws63")]
+    pub mod spacc;
+}
 /// SPI driver (v151), blocking and `embedded-hal`.
 pub mod spi;
 /// System control block access and the `System` token.
@@ -218,8 +237,10 @@ pub mod trng;
 /// On-chip temperature sensor driver.
 #[cfg(feature = "chip-ws63")]
 pub mod tsensor;
-/// Ultra-low-power GPIO driver (GPIO v150 block).
-pub mod ulp_gpio;
+unstable_module! {
+    /// Ultra-low-power GPIO driver (GPIO v150 block).
+    pub mod ulp_gpio;
+}
 /// Watchdog timer driver (v151).
 pub mod wdt;
 

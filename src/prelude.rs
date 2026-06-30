@@ -37,7 +37,7 @@ pub use crate::lsadc::LsAdc;
 pub use crate::pwm::{Duty, PwmChannel, PwmPeriod};
 #[cfg(feature = "chip-ws63")]
 pub use crate::rtc::RtcDriver;
-#[cfg(feature = "chip-ws63")]
+#[cfg(all(feature = "chip-ws63", feature = "unstable"))]
 pub use crate::sfc::SfcDriver;
 #[cfg(feature = "chip-ws63")]
 pub use crate::spi::Spi;
@@ -45,7 +45,7 @@ pub use crate::spi::Spi;
 pub use crate::trng::TrngDriver;
 #[cfg(feature = "chip-ws63")]
 pub use crate::tsensor::TempSensor;
-#[cfg(feature = "chip-ws63")]
+#[cfg(all(feature = "chip-ws63", feature = "unstable"))]
 pub use crate::ulp_gpio::UlpGpioPin;
 #[cfg(feature = "chip-ws63")]
 pub use crate::wdt::Watchdog;
