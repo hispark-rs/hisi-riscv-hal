@@ -243,7 +243,7 @@ fn configure_spi(idx: u8, config: &Config) {
     r.spi_er().write(|w| unsafe { w.bits(0x1) });
 }
 
-impl<T> Spi<'_, T> {
+impl<'d, T> Spi<'d, T> {
     /// Full-duplex transfer: write `write` while reading into `read`, byte-paced
     /// through the TX/RX FIFOs (zero-padded TX / discarded RX for the shorter slice).
     pub fn transfer(&mut self, write: &[u8], read: &mut [u8]) -> Result<(), SpiError> {
@@ -285,6 +285,350 @@ impl<T> Spi<'_, T> {
         wait_until(|| !r.spi_wsr().read().busy().bit_is_set())?;
         Ok(())
     }
+
+    /// Consume the blocking SPI driver + a DMA driver, returning a DMA-capable
+    /// [`SpiDma`]. The blocking `Spi` API is no longer accessible (esp-hal style —
+    /// blocking and DMA surfaces are mutually exclusive, a compile-time guarantee).
+    #[cfg(feature = "chip-ws63")]
+    pub fn with_dma(self, dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>) -> SpiDma<'d, T> {
+        SpiDma { idx: self.idx, dma, _p: PhantomData }
+    }
+}
+
+/// A DMA-capable SPI master. Built from [`Spi::with_dma`]; owns the [`DmaDriver`].
+/// The blocking `Spi` is consumed (blocking + DMA APIs are mutually exclusive).
+///
+/// The DMA transfer methods ([`write_dma`](Self::write_dma),
+/// [`transfer_dma`](Self::transfer_dma)) are **blocking**: they program the
+/// peripheral + channel, bounded-wait for completion, and return the buffer. The
+/// buffer is owned for the whole call (a use-after-free of an in-flight DMA region
+/// is unrepresentable in safe code). Async `.await` variants are behind the `async`
+/// feature (P4).
+#[cfg(feature = "chip-ws63")]
+pub struct SpiDma<'d, T> {
+    idx: u8,
+    dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>,
+    _p: PhantomData<&'d T>,
+}
+
+#[cfg(feature = "chip-ws63")]
+impl<'d, T> SpiDma<'d, T> {
+    /// The absolute address of this instance's `spi_dr` data register (the DMA
+    /// endpoint). `spi_dr` is at PAC offset 0x60 from the instance base.
+    fn dr_addr(&self) -> u32 {
+        let r = spi_regs(self.idx);
+        r.spi_dr() as *const _ as u32
+    }
+
+    /// The `DmaPeripheral` (handshake ID) for TX on this instance.
+    fn tx_peri(&self) -> crate::dma::DmaPeripheral {
+        match self.idx {
+            0 => crate::dma::DmaPeripheral::Spi0Tx,
+            1 => crate::dma::DmaPeripheral::Spi1Tx,
+            _ => unreachable!(),
+        }
+    }
+
+    /// The `DmaPeripheral` for RX on this instance.
+    fn rx_peri(&self) -> crate::dma::DmaPeripheral {
+        match self.idx {
+            0 => crate::dma::DmaPeripheral::Spi0Rx,
+            1 => crate::dma::DmaPeripheral::Spi1Rx,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Write `buf` to MOSI via DMA (mem→peripheral, TX-only). The SSI is
+    /// full-duplex, so the looped-back RX bytes are drained from the FIFO and
+    /// discarded (use [`transfer_dma`](Self::transfer_dma) to capture them).
+    /// `buf` is owned for the whole call and returned on success. `ch` is a claimed
+    /// [`DmaChannel`](crate::dma::DmaChannel) token (from
+    /// [`DmaDriver::split_channels`](crate::dma::DmaDriver::split_channels)).
+    pub fn write_dma<B: embedded_dma::ReadBuffer<Word = u8>>(
+        &mut self,
+        ch: crate::dma::DmaChannel,
+        buf: B,
+    ) -> Result<B, SpiError> {
+        use crate::dma::{BurstSize, DmaChannelConfig, FlowControl, TransferWidth};
+        let r = spi_regs(self.idx);
+        let (ptr, beats) = unsafe { buf.read_buffer() };
+        if beats > 0xFFF {
+            return Err(SpiError::BufferTooLong);
+        }
+        let bytes = beats;
+        let dr = self.dr_addr();
+        let _ = ();
+
+        // Vendor order (hal_spi_v151.c:634, spi.c:691-712): watermark (DMA-enable
+        // OFF) → clean source → start channel → set tdmae.
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+        unsafe { crate::cache::clean_range(ptr as usize, bytes) };
+        let cfg = DmaChannelConfig {
+            src_peripheral: 0,
+            dst_peripheral: self.tx_peri().request_id(),
+            flow_control: FlowControl::MemToPeripheral,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: true,
+            dst_inc: false,
+            transfer_int: false,
+            error_int: false,
+            bus_lock: false,
+        };
+        let chn = ch.logical();
+        self.dma.configure_channel(chn, ptr as u32, dr, beats as u16, &cfg);
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit());
+
+        // Bounded wait for the channel to auto-clear its enable bit (single-block done).
+        let mut n = SPI_WAIT_LOOPS;
+        while self.dma.channel_enabled(chn) {
+            n -= 1;
+            if n == 0 {
+                // Cancel-then-quiesce: stop the peripheral asserting requests first,
+                // then halt → drain active → disable, before the buffer is returned.
+                r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+                self.dma.halt_channel(chn);
+                let mut m = SPI_WAIT_LOOPS;
+                while self.dma.channel_active(chn) {
+                    m -= 1;
+                    if m == 0 {
+                        break;
+                    }
+                    core::hint::spin_loop();
+                }
+                self.dma.disable_channel(chn);
+                return Err(SpiError::Timeout);
+            }
+            core::hint::spin_loop();
+        }
+        // Drain the looped-back RX FIFO (TX clocks the bus; RX fills) to avoid overrun.
+        while r.spi_wsr().read().rxfne().bit_is_set() {
+            let _ = r.spi_dr().read().bits();
+        }
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+        Ok(buf)
+    }
+
+    /// Async variant of [`write_dma`](Self::write_dma): parks on the DMA completion
+    /// IRQ (IRQ 59) via [`DmaDriver::wait_transfer_done`](crate::dma::DmaDriver::wait_transfer_done)
+    /// instead of bounded-spinning, so the core can `wfi` while the transfer runs.
+    /// Requires the `async` feature + global interrupts enabled
+    /// (`interrupt::enable_global`) at the call site. Silicon-verified (IRQ 59 fires
+    /// for peripheral-paced completion — see `spi_dma_irq59` HIL test).
+    #[cfg(feature = "async")]
+    pub async fn write_dma_async<B: embedded_dma::ReadBuffer<Word = u8>>(
+        &mut self,
+        ch: crate::dma::DmaChannel,
+        buf: B,
+    ) -> Result<B, SpiError> {
+        use crate::dma::{BurstSize, DmaChannelConfig, FlowControl, TransferWidth};
+        let r = spi_regs(self.idx);
+        let (ptr, beats) = unsafe { buf.read_buffer() };
+        if beats > 0xFFF {
+            return Err(SpiError::BufferTooLong);
+        }
+        let bytes = beats;
+        let dr = self.dr_addr();
+
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+        unsafe { crate::cache::clean_range(ptr as usize, bytes) };
+        // transfer_int = true so the channel's done bit sets int_tc → IRQ 59.
+        let cfg = DmaChannelConfig {
+            src_peripheral: 0,
+            dst_peripheral: self.tx_peri().request_id(),
+            flow_control: FlowControl::MemToPeripheral,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: true,
+            dst_inc: false,
+            transfer_int: true,
+            error_int: false,
+            bus_lock: false,
+        };
+        let chn = ch.logical();
+        self.dma.configure_channel(chn, ptr as u32, dr, beats as u16, &cfg);
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit());
+
+        // Park on IRQ 59 (per-channel demux) until this channel completes.
+        self.dma.wait_transfer_done(chn).await;
+
+        // Drain the looped-back RX FIFO, then quiesce the peripheral.
+        while r.spi_wsr().read().rxfne().bit_is_set() {
+            let _ = r.spi_dr().read().bits();
+        }
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+        Ok(buf)
+    }
+
+    /// Full-duplex DMA: `write` → MOSI via `tx_ch` while MISO → `read` via `rx_ch`,
+    /// concurrently. With a MOSI→MISO jumper `read` ends up equal to `write`. Both
+    /// buffers are owned for the whole call and returned on success.
+    pub fn transfer_dma<RB: embedded_dma::WriteBuffer<Word = u8>, TB: embedded_dma::ReadBuffer<Word = u8>>(
+        &mut self,
+        tx_ch: crate::dma::DmaChannel,
+        rx_ch: crate::dma::DmaChannel,
+        mut read: RB,
+        write: TB,
+    ) -> Result<(RB, TB), SpiError> {
+        use crate::dma::{BurstSize, DmaChannelConfig, FlowControl, TransferWidth};
+        let r = spi_regs(self.idx);
+        let (tx_ptr, tx_beats) = unsafe { write.read_buffer() };
+        let (rx_ptr, rx_beats) = unsafe { read.write_buffer() };
+        let beats = tx_beats.min(rx_beats);
+        if tx_beats > 0xFFF || rx_beats > 0xFFF {
+            return Err(SpiError::BufferTooLong);
+        }
+        let bytes = beats;
+        let dr = self.dr_addr();
+
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+        // Clean TX source; RX destination is invalidated AFTER completion.
+        unsafe { crate::cache::clean_range(tx_ptr as usize, bytes) };
+
+        let tx_cfg = DmaChannelConfig {
+            src_peripheral: 0,
+            dst_peripheral: self.tx_peri().request_id(),
+            flow_control: FlowControl::MemToPeripheral,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: true,
+            dst_inc: false,
+            transfer_int: false,
+            error_int: false,
+            bus_lock: false,
+        };
+        let rx_cfg = DmaChannelConfig {
+            dst_peripheral: 0,
+            src_peripheral: self.rx_peri().request_id(),
+            flow_control: FlowControl::PeripheralToMem,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: false,
+            dst_inc: true,
+            transfer_int: false,
+            error_int: false,
+            bus_lock: false,
+        };
+        let tx_chn = tx_ch.logical();
+        let rx_chn = rx_ch.logical();
+        self.dma.configure_channel(tx_chn, tx_ptr as u32, dr, beats as u16, &tx_cfg);
+        self.dma.configure_channel(rx_chn, dr, rx_ptr as u32, beats as u16, &rx_cfg);
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit().rdmae().set_bit());
+
+        let mut n = SPI_WAIT_LOOPS;
+        while self.dma.channel_enabled(tx_chn) || self.dma.channel_enabled(rx_chn) {
+            n -= 1;
+            if n == 0 {
+                r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+                return Err(SpiError::Timeout);
+            }
+            core::hint::spin_loop();
+        }
+        // Invalidate the RX destination so the CPU re-reads what DMA wrote.
+        unsafe { crate::cache::invalidate_range(rx_ptr as usize, bytes) };
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        Ok((read, write))
+    }
+
+    /// Async variant of [`transfer_dma`](Self::transfer_dma): arms both channels
+    /// (transfer_int = true), sets tdmae+rdmae, and awaits each channel's
+    /// completion on IRQ 59 in turn (the per-channel demux means awaiting the second
+    /// doesn't false-wake on the first). Requires `async` + global interrupts.
+    #[cfg(feature = "async")]
+    pub async fn transfer_dma_async<
+        RB: embedded_dma::WriteBuffer<Word = u8>,
+        TB: embedded_dma::ReadBuffer<Word = u8>,
+    >(
+        &mut self,
+        tx_ch: crate::dma::DmaChannel,
+        rx_ch: crate::dma::DmaChannel,
+        mut read: RB,
+        write: TB,
+    ) -> Result<(RB, TB), SpiError> {
+        use crate::dma::{BurstSize, DmaChannelConfig, FlowControl, TransferWidth};
+        let r = spi_regs(self.idx);
+        let (tx_ptr, tx_beats) = unsafe { write.read_buffer() };
+        let (rx_ptr, rx_beats) = unsafe { read.write_buffer() };
+        let beats = tx_beats.min(rx_beats);
+        if tx_beats > 0xFFF || rx_beats > 0xFFF {
+            return Err(SpiError::BufferTooLong);
+        }
+        let bytes = beats;
+        let dr = self.dr_addr();
+
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+        unsafe { crate::cache::clean_range(tx_ptr as usize, bytes) };
+
+        let tx_cfg = DmaChannelConfig {
+            src_peripheral: 0,
+            dst_peripheral: self.tx_peri().request_id(),
+            flow_control: FlowControl::MemToPeripheral,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: true,
+            dst_inc: false,
+            transfer_int: true,
+            error_int: false,
+            bus_lock: false,
+        };
+        let rx_cfg = DmaChannelConfig {
+            dst_peripheral: 0,
+            src_peripheral: self.rx_peri().request_id(),
+            flow_control: FlowControl::PeripheralToMem,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: false,
+            dst_inc: true,
+            transfer_int: true,
+            error_int: false,
+            bus_lock: false,
+        };
+        let tx_chn = tx_ch.logical();
+        let rx_chn = rx_ch.logical();
+        self.dma.configure_channel(tx_chn, tx_ptr as u32, dr, beats as u16, &tx_cfg);
+        self.dma.configure_channel(rx_chn, dr, rx_ptr as u32, beats as u16, &rx_cfg);
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit().rdmae().set_bit());
+
+        // Await each channel's completion (per-channel demux — no false-wake cross-talk).
+        self.dma.wait_transfer_done(tx_chn).await;
+        self.dma.wait_transfer_done(rx_chn).await;
+
+        unsafe { crate::cache::invalidate_range(rx_ptr as usize, bytes) };
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        Ok((read, write))
+    }
+
+    /// Reclaim the blocking `Spi` and the `DmaDriver`. Clears any peripheral
+    /// DMA-enable the DMA paths may have set.
+    pub fn release(self) -> (Spi<'d, T>, crate::dma::DmaDriver<'d, crate::dma::Dma0>) {
+        let r = spi_regs(self.idx);
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        (Spi { idx: self.idx, _peripheral: PhantomData }, self.dma)
+    }
 }
 
 fn transfer_in_place_on(idx: u8, buf: &mut [u8]) -> Result<(), SpiError> {
@@ -306,8 +650,11 @@ fn transfer_in_place_on(idx: u8, buf: &mut [u8]) -> Result<(), SpiError> {
 pub enum SpiError {
     /// FIFO overrun (maps to [`embedded_hal::spi::ErrorKind::Overrun`]).
     Overflow,
-    /// A status bit never asserted within the bounded wait (no slave, stuck CS, wrong mode).
+    /// A status bit never asserted within the bounded wait (no slave, stuck CS, wrong mode),
+    /// or a DMA channel never completed within the bounded poll.
     Timeout,
+    /// A DMA buffer exceeded the 12-bit `trans_size` field (4095 beats per single block).
+    BufferTooLong,
 }
 
 impl embedded_hal::spi::Error for SpiError {

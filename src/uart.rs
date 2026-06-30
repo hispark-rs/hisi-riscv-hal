@@ -265,6 +265,211 @@ impl<T> Uart<'_, T> {
     }
 }
 
+#[cfg(feature = "chip-ws63")]
+impl<'d> Uart<'d, Uart0<'d>> {
+    /// Consume the blocking UART0 + a DMA driver → DMA-capable [`UartDma`] (idx 0).
+    pub fn with_dma(self, dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>) -> UartDma<'d, Uart0<'d>> {
+        UartDma { idx: 0, dma, _p: PhantomData }
+    }
+}
+#[cfg(feature = "chip-ws63")]
+impl<'d> Uart<'d, Uart1<'d>> {
+    /// Consume the blocking UART1 + a DMA driver → DMA-capable [`UartDma`] (idx 1).
+    pub fn with_dma(self, dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>) -> UartDma<'d, Uart1<'d>> {
+        UartDma { idx: 1, dma, _p: PhantomData }
+    }
+}
+#[cfg(feature = "chip-ws63")]
+impl<'d> Uart<'d, Uart2<'d>> {
+    /// Consume the blocking UART2 + a DMA driver → DMA-capable [`UartDma`] (idx 2).
+    pub fn with_dma(self, dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>) -> UartDma<'d, Uart2<'d>> {
+        UartDma { idx: 2, dma, _p: PhantomData }
+    }
+}
+
+/// A DMA-capable UART. Built from [`Uart::with_dma`]; owns the [`DmaDriver`] and
+/// remembers the instance index so it can pick the correct handshaking ID and
+/// register block (binding the `DmaPeripheral` to the type, compile-time, rather
+/// than re-deriving from a runtime idx).
+///
+/// `write_dma` (TX) is silicon-verified (channel completion + register sequence).
+/// `read_dma` (RX, fixed-length) is provided but its loopback data-correctness is
+/// **blocked by hisi-riscv-hal#5** (the UART1 TX→RX physical loopback doesn't close
+/// on this board); it compiles and the register sequence is correct, but cannot be
+/// round-trip-verified here. The `uart_parameter.dma_mode` field is PAC-read-only,
+/// so DMA pacing is driven by the FIFO_CTL trigger levels (the design's P3
+/// silicon question — answered: it works with triggers alone).
+#[cfg(feature = "chip-ws63")]
+pub struct UartDma<'d, T> {
+    idx: u8,
+    dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>,
+    _p: PhantomData<&'d T>,
+}
+
+#[cfg(feature = "chip-ws63")]
+impl<'d, T> UartDma<'d, T> {
+    fn regs(&self) -> &'static crate::soc::pac::uart0::RegisterBlock {
+        uart_regs(self.idx)
+    }
+
+    fn data_addr(&self) -> u32 {
+        self.regs().data() as *const _ as u32
+    }
+
+    fn tx_peri(&self) -> crate::dma::DmaPeripheral {
+        match self.idx {
+            0 => crate::dma::DmaPeripheral::Uart0Tx,
+            1 => crate::dma::DmaPeripheral::Uart1Tx,
+            2 => crate::dma::DmaPeripheral::Uart2Tx,
+            _ => unreachable!(),
+        }
+    }
+
+    fn rx_peri(&self) -> crate::dma::DmaPeripheral {
+        match self.idx {
+            0 => crate::dma::DmaPeripheral::Uart0Rx,
+            1 => crate::dma::DmaPeripheral::Uart1Rx,
+            2 => crate::dma::DmaPeripheral::Uart2Rx,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Write `buf` to the UART TX FIFO via DMA (mem→peripheral). `buf` is owned for
+    /// the whole call and returned on success. `ch` is a claimed
+    /// [`DmaChannel`](crate::dma::DmaChannel) token.
+    pub fn write_dma<B: embedded_dma::ReadBuffer<Word = u8>>(
+        &mut self,
+        ch: crate::dma::DmaChannel,
+        buf: B,
+    ) -> Result<B, UartDmaError> {
+        use crate::dma::{BurstSize, DmaChannelConfig, FlowControl, TransferWidth};
+        let r = self.regs();
+        let (ptr, beats) = unsafe { buf.read_buffer() };
+        if beats > 0xFFF {
+            return Err(UartDmaError::BufferTooLong);
+        }
+        let bytes = beats;
+        let data_addr = self.data_addr();
+
+        // FIFO_CTL trigger levels (vendor defaults hal_uart_v151.c:127/133):
+        // TX = 2-chars-empty, RX = 1/4. Written as the LAST FIFO_CTL write (the
+        // register is WO; a later FIFO reset would clobber pacing). fifo_en stays set.
+        r.fifo_ctl().modify(|_, w| w.fifo_en().set_bit().tx_empty_trig().chars2().rx_empty_trig().quarter());
+
+        // Clean the TX source (non-coherent core). The DATA register is uncached MMIO.
+        unsafe { crate::cache::clean_range(ptr as usize, bytes) };
+
+        let cfg = DmaChannelConfig {
+            src_peripheral: 0,
+            dst_peripheral: self.tx_peri().request_id(),
+            flow_control: FlowControl::MemToPeripheral,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: true,
+            dst_inc: false,
+            transfer_int: false,
+            error_int: false,
+            bus_lock: false,
+        };
+        let chn = ch.logical();
+        self.dma.configure_channel(chn, ptr as u32, data_addr, beats as u16, &cfg);
+        // (uart_parameter.dma_mode is PAC-read-only — DMA paces on the FIFO triggers above.)
+
+        // Bounded wait for the channel to auto-clear its enable bit.
+        let mut n = 1_000_000u32;
+        while self.dma.channel_enabled(chn) {
+            n -= 1;
+            if n == 0 {
+                r.fifo_ctl().modify(|_, w| w.tx_empty_trig().empty().rx_empty_trig().char1());
+                self.dma.halt_channel(chn);
+                self.dma.disable_channel(chn);
+                return Err(UartDmaError::Timeout);
+            }
+            core::hint::spin_loop();
+        }
+        // Restore the blocking trigger levels (DMA no longer pacing).
+        r.fifo_ctl().modify(|_, w| w.tx_empty_trig().empty().rx_empty_trig().char1());
+        Ok(buf)
+    }
+
+    /// Fixed-length RX DMA (peripheral→memory). Reads exactly `buf.len()` bytes — a
+    /// short/idle line will **time out** (no char-timeout path here). `buf` is owned
+    /// for the whole call and returned on success. **Loopback data-correctness is
+    /// blocked by hisi-riscv-hal#5** on this board; the register sequence compiles
+    /// and is correct but cannot be round-trip-verified here.
+    pub fn read_dma<B: embedded_dma::WriteBuffer<Word = u8>>(
+        &mut self,
+        ch: crate::dma::DmaChannel,
+        mut buf: B,
+    ) -> Result<B, UartDmaError> {
+        use crate::dma::{BurstSize, DmaChannelConfig, FlowControl, TransferWidth};
+        let r = self.regs();
+        let (ptr, beats) = unsafe { buf.write_buffer() };
+        if beats > 0xFFF {
+            return Err(UartDmaError::BufferTooLong);
+        }
+        let bytes = beats;
+        let data_addr = self.data_addr();
+
+        r.fifo_ctl().modify(|_, w| w.fifo_en().set_bit().tx_empty_trig().chars2().rx_empty_trig().quarter());
+
+        let cfg = DmaChannelConfig {
+            dst_peripheral: 0,
+            src_peripheral: self.rx_peri().request_id(),
+            flow_control: FlowControl::PeripheralToMem,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: false,
+            dst_inc: true,
+            transfer_int: false,
+            error_int: false,
+            bus_lock: false,
+        };
+        let chn = ch.logical();
+        self.dma.configure_channel(chn, data_addr, ptr as u32, beats as u16, &cfg);
+
+        let mut n = 1_000_000u32;
+        while self.dma.channel_enabled(chn) {
+            n -= 1;
+            if n == 0 {
+                r.fifo_ctl().modify(|_, w| w.tx_empty_trig().empty().rx_empty_trig().char1());
+                self.dma.halt_channel(chn);
+                self.dma.disable_channel(chn);
+                return Err(UartDmaError::Timeout);
+            }
+            core::hint::spin_loop();
+        }
+        // Invalidate the RX destination so the CPU re-reads what DMA wrote.
+        unsafe { crate::cache::invalidate_range(ptr as usize, bytes) };
+        r.fifo_ctl().modify(|_, w| w.tx_empty_trig().empty().rx_empty_trig().char1());
+        Ok(buf)
+    }
+
+    /// Reclaim the blocking `Uart` and the `DmaDriver`. Restores the blocking
+    /// FIFO_CTL trigger levels.
+    pub fn release(self) -> (Uart<'d, T>, crate::dma::DmaDriver<'d, crate::dma::Dma0>) {
+        let r = self.regs();
+        r.fifo_ctl().modify(|_, w| w.tx_empty_trig().empty().rx_empty_trig().char1());
+        (Uart { _peripheral: PhantomData }, self.dma)
+    }
+}
+
+/// Errors from a UART DMA transfer.
+#[cfg(feature = "chip-ws63")]
+#[derive(Debug)]
+#[non_exhaustive]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UartDmaError {
+    /// The buffer exceeded 4095 beats (the 12-bit `trans_size` cap).
+    BufferTooLong,
+    /// The channel never completed within the bounded poll (e.g. a short/idle RX line).
+    Timeout,
+}
+
 impl embedded_io::ErrorType for Uart<'_, Uart0<'_>> {
     type Error = core::convert::Infallible;
 }
