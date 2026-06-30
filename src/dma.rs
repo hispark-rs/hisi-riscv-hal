@@ -491,24 +491,19 @@ pub enum DmaPeripheral {
     Spi0Tx = 7,
     /// SPI0 (SPI_MS0) receive.
     Spi0Rx = 8,
-    /// QSPI0_2CS transmit — the handshake line the PAC's `Spi1` instance at
-    /// 0x4402_1000 actually uses (vendor `SPI_BUS_1` →
-    /// `HAL_DMA_HANDSHAKING_QSPI0_2CS_TX`, spi_porting.h:38). Prefer this over the
-    /// legacy [`Spi1Tx`](Self::Spi1Tx) for the PAC `Spi1` instance. Silicon-verification
-    /// of the 9/10 vs 13/14 mapping is pending P2.
-    Qspi02csTx = 9,
-    /// QSPI0_2CS receive — the handshake line for the PAC's `Spi1` instance.
-    /// See [`Qspi02csTx`](Self::Qspi02csTx).
-    Qspi02csRx = 10,
     /// I2S transmit.
     I2sTx = 11,
     /// I2S receive.
     I2sRx = 12,
-    /// SPI1 legacy `SPI_MS1` transmit ID. Kept for back-compat; the PAC's `Spi1`
-    /// instance (0x4402_1000) maps to QSPI0_2CS — prefer [`Qspi02csTx`](Self::Qspi02csTx).
+    /// SPI1 (SPI_MS1) transmit.
+    ///
+    /// NOTE: the PAC's `Spi1` instance (0x4402_1000) may actually be QSPI0_2CS
+    /// (vendor `HAL_DMA_HANDSHAKING_QSPI0_2CS_TX` = 9) per `spi_porting.h:38` —
+    /// silicon-unverified. The correct `Qspi02csTx = 9` variant is deferred to P2
+    /// (when the SPI1 DMA wiring is silicon-verified) so an unverified breaking
+    /// enum addition isn't shipped in P0.
     Spi1Tx = 13,
-    /// SPI1 legacy `SPI_MS1` receive ID. Kept for back-compat; prefer
-    /// [`Qspi02csRx`](Self::Qspi02csRx).
+    /// SPI1 (SPI_MS1) receive. See [`Spi1Tx`](Self::Spi1Tx) — QSPI0_2CS (10) unverified.
     Spi1Rx = 14,
 }
 
@@ -1161,13 +1156,11 @@ mod tests {
 
     #[test]
     fn test_dma_peripheral_spi_handshaking_ids() {
-        // SPI_MS0 = 7/8. The legacy SPI_MS1 IDs 13/14 are kept for back-compat; the
-        // QSPI0_2CS IDs 9/10 are the vendor-correct handshake for the PAC's Spi1
-        // instance (0x4402_1000) — silicon-verification pending P2.
+        // SPI_MS0 = 7/8, SPI_MS1 = 13/14.
+        // (The PAC's Spi1 instance may be QSPI0_2CS = 9/10 — silicon-unverified;
+        // the Qspi02cs variant is deferred to P2.)
         assert_eq!(DmaPeripheral::Spi0Tx.request_id(), 7);
         assert_eq!(DmaPeripheral::Spi0Rx.request_id(), 8);
-        assert_eq!(DmaPeripheral::Qspi02csTx.request_id(), 9);
-        assert_eq!(DmaPeripheral::Qspi02csRx.request_id(), 10);
         assert_eq!(DmaPeripheral::Spi1Tx.request_id(), 13);
         assert_eq!(DmaPeripheral::Spi1Rx.request_id(), 14);
     }
@@ -1196,7 +1189,7 @@ mod tests {
             DmaPeripheral::Uart0Tx,
             DmaPeripheral::Uart2Rx,
             DmaPeripheral::Spi0Tx,
-            DmaPeripheral::Qspi02csRx,
+            DmaPeripheral::Spi1Rx,
             DmaPeripheral::I2sTx,
             DmaPeripheral::I2sRx,
         ] {
