@@ -491,17 +491,25 @@ pub enum DmaPeripheral {
     Spi0Tx = 7,
     /// SPI0 (SPI_MS0) receive.
     Spi0Rx = 8,
-    /// QSPI0_2CS transmit — the handshake line for the PAC's `Spi1` instance at
-    /// 0x4402_1000 (vendor `SPI_BUS_1` → `HAL_DMA_HANDSHAKING_QSPI0_2CS_TX`,
-    /// spi_porting.h:38). The earlier `Spi1Tx = 13` (`SPI_MS1`) selected the wrong
-    /// request line and a channel armed against it never advanced.
+    /// QSPI0_2CS transmit — the handshake line the PAC's `Spi1` instance at
+    /// 0x4402_1000 actually uses (vendor `SPI_BUS_1` →
+    /// `HAL_DMA_HANDSHAKING_QSPI0_2CS_TX`, spi_porting.h:38). Prefer this over the
+    /// legacy [`Spi1Tx`](Self::Spi1Tx) for the PAC `Spi1` instance. Silicon-verification
+    /// of the 9/10 vs 13/14 mapping is pending P2.
     Qspi02csTx = 9,
     /// QSPI0_2CS receive — the handshake line for the PAC's `Spi1` instance.
+    /// See [`Qspi02csTx`](Self::Qspi02csTx).
     Qspi02csRx = 10,
     /// I2S transmit.
     I2sTx = 11,
     /// I2S receive.
     I2sRx = 12,
+    /// SPI1 legacy `SPI_MS1` transmit ID. Kept for back-compat; the PAC's `Spi1`
+    /// instance (0x4402_1000) maps to QSPI0_2CS — prefer [`Qspi02csTx`](Self::Qspi02csTx).
+    Spi1Tx = 13,
+    /// SPI1 legacy `SPI_MS1` receive ID. Kept for back-compat; prefer
+    /// [`Qspi02csRx`](Self::Qspi02csRx).
+    Spi1Rx = 14,
 }
 
 #[cfg(feature = "chip-ws63")]
@@ -687,7 +695,7 @@ impl<T: DmaInstance, SRC, DST> Drop for Transfer<'_, T, SRC, DST> {
     /// Abort the channel so the engine stops reading/writing the owned buffers before
     /// they are dropped — the use-after-free guard for an early-dropped transfer.
     ///
-    /// Uses [`quiesce_channel`]: halt, then drain the `active` (FIFO/bus) bit, then
+    /// Uses `quiesce_channel`: halt, then drain the `active` (FIFO/bus) bit, then
     /// clear `ch_enable` — clearing `ch_enable` mid-burst (the old behaviour) could
     /// let an outstanding bus write land after the buffer is freed.
     fn drop(&mut self) {
@@ -701,7 +709,7 @@ impl<T: DmaInstance, SRC, DST> Drop for Transfer<'_, T, SRC, DST> {
 /// clear `ch_enable`. This is the DesignWare quiesce sequence — clearing `ch_enable`
 /// mid-burst (the original `Drop`) could let an outstanding bus write land after the
 /// owned buffer is freed, a use-after-free window on the non-coherent core. The poll
-/// is bounded by [`DMA_WAIT_LOOPS`].
+/// is bounded by `DMA_WAIT_LOOPS`.
 ///
 /// Factored as a free function over `&mut DmaDriver` so both the mem-to-mem
 /// [`Transfer`] and the peripheral [`PeripheralTransfer`] share one teardown path.
@@ -720,7 +728,7 @@ fn quiesce_channel<T: DmaInstance>(driver: &mut DmaDriver<'_, T>, channel: u8) {
 
 /// Cancel-then-quiesce for a peripheral-paced transfer: clear the peripheral's
 /// DMA-enable **first** (so it stops asserting DMA requests), then
-/// [`quiesce_channel`] (halt → drain `active` → disable). esp-hal's
+/// `quiesce_channel` (halt → drain `active` → disable). esp-hal's
 /// cancel-then-quiesce (`spi/master/dma.rs:1608`) disables the peripheral DMA
 /// first; doing it the other way leaves a spurious request latched.
 #[cfg(feature = "chip-ws63")]
@@ -740,7 +748,7 @@ pub enum DmaError {
     /// transfer). The caller must chunk it. (Multi-block LLI chunking is a follow-up;
     /// for 0.5.1 a single-block cap is correct and not a silent truncation.)
     TransferTooLarge,
-    /// The channel did not auto-clear its enable bit within [`DMA_WAIT_LOOPS`] (a
+    /// The channel did not auto-clear its enable bit within `DMA_WAIT_LOOPS` (a
     /// wedged transfer — e.g. a peripheral whose DMA-enable was never set, or a
     /// handshake mismatch). The guard quiesced the channel before returning, so the
     /// buffer is safe, but the transfer did not complete.
@@ -805,7 +813,7 @@ impl PeriDmaCtl {
     }
 
     /// Clear the peripheral's DMA-enable so it stops asserting DMA requests. Called
-    /// by [`cancel_then_quiesce`] **before** halting the channel.
+    /// by `cancel_then_quiesce` **before** halting the channel.
     ///
     /// On the host (non-riscv) build this is a no-op so unit tests don't touch MMIO;
     /// the teardown *order* is exercised by the `cancel_then_quiesce` host test.
@@ -1153,12 +1161,15 @@ mod tests {
 
     #[test]
     fn test_dma_peripheral_spi_handshaking_ids() {
-        // SPI_MS0 = 7/8; the PAC's Spi1 instance (0x4402_1000) is QSPI0_2CS = 9/10
-        // (vendor spi_porting.h:38-39), NOT SPI_MS1 13/14.
+        // SPI_MS0 = 7/8. The legacy SPI_MS1 IDs 13/14 are kept for back-compat; the
+        // QSPI0_2CS IDs 9/10 are the vendor-correct handshake for the PAC's Spi1
+        // instance (0x4402_1000) — silicon-verification pending P2.
         assert_eq!(DmaPeripheral::Spi0Tx.request_id(), 7);
         assert_eq!(DmaPeripheral::Spi0Rx.request_id(), 8);
         assert_eq!(DmaPeripheral::Qspi02csTx.request_id(), 9);
         assert_eq!(DmaPeripheral::Qspi02csRx.request_id(), 10);
+        assert_eq!(DmaPeripheral::Spi1Tx.request_id(), 13);
+        assert_eq!(DmaPeripheral::Spi1Rx.request_id(), 14);
     }
 
     #[test]
