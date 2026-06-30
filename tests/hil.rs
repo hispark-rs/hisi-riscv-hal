@@ -1003,6 +1003,114 @@ mod tests {
         assert_eq!(rx, TX.0, "SPI0 DMA TX loopback mismatch — check GPIO9->GPIO11 jumper");
     }
 
+    /// SPI0 full-duplex DMA: TX DMA drives MOSI while RX DMA drains MISO
+    /// concurrently (two DMA channels, ch0=mem→peri Spi0Tx, ch1=peri→mem Spi0Rx).
+    /// With the GPIO9→GPIO11 (MOSI→MISO) jumper, rx_buf must equal tx_buf.
+    /// Proves dual-channel concurrency + RX-side cache invalidate on silicon.
+    /// **Requires the GPIO9→GPIO11 jumper.**
+    #[cfg(all(feature = "chip-ws63", feature = "hil-loopback"))]
+    #[test]
+    fn spi_dma_fullduplex_loopback() {
+        use hal::cache;
+        use hal::dma::{Dma0, DmaChannelConfig, DmaDriver, DmaPeripheral, TransferWidth, BurstSize};
+        use hal::io_config::IoConfigDriver;
+        use hal::spi::{Config, Spi};
+
+        const N: usize = 8;
+        #[repr(C, align(32))]
+        struct Aligned([u8; N]);
+        static TX: Aligned = Aligned([0x1A, 0x2B, 0x3C, 0x4D, 0x5E, 0x6F, 0x70, 0x81]);
+        static mut RX: Aligned = Aligned([0u8; N]);
+        // SAFETY: sequential single-hart run; RX touched only here.
+        let rx: &'static mut [u8] = unsafe { &mut (*core::ptr::addr_of_mut!(RX)).0 };
+        let tx_ptr = TX.0.as_ptr() as usize;
+        let rx_ptr = rx.as_mut_ptr() as usize;
+        let bytes = N;
+        let dr_addr = 0x4402_0060u32; // spi_dr @ SPI0 base + 0x60
+
+        // SPI0 setup (mux pads to function 3; GPIO9→GPIO11 jumpered).
+        let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
+        for pin in [7u8, 9, 10, 11] {
+            io.set_gpio_mux(pin, 3);
+        }
+        // SAFETY: SPI0 singleton not otherwise held.
+        let _spi = Spi::new_spi0(unsafe { hal::peripherals::Spi0::steal() }, Config::default());
+        let r = unsafe { &*hal::peripherals::Spi0::ptr() };
+
+        // Vendor watermarks: TX=4, RX=0 (hal_spi_v151.c:634), DMA-enable OFF.
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+
+        // Clean the TX source so the DMA master reads CPU-written bytes.
+        // SAFETY: real owned static range.
+        unsafe { cache::clean_range(tx_ptr, bytes) };
+
+        // SAFETY: sequential single-hart run; DMA singleton not otherwise held.
+        let mut dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
+        dma.enable_controller();
+
+        // TX channel (ch0): mem → peri Spi0Tx=7, src increments, dst fixed (spi_dr).
+        let tx_cfg = DmaChannelConfig {
+            src_peripheral: 0,
+            dst_peripheral: DmaPeripheral::Spi0Tx.request_id(),
+            flow_control: hal::dma::FlowControl::MemToPeripheral,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: true,
+            dst_inc: false,
+            transfer_int: false,
+            error_int: false,
+            bus_lock: false,
+        };
+        // RX channel (ch1): peri → mem Spi0Rx=8, src fixed (spi_dr), dst increments.
+        let rx_cfg = DmaChannelConfig {
+            dst_peripheral: 0,
+            src_peripheral: DmaPeripheral::Spi0Rx.request_id(),
+            flow_control: hal::dma::FlowControl::PeripheralToMem,
+            src_width: TransferWidth::Width8,
+            dst_width: TransferWidth::Width8,
+            src_burst: BurstSize::Beats1,
+            dst_burst: BurstSize::Beats1,
+            src_inc: false,
+            dst_inc: true,
+            transfer_int: false,
+            error_int: false,
+            bus_lock: false,
+        };
+        dma.configure_channel(0, tx_ptr as u32, dr_addr, N as u16, &tx_cfg);
+        dma.configure_channel(1, dr_addr, rx_ptr as u32, N as u16, &rx_cfg);
+
+        // NOW set the peripheral DMA-enables (both directions) so the SSI raises
+        // TX/RX DMA requests — the channels are armed and only advance once these are set.
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit().rdmae().set_bit());
+
+        // Bounded-wait for both channels to auto-clear their enable bits.
+        let mut spins = 0u32;
+        while dma.channel_enabled(0) || dma.channel_enabled(1) {
+            spins += 1;
+            if spins > 5_000_000 {
+                panic!("SPI0 full-duplex DMA timed out (ch0={} ch1={})",
+                    dma.channel_enabled(0), dma.channel_enabled(1));
+            }
+            core::hint::spin_loop();
+        }
+
+        // Invalidate the RX destination so the CPU re-reads what DMA wrote (non-coherent core).
+        // SAFETY: real owned static range.
+        unsafe { cache::invalidate_range(rx_ptr, bytes) }
+
+        // Clear the peripheral DMA-enables (quiesce the SSI).
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+
+        let got = &rx[..];
+        semihosting::println!("[spi-dma-fdx-lb] tx={:02x?} rx={:02x?}", TX.0, got);
+        assert_eq!(got, TX.0, "SPI0 full-duplex DMA loopback mismatch — check GPIO9->GPIO11 jumper");
+    }
+
     /// UART1 TX→RX loopback (uart.rs + io_config.rs). Send a byte on UART1 and read
     /// it back. **Requires a jumper GPIO15 (UART1 TXD) → GPIO16 (UART1 RXD).** UART1
     /// is used, not the UART0 console. We mux the UART1 pads (function 1), enable
