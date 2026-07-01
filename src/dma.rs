@@ -797,7 +797,6 @@ pub enum PeriKind {
 /// [`PeripheralTransfer`] guard can stop the peripheral asserting DMA requests
 /// without being generic over the driver. Built by the driver's `with_dma`.
 #[cfg(feature = "chip-ws63")]
-#[cfg(feature = "chip-ws63")]
 #[instability::unstable]
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(not(target_arch = "riscv32"), allow(dead_code))]
