@@ -1,7 +1,8 @@
 //! On-target (semihosting) HIL **driver** tests for the HAL, run on real WS63
 //! silicon (and safe under QEMU). These live here — inside the HAL crate's
 //! `tests/` — so the HAL's own driver tests ship and run with the HAL and inherit
-//! its chip gating (`chip-ws63` default, `chip-bs21` via `--features chip-bs21`).
+//! its chip gating (`chip-ws63` default, experimental `chip-bs21` via
+//! `--features chip-bs21,unstable`).
 //! The cross-cutting CPU/PAC smoke tests live separately in the `tests-hil`
 //! crate.
 //!

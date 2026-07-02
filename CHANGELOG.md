@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   out-of-range error, TCXO 64-bit counter, TRNG byte fill path, and WDT counter/feed
   liveness.
 
+### Changed
+
+- **BS2X target marked experimental**: `chip-bs21` now requires the `unstable`
+  feature. This hard gate covers the whole BS2X chip target, not just BS2X-only
+  drivers, because no BS2X silicon HIL has run yet.
+
 ## [0.6.0] - 2026-07-01
 
 ### Changed (BREAKING)
@@ -56,8 +62,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **WS63 untested drivers**: `clock_init`, `km`, `pke`, `safety`, `sfc`, `spacc`,
   `ulp_gpio`, `rtc`-WS63 (the `hil-rtc` test is opt-in + this board lacks the crystal,
   so it never ran on connected silicon), `delay` (no HIL).
-- **Entire BS2X-specific series**: `gadc`, `keyscan`, `pdm`, `qdec`, `usb`,
-  `i2c`-v151, `rtc`-v150, `trng`-v1 (no BS2X silicon board — QEMU only per ROADMAP).
+- **Entire BS2X target**: `chip-bs21` requires `unstable`, covering shared drivers
+  and BS2X-only modules such as `gadc`, `keyscan`, `pdm`, `qdec`, `usb`, `i2c`-v151,
+  `rtc`-v150, and `trng`-v1 (no BS2X silicon board — QEMU only per ROADMAP).
 - **`prelude`**: `Delay`, `Dma0`/`DmaDriver`/`Sdma0`, `RtcDriver`, `SfcDriver`, and
   `UlpGpioPin` re-exports are now `unstable`-gated.
 

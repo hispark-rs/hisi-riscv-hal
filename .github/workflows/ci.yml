@@ -27,14 +27,14 @@ jobs:
 
   # NB: chip-ws63 and chip-bs21 are mutually exclusive (a compile_error in lib.rs),
   # so `--all-features` cannot be used. Test each chip with its supported feature
-  # set instead. async/embassy are only wired for chip-ws63 today (bs2x-pac lacks
-  # the async TIMER interrupts), so chip-bs21 is checked at its M1 feature level.
+  # set instead. BS2X is experimental/no-silicon-HIL, so chip-bs21 always opts into
+  # `unstable`; async/embassy are only wired for chip-ws63 today.
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt"]
+        features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt,unstable"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -47,12 +47,25 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt"]
+        features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt,unstable"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --no-default-features --features "${{ matrix.features }}"
       - run: cargo check --no-default-features --features "${{ matrix.features }}" --release
+
+  bs2x-gate:
+    name: BS2X requires unstable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          if cargo check --no-default-features --features chip-bs21,rt 2>bs2x-stable.log; then
+            printf 'chip-bs21 built without unstable\n'
+            exit 1
+          fi
+          grep -q 'BS2X support is experimental' bs2x-stable.log
 
   doc:
     name: Docs

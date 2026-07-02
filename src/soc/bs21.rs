@@ -1,6 +1,6 @@
 //! BS21 / BS2X chip-specific description (SparkLink/NearLink, no Wi-Fi).
 //!
-//! The active SoC description under `--features chip-bs21`. Provides the same
+//! The active SoC description under `--features chip-bs21,unstable`. Provides the same
 //! contract `soc/ws63.rs` does (the `Interrupt` enum + clock constants + instance
 //! counts) so the chip-neutral drivers read BS21 numbers through `soc::chip`.
 //!

@@ -16,10 +16,10 @@ ci: fmt clippy test semver
 fmt:
     cargo fmt --all --check
 
-# Clippy for both chips (chip-ws63 + chip-bs21 are mutually exclusive).
+# Clippy for both chips (chip-ws63 + chip-bs21 are mutually exclusive; BS2X is unstable-only).
 clippy:
     cargo clippy --no-default-features --features chip-ws63,rt,async,embassy -- -D warnings
-    cargo clippy --no-default-features --features chip-bs21,rt -- -D warnings
+    cargo clippy --no-default-features --features chip-bs21,rt,unstable -- -D warnings
 
 # Host unit + property tests (chip-ws63).
 test:

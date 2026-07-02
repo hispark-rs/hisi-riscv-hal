@@ -51,8 +51,13 @@ compile_error!("hisi-riscv-hal: select exactly ONE chip feature — `chip-ws63` 
 #[cfg(not(any(feature = "chip-ws63", feature = "chip-bs21")))]
 compile_error!(
     "hisi-riscv-hal: no chip selected — enable exactly one chip feature, e.g. \
-     `features = [\"chip-ws63\"]` (WS63) or `features = [\"chip-bs21\"]` (BS2X). \
+     `features = [\"chip-ws63\"]` (WS63) or `features = [\"chip-bs21\", \"unstable\"]` (BS2X). \
      There is no default chip."
+);
+#[cfg(all(feature = "chip-bs21", not(feature = "unstable")))]
+compile_error!(
+    "hisi-riscv-hal: BS2X support is experimental; enable `unstable` with \
+     `features = [\"chip-bs21\", \"unstable\"]`."
 );
 
 // ── Internal helper macros (must come before any `unstable_module!` use) ────
@@ -196,16 +201,16 @@ unstable_module! {
     #[cfg(feature = "chip-bs21")]
     pub mod usb;
 }
-// BS2X-enabled drivers (ungated below: `pwm`, `spi`, `wdt`, `ulp_gpio`). These were
-// chip-ws63-only but build for BS2X too because (a) the driver code is already
-// chip-neutral (it goes through `crate::soc::pac` aliases), (b) their peripheral
-// instances are in both `Peripherals` structs, and (c) BS2X uses the SAME IP version
-// as WS63 — PWM v151, SPI v151, WDT v151 (the fbb_bs2x vs fbb_ws63 `*_regs_def.h`
-// headers are byte-identical bar copyright comments), and `ulp_gpio` reuses the GPIO
-// v150 block that regular `gpio` already drives on BS2X (blinky). So the register
-// layout is verified, not guessed. NB: functional bring-up on BS2X silicon/QEMU is
-// still future work (the bs2x QEMU machine doesn't model these yet) — what's
-// guaranteed today is a register-correct, compiling blocking API.
+// BS2X-enabled shared drivers (`pwm`, `spi`, `wdt`, `ulp_gpio`). These are not
+// per-module soft-gated, but the whole `chip-bs21` target is hard-gated by
+// `unstable` above until BS2X silicon HIL exists. They build for BS2X because
+// (a) the driver code is chip-neutral (it goes through `crate::soc::pac` aliases),
+// (b) their peripheral instances are in both `Peripherals` structs, and (c) BS2X
+// uses the SAME IP version as WS63 — PWM v151, SPI v151, WDT v151 (the fbb_bs2x
+// vs fbb_ws63 `*_regs_def.h` headers are byte-identical bar copyright comments),
+// and `ulp_gpio` reuses the GPIO v150 block that regular `gpio` already drives on
+// BS2X (blinky). So the register layout is verified, not guessed. What's guaranteed
+// today is a register-correct, compiling blocking API.
 //
 // Still chip-ws63-only (different IP version or no BS2X peripheral): i2c (v150 vs
 // BS2X v151), rtc (v100 vs v150), lsadc (v154 vs v153), i2s/sfc (no BS2X instance),

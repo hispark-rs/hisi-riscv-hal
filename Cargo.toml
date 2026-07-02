@@ -113,7 +113,8 @@ default = ["rt", "dep:critical-section"]
 #   - chip-ws63: rt's chip-ws63 + boot-header (0x300 image header @ flash 0x230000,
 #     WS63-only) + bundled-memory-x (so ws63-link.x's `INCLUDE memory.x` resolves).
 #   - chip-bs21: rt's chip-bs21 (BS21's app partition / header placement differs;
-#     a BS21 board would supply its own memory.x — out of scope here).
+#     a BS21 board would supply its own memory.x — out of scope here). The whole
+#     BS2X chip target is experimental and requires the `unstable` feature.
 chip-ws63 = [
     "dep:ws63-pac",
     "hisi-riscv-rt/chip-ws63",
@@ -158,7 +159,7 @@ defmt = ["dep:defmt"]
 # DOES populate the crystal: `--features chip-ws63,hil-rtc`.
 hil-rtc = []
 # `unstable`: opt-in to not-yet-HIL-proven surfaces (peripheral-DMA unproven subset,
-# UartDma, embassy, untested WS63 drivers, the entire BS2X-specific series).
+# UartDma, embassy, untested WS63 drivers, and the entire BS2X chip target).
 # `#[instability::unstable]` items are `pub` when this is on, `pub(crate)` when off
 # (soft-gate, esp-hal pattern). OFF by default — enabling is consent to breakage in
 # a minor release. Add to your Cargo.toml: `features = ["unstable"]`.
