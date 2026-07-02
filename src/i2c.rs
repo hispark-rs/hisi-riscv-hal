@@ -58,6 +58,7 @@ impl<'d> I2c<'d, I2c0<'d>> {
 
 impl<'d> I2c<'d, I2c1<'d>> {
     /// Create and configure the I2C1 master at the given bus [`Speed`].
+    #[instability::unstable]
     pub fn new_i2c1(_i2c: I2c1<'d>, speed: Speed) -> Self {
         configure_i2c(1, speed.hz());
         Self { idx: 1, _peripheral: PhantomData }

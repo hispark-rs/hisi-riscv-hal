@@ -46,6 +46,7 @@ impl<'d> TrngDriver<'d> {
     }
 
     /// Check if the TRNG generation is complete.
+    #[instability::unstable]
     pub fn done(&self) -> bool {
         self.regs().trng_fifo_ready().read().bits() & 0x02 != 0
     }
@@ -53,6 +54,7 @@ impl<'d> TrngDriver<'d> {
     /// Read a 32-bit random word from the TRNG FIFO.
     ///
     /// Returns `Err(NoData)` if no data is available.
+    #[instability::unstable]
     pub fn read(&self) -> Result<u32, TrngError> {
         if !self.data_ready() {
             return Err(TrngError::NoData);
@@ -98,6 +100,7 @@ impl<'d> TrngDriver<'d> {
     /// Fill a buffer with random 32-bit words.
     ///
     /// Returns `Err(Timeout)` if the TRNG hardware fails to produce entropy.
+    #[instability::unstable]
     pub fn fill_words(&self, buf: &mut [u32]) -> Result<(), TrngError> {
         for word in buf.iter_mut() {
             *word = self.read_blocking()?;

@@ -335,6 +335,7 @@ impl<'d> PwmChannel<'d> {
     }
     /// Set the output polarity via this channel's `pwm_portityN` register
     /// (`true` = active-high, `false` = active-low).
+    #[instability::unstable]
     pub fn set_polarity(&mut self, active_high: bool) {
         let val = if active_high { 1u32 } else { 0u32 };
         match self.channel_index() {
@@ -351,11 +352,13 @@ impl<'d> PwmChannel<'d> {
     }
     /// Trigger output generation by writing this channel's bit (`1 << channel`)
     /// to the shared `pwm_start0` register.
+    #[instability::unstable]
     pub fn start(&mut self) {
         self.regs().pwm_start0().write(|w| unsafe { w.bits(1u32 << self.channel_index()) });
     }
     /// Set the number of pulses to emit via this channel's `pwm_period_valN`
     /// register (pulse-count / one-shot mode).
+    #[instability::unstable]
     pub fn set_pulse_count(&mut self, count: u32) {
         match self.channel_index() {
             0 => self.regs().pwm_period_val0().write(|w| unsafe { w.bits(count) }),
@@ -376,6 +379,7 @@ impl<'d> PwmChannel<'d> {
     /// [`PwmRunning`] marker so the intent is explicit and the channel is not
     /// silently leaked.
     #[must_use = "dropping the PwmRunning marker is fine, but assign it to make the leak intentional"]
+    #[instability::unstable]
     pub fn into_running(self) -> PwmRunning {
         core::mem::forget(self); // skip the disabling Drop — keep the output live
         PwmRunning(())
@@ -386,6 +390,7 @@ impl<'d> PwmChannel<'d> {
 /// left driving its output past the driver's scope (no disabling `Drop` ran).
 #[derive(Debug)]
 #[must_use]
+#[instability::unstable]
 pub struct PwmRunning(());
 
 impl Drop for PwmChannel<'_> {

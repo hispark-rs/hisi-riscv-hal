@@ -128,16 +128,14 @@ chip-bs21 = [
 # `rt`: riscv-rt integration. The weak `pac?/rt` enables the rt feature of whichever
 # PAC is active (its device.x interrupt vectors), without forcing the inactive one.
 rt = ["dep:critical-section", "ws63-pac?/rt", "bs2x-pac?/rt"]
-# `async`: interrupt + waker driven embedded-hal-async impls (DelayNs on a TIMER,
-# digital::Wait on GPIO) + a minimal WFI `block_on`. Needs critical-section for
-# the waker registry. Drivers do NOT auto-install ISRs — the app routes its trap
-# to `timer::on_interrupt` / `gpio::on_interrupt` (see ws63-examples/async_delay),
-# so enabling this feature never changes non-async firmware behaviour.
+# `async`: stable blocking-backed embedded-hal-async impls for SPI/I2C plus the
+# optional async dependencies. Interrupt+waker helpers (`asynch::block_on`,
+# GPIO Wait, TIMER DelayNs, UART async I/O, DMA/LSADC async hooks) additionally
+# require `unstable` until their HIL and cancellation/lost-wake invariants close.
 async = ["dep:embedded-hal-async", "dep:embedded-io-async", "dep:critical-section"]
-# `embassy`: an embassy-time `Driver` for the WS63 / BS2X family (now() from the
-# TCXO 64-bit counter, alarms from a TIMER channel). Lets embassy-time
-# (`Timer::after`, etc.) run under embassy-executor. The app routes the alarm
-# timer's trap to `embassy::on_alarm_interrupt` (see examples/*/embassy_multitask).
+# `embassy`: pulls the embassy-time dependencies. The public embassy-time driver
+# module is still behind `unstable` (no end-to-end HIL yet): use
+# `features = ["embassy", "unstable"]` to opt in.
 #
 # Deliberately does NOT enable `async`: the embassy-time driver only needs
 # critical-section + the embassy-time crates, whereas `async` pulls the
@@ -153,10 +151,10 @@ embassy = ["dep:critical-section", "dep:embassy-time-driver", "dep:embassy-time-
 hil-loopback = []
 # `defmt`: derive `defmt::Format` on the public error/config types (gated, additive).
 defmt = ["dep:defmt"]
-# `hil-rtc`: opt-in HIL test for the RTC counter. OFF by default because the
+# `hil-rtc`: opt-in UNSTABLE HIL test for the RTC counter. OFF by default because the
 # common WS63 EVB does not populate the RTC's 32.768 kHz crystal, so touching the
 # RTC registers stalls the bus / drops the debug link. Enable only on a board that
-# DOES populate the crystal: `--features chip-ws63,hil-rtc`.
+# DOES populate the crystal: `--features chip-ws63,hil-rtc,unstable`.
 hil-rtc = []
 # `unstable`: opt-in to not-yet-HIL-proven surfaces (peripheral-DMA unproven subset,
 # UartDma, embassy, untested WS63 drivers, and the entire BS2X chip target).

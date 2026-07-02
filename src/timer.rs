@@ -71,12 +71,14 @@ pub enum TimerError {
 
 /// Convert microseconds to timer ticks, or [`TimerError::TicksOverflow`] if the
 /// 32-bit load/period register would overflow (the old silent `u32::MAX` clamp).
+#[allow(dead_code)]
 const fn try_ticks_for_us(us: u32) -> Result<u32, TimerError> {
     let ticks = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
     if ticks > u32::MAX as u64 { Err(TimerError::TicksOverflow) } else { Ok(ticks as u32) }
 }
 
 /// Convert milliseconds to timer ticks, or [`TimerError::TicksOverflow`] on overflow.
+#[allow(dead_code)]
 const fn try_ticks_for_ms(ms: u32) -> Result<u32, TimerError> {
     let ticks = TIMER_CLOCK_HZ as u64 * ms as u64 / 1_000;
     if ticks > u32::MAX as u64 { Err(TimerError::TicksOverflow) } else { Ok(ticks as u32) }
@@ -261,11 +263,13 @@ impl<'d> TimerDriver<'d> {
     }
 
     /// Create a one-shot timer wrapper for the given channel.
+    #[instability::unstable]
     pub fn oneshot(&self, channel: TimerChannel) -> OneShotTimer<'_> {
         OneShotTimer { driver: self, channel }
     }
 
     /// Create a periodic timer wrapper for the given channel.
+    #[instability::unstable]
     pub fn periodic(&self, channel: TimerChannel) -> PeriodicTimer<'_> {
         PeriodicTimer { driver: self, channel }
     }
@@ -276,11 +280,13 @@ impl<'d> TimerDriver<'d> {
 /// One-shot timer wrapper.
 ///
 /// Counts down from a loaded value and stops when it reaches zero.
+#[instability::unstable]
 pub struct OneShotTimer<'a> {
     driver: &'a TimerDriver<'a>,
     channel: TimerChannel,
 }
 
+#[allow(dead_code)]
 impl OneShotTimer<'_> {
     /// Start the one-shot timer with a count value.
     ///
@@ -371,11 +377,13 @@ impl embedded_hal::delay::DelayNs for OneShotTimer<'_> {
 /// Periodic timer wrapper.
 ///
 /// Counts down and automatically reloads, generating an interrupt each cycle.
+#[instability::unstable]
 pub struct PeriodicTimer<'a> {
     driver: &'a TimerDriver<'a>,
     channel: TimerChannel,
 }
 
+#[allow(dead_code)]
 impl PeriodicTimer<'_> {
     /// Start the periodic timer with the given period in ticks.
     pub fn start(&mut self, period: u32) {

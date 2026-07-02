@@ -52,6 +52,7 @@ pub enum I2sMode {
 /// drives the vendor-default falling edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[instability::unstable]
 pub enum ClockEdge {
     /// Rising edge.
     Rising,
@@ -161,6 +162,7 @@ mod sealed {
 pub struct Master;
 /// Type-state marker: the I2S block **receives** BCLK and FS externally (clock slave).
 #[derive(Debug)]
+#[instability::unstable]
 pub struct Slave;
 impl sealed::Role for Master {}
 impl sealed::Role for Slave {}
@@ -199,6 +201,7 @@ impl Default for MasterConfig {
 /// Slave-mode configuration. A slave receives BCLK/FS externally, so there are no
 /// dividers; the externally-clocked sampling edge is selectable.
 #[derive(Debug, Clone, Copy)]
+#[instability::unstable]
 pub struct SlaveConfig {
     /// I2S or PCM framing.
     pub mode: I2sMode,
@@ -289,6 +292,7 @@ impl<'d> I2sDriver<'d, Master> {
 impl<'d> I2sDriver<'d, Slave> {
     /// Create and fully configure an I2S **slave** (BCLK/FS supplied externally;
     /// no dividers). Self-enables the bus clock so the FIFOs/registers are reachable.
+    #[instability::unstable]
     pub fn new_slave(i2s: I2s<'d>, config: &SlaveConfig) -> Self {
         enable_i2s_clock();
         let driver = Self { _i2s: i2s, _role: PhantomData };

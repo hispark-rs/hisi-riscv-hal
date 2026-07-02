@@ -50,6 +50,7 @@ impl<'d> TempSensor<'d> {
     }
 
     /// Disable the temperature sensor.
+    #[instability::unstable]
     pub fn disable(&mut self) {
         let r = self.regs();
         let ctrl = r.tsensor_ctrl().read().bits();
@@ -106,6 +107,7 @@ impl<'d> TempSensor<'d> {
     }
 
     /// Clear the temperature sensor status.
+    #[instability::unstable]
     pub fn clear_status(&mut self) {
         let r = self.regs();
         let sts = r.tsensor_sts().read().bits();

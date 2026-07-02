@@ -234,6 +234,7 @@ impl<'d> Uart<'d, Uart1<'d>> {
 
 impl<'d> Uart<'d, Uart2<'d>> {
     /// Create and configure a UART2 driver from the peripheral token and config.
+    #[instability::unstable]
     pub fn new_uart2(_uart: Uart2<'d>, config: Config) -> Self {
         configure_uart(UartPort::Uart2, &config);
         Self { _peripheral: PhantomData }
@@ -337,7 +338,12 @@ impl<T: UartInstance> Uart<'_, T> {
     }
 
     /// Return this UART's PAC register block.
-    pub fn register_block(&self) -> &'static crate::soc::pac::uart0::RegisterBlock {
+    ///
+    /// # Safety
+    /// This bypasses the typed UART driver. The caller must uphold all PAC
+    /// aliasing, ordering, and peripheral-state invariants.
+    #[instability::unstable]
+    pub unsafe fn register_block(&self) -> &'static crate::soc::pac::uart0::RegisterBlock {
         uart_regs(T::PORT)
     }
 }

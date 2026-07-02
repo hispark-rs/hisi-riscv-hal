@@ -106,11 +106,12 @@ unstable_driver! {
     pub mod asynch;
 }
 // D-cache maintenance (custom HiSilicon CSRs). WS63-only: the cache CSR layout is
-// core-specific and only validated on WS63. Needed for correct DMA on the
-// non-coherent core (clean source / invalidate destination around a transfer).
-/// D-cache maintenance via custom HiSilicon CSRs (clean/invalidate for DMA).
-#[cfg(feature = "chip-ws63")]
-pub mod cache;
+// core-specific and tied to the still-unstable DMA/cache-line ownership contract.
+unstable_module! {
+    /// D-cache maintenance via custom HiSilicon CSRs (clean/invalidate for DMA).
+    #[cfg(feature = "chip-ws63")]
+    pub mod cache;
+}
 /// Clock and reset generator metadata: audited peripheral clock-gate bits.
 #[cfg(feature = "chip-ws63")]
 pub mod clock;

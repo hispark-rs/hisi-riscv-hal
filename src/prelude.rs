@@ -12,11 +12,15 @@ pub use nb::block;
 pub use crate::Peripherals;
 #[cfg(feature = "unstable")]
 pub use crate::delay::Delay;
-pub use crate::gpio::{AnyPin, Flex, GpioBank, Input, InputConfig, InterruptTrigger, Output, OutputConfig, Pull};
+#[cfg(feature = "unstable")]
+pub use crate::gpio::InterruptTrigger;
+pub use crate::gpio::{AnyPin, Flex, GpioBank, Input, InputConfig, Output, OutputConfig, Pull};
 pub use crate::interrupt::{Interrupt, Priority, Threshold};
 pub use crate::tcxo::TcxoDriver;
 pub use crate::time::{Duration, Instant, Rate};
-pub use crate::timer::{OneShotTimer, PeriodicTimer, TimerChannel, TimerDriver};
+#[cfg(feature = "unstable")]
+pub use crate::timer::{OneShotTimer, PeriodicTimer};
+pub use crate::timer::{TimerChannel, TimerDriver};
 pub use crate::uart::{Uart, UartClock, UartPort};
 #[cfg(feature = "chip-ws63")]
 pub use crate::{io_config::IoConfigDriver, system::System};

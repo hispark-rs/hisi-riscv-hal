@@ -35,10 +35,12 @@ macro_rules! peripheral {
             /// Return a reference to the PAC register block.
             ///
             /// # Safety
-            /// The PAC pointer must be valid. It points to a static physical
-            /// MMIO address provided by the svd2rust-generated PAC.
+            /// This is a raw PAC escape hatch: the caller must uphold the
+            /// register block's aliasing, ordering, and peripheral-state
+            /// invariants. Prefer the typed HAL driver APIs when available.
             #[inline]
-            pub fn register_block(&self) -> &<$pac_ty as core::ops::Deref>::Target {
+            #[instability::unstable]
+            pub unsafe fn register_block(&self) -> &<$pac_ty as core::ops::Deref>::Target {
                 // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid
                 unsafe { &*Self::ptr() }
             }

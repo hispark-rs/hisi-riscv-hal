@@ -114,6 +114,7 @@ impl<'d> EfuseDriver<'d> {
     }
 
     /// Read the boot-done status register.
+    #[instability::unstable]
     pub fn status(&self) -> EfuseStatus {
         let sts = self.regs().efuse_sts().read();
         EfuseStatus {
@@ -183,6 +184,7 @@ fn default_clock_period() -> u8 {
 
 /// eFuse status information.
 #[derive(Debug, Clone, Copy)]
+#[instability::unstable]
 pub struct EfuseStatus {
     /// Manufacturing status (2-bit field).
     pub man_status: u8,
@@ -194,6 +196,7 @@ pub struct EfuseStatus {
     pub boot2_done: bool,
 }
 
+#[allow(dead_code)]
 impl EfuseStatus {
     /// Returns true if all boot stages completed successfully.
     pub fn boot_complete(&self) -> bool {

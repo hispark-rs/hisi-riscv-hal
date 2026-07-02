@@ -1,5 +1,5 @@
 /// RTC free-running counter advances (rtc.rs) — opt-in (`hil-rtc` feature).
-#[cfg(all(feature = "chip-ws63", feature = "hil-rtc"))]
+#[cfg(all(feature = "chip-ws63", feature = "hil-rtc", feature = "unstable"))]
 pub(crate) fn rtc_counter_advances() {
     use crate::hal;
     use core::hint::black_box;

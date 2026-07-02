@@ -281,21 +281,25 @@ impl<'d> Watchdog<'d> {
     }
 
     /// Check if a watchdog interrupt is pending (raw, unmasked).
+    #[instability::unstable]
     pub fn interrupt_pending(&self) -> bool {
         self.regs().wdt_raw_intr().read().bits() & 0x01 != 0
     }
 
     /// Check if a watchdog interrupt is pending (after mask).
+    #[instability::unstable]
     pub fn interrupt_masked(&self) -> bool {
         self.regs().wdt_intr().read().bits() & 0x01 != 0
     }
 
     /// Clear the watchdog interrupt (read from `WDT_EOI`).
+    #[instability::unstable]
     pub fn clear_interrupt(&self) {
         let _ = self.regs().wdt_eoi().read().bits();
     }
 
     /// Enable the watchdog interrupt (unmask).
+    #[instability::unstable]
     pub fn enable_interrupt(&mut self) {
         self.unlock();
         let cr = self.regs().wdt_cr().read().bits();
@@ -306,6 +310,7 @@ impl<'d> Watchdog<'d> {
     }
 
     /// Disable the watchdog interrupt (mask).
+    #[instability::unstable]
     pub fn disable_interrupt(&mut self) {
         self.unlock();
         let cr = self.regs().wdt_cr().read().bits();

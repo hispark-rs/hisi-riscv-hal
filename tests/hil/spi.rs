@@ -108,7 +108,7 @@ pub(crate) fn spi_dma_irq59_fires_on_completion() {
 
     unsafe { interrupt::enable_global() };
     block_on(async { sd.write_dma_async(chs.ch0, &TX.0[..]).await }).expect("SpiDma::write_dma_async failed");
-    interrupt::disable_global();
+    unsafe { interrupt::disable_global() };
     semihosting::println!("[spi-dma-irq59] IRQ 59 fired for peripheral DMA completion — async .await is viable");
 }
 
@@ -139,6 +139,6 @@ pub(crate) fn spi_dma_write_async() {
 
     unsafe { interrupt::enable_global() };
     block_on(async { sd.write_dma_async(chs.ch0, &TX.0[..]).await }).expect("SpiDma::write_dma_async failed");
-    interrupt::disable_global();
+    unsafe { interrupt::disable_global() };
     semihosting::println!("[spi-dma-async] SpiDma::write_dma_async ok for {N} bytes");
 }

@@ -29,6 +29,7 @@ pub enum Pull {
 
 /// GPIO interrupt trigger condition (sets `GPIO_INT_TYPE` + `GPIO_INT_POLARITY`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[instability::unstable]
 pub enum InterruptTrigger {
     /// Edge-sensitive, low→high transition.
     RisingEdge,
@@ -211,18 +212,21 @@ impl<'d> Input<'d> {
     }
 
     /// Enable the interrupt for this pin (sets its bit in `GPIO_INT_EN`).
+    #[instability::unstable]
     pub fn enable_interrupt(&self) {
         let r = regs(self.pin.block);
         r.gpio_int_en().modify(|r, w| unsafe { w.bits(r.bits() | (1 << self.pin.bit)) });
     }
 
     /// Disable the interrupt for this pin (clears its bit in `GPIO_INT_EN`).
+    #[instability::unstable]
     pub fn disable_interrupt(&self) {
         let r = regs(self.pin.block);
         r.gpio_int_en().modify(|r, w| unsafe { w.bits(r.bits() & !(1 << self.pin.bit)) });
     }
 
     /// Clear this pin's pending interrupt (writes its bit to `GPIO_INT_EOI`).
+    #[instability::unstable]
     pub fn clear_interrupt(&self) {
         unsafe { regs(self.pin.block).gpio_int_eoi().write(|w| w.bits(1 << self.pin.bit)) };
     }
@@ -231,6 +235,7 @@ impl<'d> Input<'d> {
     ///
     /// Configures `GPIO_INT_TYPE` (edge vs level) and `GPIO_INT_POLARITY`
     /// (rising/high vs falling/low). Call before [`enable_interrupt`](Self::enable_interrupt).
+    #[instability::unstable]
     pub fn set_interrupt_trigger(&self, trigger: InterruptTrigger) {
         let r = regs(self.pin.block);
         let mask = 1u32 << self.pin.bit;
@@ -245,6 +250,7 @@ impl<'d> Input<'d> {
     }
 
     /// Returns `true` if this pin's interrupt is pending (set in `GPIO_INT_RAW`).
+    #[instability::unstable]
     pub fn interrupt_pending(&self) -> bool {
         (regs(self.pin.block).gpio_int_raw().read().bits() >> self.pin.bit) & 1 != 0
     }
@@ -608,8 +614,13 @@ impl<'d> Io<'d> {
         Self { io_config }
     }
     /// Returns the raw IO_CONFIG register block.
-    pub fn register_block(&self) -> &crate::soc::pac::io_config::RegisterBlock {
-        self.io_config.register_block()
+    ///
+    /// # Safety
+    /// This bypasses the typed IO mux API. The caller must uphold all PAC
+    /// aliasing, ordering, and pin-mux invariants.
+    #[instability::unstable]
+    pub unsafe fn register_block(&self) -> &crate::soc::pac::io_config::RegisterBlock {
+        unsafe { self.io_config.register_block() }
     }
 }
 

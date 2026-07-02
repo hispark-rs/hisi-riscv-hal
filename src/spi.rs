@@ -159,6 +159,7 @@ impl<'d> Spi<'d, Spi0<'d>> {
 }
 impl<'d> Spi<'d, Spi1<'d>> {
     /// Create and configure the SPI1 master from its peripheral token.
+    #[instability::unstable]
     pub fn new_spi1(_spi: Spi1<'d>, config: Config) -> Self {
         configure_spi(1, &config);
         Self { idx: 1, _peripheral: PhantomData }
@@ -273,7 +274,12 @@ impl<'d, T> Spi<'d, T> {
     }
 
     /// Borrow the underlying PAC register block for this SPI instance.
-    pub fn register_block(&self) -> &'static crate::soc::pac::spi0::RegisterBlock {
+    ///
+    /// # Safety
+    /// This bypasses the typed SPI driver. The caller must uphold all PAC
+    /// aliasing, ordering, and peripheral-state invariants.
+    #[instability::unstable]
+    pub unsafe fn register_block(&self) -> &'static crate::soc::pac::spi0::RegisterBlock {
         spi_regs(self.idx)
     }
 

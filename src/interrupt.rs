@@ -471,7 +471,13 @@ pub unsafe fn enable_global() {
 }
 
 /// Clear the global machine-interrupt enable (`mstatus.MIE`).
-pub fn disable_global() {
+///
+/// # Safety
+/// After this call interrupts stay globally masked until code explicitly
+/// re-enables them. The caller must keep the masked region short and must not
+/// wait on hardware, run transfers, call callbacks, or enter async executors
+/// while interrupts are disabled.
+pub unsafe fn disable_global() {
     #[cfg(target_arch = "riscv32")]
     unsafe {
         core::arch::asm!("csrci mstatus, 0x8", options(nomem, nostack))
@@ -480,7 +486,13 @@ pub fn disable_global() {
 
 /// Run `f` with machine interrupts globally masked, restoring the previous
 /// `mstatus.MIE` afterwards (nesting-safe — only re-enables if it was enabled).
-pub fn free<F, R>(f: F) -> R
+///
+/// # Safety
+/// The closure runs with interrupts globally masked. It must be short,
+/// non-blocking, and limited to small Rust metadata updates; it must not touch
+/// long-running MMIO paths, transfers, delays, callbacks, or async executors.
+#[instability::unstable]
+pub unsafe fn free<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {

@@ -311,7 +311,7 @@ mod tests {
         crate::lsadc::lsadc_scan_config();
     }
 
-    #[cfg(all(feature = "chip-ws63", feature = "hil-rtc"))]
+    #[cfg(all(feature = "chip-ws63", feature = "hil-rtc", feature = "unstable"))]
     #[test]
     fn rtc_counter_advances() {
         crate::rtc::rtc_counter_advances();
