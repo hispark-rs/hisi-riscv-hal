@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **HIL default driver suite expanded to 25 self-contained WS63 tests, all passing
+  on silicon** via `probe-rs run` + `embedded-test`. New coverage: UART boot-clock
+  divider and TX flush, I2C invalid 7-bit address rejection, PWM `SetDutyCycle`
+  out-of-range error, TCXO 64-bit counter, TRNG byte fill path, and WDT counter/feed
+  liveness.
+
 ## [0.6.0] - 2026-07-01
 
 ### Changed (BREAKING)

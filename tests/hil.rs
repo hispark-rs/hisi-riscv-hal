@@ -188,6 +188,23 @@ mod tests {
         assert!(b > a, "TCXO counter did not advance: first=0x{:08x} second=0x{:08x}", a, b);
     }
 
+    /// TCXO full 64-bit counter path (tcxo.rs). The 32-bit fast path is covered by
+    /// `tcxo_counter_monotonic`; this exercises the four-register 64-bit assembly
+    /// on live silicon and proves it also refreshes/advances.
+    #[test]
+    fn tcxo_counter64_monotonic() {
+        use hal::tcxo::TcxoDriver;
+        // SAFETY: sequential single-hart run; TCXO singleton not otherwise held.
+        let tcxo = TcxoDriver::new(unsafe { hal::peripherals::Tcxo::steal() });
+
+        let a = tcxo.read_counter().expect("first TCXO64 refresh timed out");
+        for _ in 0..50_000 {
+            black_box(0u32);
+        }
+        let b = tcxo.read_counter().expect("second TCXO64 refresh timed out");
+        assert!(b > a, "TCXO64 counter did not advance: first=0x{a:016x} second=0x{b:016x}");
+    }
+
     /// Timer counter advances (timer.rs / examples/ws63/timer_irq). Configure
     /// TIMER channel 0 in periodic mode with a large load, enable it, and read the
     /// down-counter (`timer0_current_value`) twice with a busy-wait between;
@@ -423,6 +440,52 @@ mod tests {
         assert_eq!(r.div_fra().read().bits(), exp_div_fra, "UART0 div_fra mismatch");
     }
 
+    /// UART boot-clock divider configuration (uart.rs). Examples that do not run
+    /// `clock_init` must use `UartClock::Boot`, which probes the live flashboot
+    /// TCXO strap (24/40 MHz). This pins the typed clock selection to the actual
+    /// divider registers on silicon.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn uart0_boot_clock_divider_config() {
+        use hal::uart::{Config, Uart, UartClock};
+        let cfg = Config { clock: UartClock::Boot, ..Config::default() };
+        // SAFETY: sequential single-hart run; UART0 singleton not otherwise held.
+        let _uart = Uart::new_uart0(unsafe { hal::peripherals::Uart0::steal() }, cfg);
+
+        let pclk = hal::soc::chip::uart_boot_clock_hz();
+        assert!(
+            pclk == hal::soc::chip::UART_BOOT_CLOCK_24M_HZ || pclk == hal::soc::chip::UART_BOOT_CLOCK_40M_HZ,
+            "unexpected boot UART clock {pclk} Hz",
+        );
+        let div64 = ((pclk as u64) * 4 / (cfg.baudrate.baud() as u64)) as u32;
+        let div = div64 >> 6;
+        let exp_div_fra = (div64 & 0x3F) as u16;
+        let exp_div_l = (div & 0xFF) as u16;
+        let exp_div_h = ((div >> 8) & 0xFF) as u16;
+
+        // SAFETY: read-only MMIO loads of the UART0 divider registers.
+        let r = unsafe { &*pac::Uart0::PTR };
+        assert_eq!(r.div_l().read().bits(), exp_div_l, "UART0 boot div_l mismatch");
+        assert_eq!(r.div_h().read().bits(), exp_div_h, "UART0 boot div_h mismatch");
+        assert_eq!(r.div_fra().read().bits(), exp_div_fra, "UART0 boot div_fra mismatch");
+    }
+
+    /// UART blocking write + flush liveness (uart.rs). Sends a short marker through
+    /// UART0 using the boot clock so the byte stream is useful on a connected serial
+    /// adapter, then asserts the TX FIFO drains.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn uart0_write_and_flush() {
+        use hal::uart::{Config, Uart, UartClock};
+        let cfg = Config { clock: UartClock::Boot, ..Config::default() };
+        // SAFETY: sequential single-hart run; UART0 singleton not otherwise held.
+        let uart = Uart::new_uart0(unsafe { hal::peripherals::Uart0::steal() }, cfg);
+
+        uart.write(b"[hil] uart0_write_and_flush\r\n");
+        uart.flush_tx();
+        assert!(uart.tx_flushed(), "UART0 TX FIFO did not drain after flush_tx()");
+    }
+
     // (A pwm0_period_duty_config register-config test was tried but needs full
     // PWM clock-tree bring-up — the 9-bit CKEN_CTL0 field AND the CLDO_CRG_DIV_CTL3
     // dividers with LOAD_DIV_EN, per vendor `pwm_port_clock_enable` — before the
@@ -453,6 +516,20 @@ mod tests {
         assert!(got >= 2, "TRNG produced fewer than 2 words (got {got})");
         let all_same = samples[..got].iter().all(|&w| w == samples[0]);
         assert!(!all_same, "TRNG returned {got} identical words 0x{:08x} — no entropy", samples[0]);
+    }
+
+    /// TRNG fill path (trng.rs). `read_blocking` is covered above; this exercises the
+    /// stable byte-fill helper, including the word-to-byte packing loop.
+    #[test]
+    fn trng_fill_bytes_produces_data() {
+        use hal::trng::TrngDriver;
+        // SAFETY: sequential single-hart run; TRNG singleton not otherwise held.
+        let trng = TrngDriver::new(unsafe { hal::peripherals::Trng::steal() });
+        let mut buf = [0u8; 16];
+
+        trng.fill_bytes(&mut buf).expect("TRNG fill_bytes timed out");
+        let all_same = buf.iter().all(|&b| b == buf[0]);
+        assert!(!all_same, "TRNG fill_bytes returned 16 identical bytes 0x{:02x}", buf[0]);
     }
 
     /// eFuse read path (efuse.rs / reset_demo). The driver programs the detected
@@ -519,6 +596,25 @@ mod tests {
         assert!(r.i2c_ctrl().read().i2c_en().bit_is_set(), "I2C0 i2c_en not set after new_i2c0");
     }
 
+    /// I2C 7-bit address validation (i2c.rs). Invalid addresses must fail before
+    /// any START/bus transaction, so this test needs no external I2C device.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn i2c0_rejects_invalid_7bit_address() {
+        use embedded_hal::i2c::I2c as _;
+        use hal::i2c::{I2c, I2cError, Speed};
+        // SAFETY: sequential single-hart run; I2C0 singleton not otherwise held.
+        let mut i2c = I2c::new_i2c0(unsafe { hal::peripherals::I2c0::steal() }, Speed::Standard);
+
+        assert!(matches!(i2c.write(0x80, &[]), Err(I2cError::InvalidAddress)));
+        let mut one = [0u8; 1];
+        assert!(matches!(i2c.read(0x80, &mut one), Err(I2cError::InvalidAddress)));
+        assert!(matches!(i2c.write_read(0x80, &[0], &mut one), Err(I2cError::InvalidAddress)));
+
+        let mut ops = [embedded_hal::i2c::Operation::Write(&[0x00])];
+        assert!(matches!(i2c.transaction(0x80, &mut ops), Err(I2cError::InvalidAddress)));
+    }
+
     /// PWM typed config + clock-tree bring-up (pwm.rs). `configure` brings up the
     /// PWM clock tree itself (CLK_SEL high-freq + CKEN_CTL0 [10:2] + DIV_CTL3
     /// divider, per vendor `pwm_port_clock_enable`) and takes a validated
@@ -550,6 +646,29 @@ mod tests {
         assert_eq!(r.pwm_en0().read().bits() & 1, 0, "PWM ch0 still enabled after disable");
     }
 
+    /// PWM embedded-hal duty validation (pwm.rs). The typed HAL config is already
+    /// unrepresentable for bad duty percentages; the trait surface must reject a
+    /// raw duty greater than `max_duty_cycle()` instead of silently writing it.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn pwm_set_duty_cycle_rejects_out_of_range() {
+        use embedded_hal::pwm::SetDutyCycle;
+        use hal::pwm::{Duty, PwmChannel, PwmChannelId, PwmError, PwmPeriod};
+        // SAFETY: sequential single-hart run; PWM singleton not otherwise held.
+        let pwm = unsafe { hal::peripherals::Pwm::steal() };
+        let mut ch = PwmChannel::new(&pwm, PwmChannelId::Ch0);
+        let period = PwmPeriod::from_count(100).unwrap();
+        ch.configure(period, Duty::HALF);
+
+        assert_eq!(ch.max_duty_cycle(), 100);
+        ch.set_duty_cycle(75).expect("in-range duty should be accepted");
+        assert!(matches!(ch.set_duty_cycle(101), Err(PwmError::DutyOutOfRange)));
+
+        // SAFETY: read-only MMIO load of the PWM ch0 duty register.
+        let r = unsafe { &*pac::Pwm::PTR };
+        assert_eq!(r.pwm_duty_l0().read().bits(), 75, "rejected duty should not overwrite last valid duty");
+    }
+
     /// Watchdog timeout **validation + load programming** (wdt.rs).
     /// The old silent u64-saturation is gone: an out-of-range timeout (300 s, far
     /// beyond the 24-bit `wdt_load[31:8]` field's ~178 s ceiling at 24 MHz) is now
@@ -579,6 +698,31 @@ mod tests {
         let r = unsafe { &*pac::Wdt::PTR };
         let load = r.wdt_load().read().bits() >> 8;
         assert_eq!(load, expected, "WDT load mismatch: got 0x{:06x} want 0x{:06x}", load, expected);
+        wdt.disable();
+    }
+
+    /// Watchdog counter + feed liveness (wdt.rs). Configure with reset disabled,
+    /// read the live counter through the bounded latch path, feed it, and read again.
+    /// This covers the stable operational methods without risking a board reset.
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn wdt_counter_value_and_feed() {
+        use hal::wdt::{ResetPulseLength, Watchdog, WdtMode, WdtTimeout};
+        // SAFETY: sequential single-hart run; WDT singleton not otherwise held.
+        let mut wdt = Watchdog::new(unsafe { hal::peripherals::Wdt::steal() });
+        wdt.configure(
+            WdtTimeout::from_ms(1_000).unwrap(),
+            WdtMode::SingleInterrupt,
+            false, // reset DISABLED — this test must never reboot the board
+            ResetPulseLength::Cycles2,
+        )
+        .expect("configure should succeed on live silicon");
+
+        let before = wdt.counter_value().expect("first WDT counter latch timed out");
+        wdt.feed();
+        let after = wdt.counter_value().expect("second WDT counter latch timed out");
+        assert_ne!(before, 0xFFFF_FFFF, "WDT counter read returned the bus-floating all-ones pattern");
+        assert_ne!(after, 0xFFFF_FFFF, "WDT counter read after feed returned all-ones");
         wdt.disable();
     }
 
