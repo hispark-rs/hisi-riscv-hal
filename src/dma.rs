@@ -714,6 +714,14 @@ pub struct Transfer<'d, SRC, DST> {
     bytes: usize,
 }
 
+/// Driver, channel token, and buffers recovered from a completed DMA transfer.
+#[instability::unstable]
+pub type DmaTransferParts<'d, SRC, DST> = (DmaDriver<'d, Dma0>, DmaChannel, SRC, DST);
+
+/// Result returned by [`Transfer::wait`].
+#[instability::unstable]
+pub type DmaWaitResult<'d, SRC, DST> = Result<DmaTransferParts<'d, SRC, DST>, DmaWaitError<'d, SRC, DST>>;
+
 impl<'d, SRC, DST> Transfer<'d, SRC, DST> {
     /// True once the channel has auto-cleared its enable bit (single-block done).
     pub fn is_done(&self) -> bool {
@@ -729,7 +737,7 @@ impl<'d, SRC, DST> Transfer<'d, SRC, DST> {
     /// disable) *before* the buffers are handed back, so the DMA engine is provably
     /// stopped before the buffers can be freed. A wedged transfer is reported as
     /// [`DmaError::Timeout`] with the driver, channel token, and buffers returned.
-    pub fn wait(self) -> Result<(DmaDriver<'d, Dma0>, DmaChannel, SRC, DST), DmaWaitError<'d, SRC, DST>> {
+    pub fn wait(self) -> DmaWaitResult<'d, SRC, DST> {
         // Skip the abort-on-drop: the transfer is completing normally.
         let mut this = ManuallyDrop::new(self);
         let mut n = DMA_WAIT_LOOPS;

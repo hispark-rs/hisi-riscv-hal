@@ -172,21 +172,3 @@ unstable = []
 [[test]]
 name = "hil"
 harness = false
-
-[profile.release]
-opt-level = "s"
-lto = true
-
-[profile.dev]
-opt-level = "s"
-
-# Standalone builds (this repo's own CI) pull the PACs from crates.io. ws63-pac's
-# published version lags the generated PAC, and bs2x-pac is not published at all,
-# so the optional `bs2x-pac` dep (pulled by chip-bs21) would fail to resolve even
-# for default-feature jobs (Cargo resolves ALL optional deps when building the lock
-# graph). Patch both to their git sources so standalone CI resolves + builds against
-# current source. IGNORED inside the hisi-riscv-rs workspace, whose root manifest
-# patches both to local paths (only the workspace-root [patch] applies).
-[patch.crates-io]
-ws63-pac = { git = "https://github.com/hispark-rs/ws63-pac" }
-bs2x-pac = { git = "https://github.com/hispark-rs/bs2x-pac" }
