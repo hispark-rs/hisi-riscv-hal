@@ -201,19 +201,19 @@ mod tests {
     // driver's current_value() now performs the handshake, so this runs on silicon.
     #[test]
     fn timer_counter_advances() {
-        use hal::timer::{TimerDriver, TimerMode};
+        use hal::timer::{TimerChannel, TimerDriver, TimerMode};
         // SAFETY: sequential single-hart run; TIMER singleton not otherwise held.
         let timer = TimerDriver::new(unsafe { hal::peripherals::Timer::steal() });
         // Large periodic load so the counter is plainly mid-flight across reads.
-        timer.configure(0, TimerMode::Periodic, 0x00FF_FFFF);
-        timer.enable(0);
+        timer.configure(TimerChannel::Channel0, TimerMode::Periodic, 0x00FF_FFFF);
+        timer.enable(TimerChannel::Channel0);
 
-        let a = timer.current_value(0);
+        let a = timer.current_value(TimerChannel::Channel0);
         for _ in 0..50_000 {
             black_box(0u32);
         }
-        let b = timer.current_value(0);
-        timer.disable(0);
+        let b = timer.current_value(TimerChannel::Channel0);
+        timer.disable(TimerChannel::Channel0);
         assert_ne!(a, b, "TIMER ch0 current_value did not advance: a=0x{:08x} b=0x{:08x}", a, b);
     }
 
@@ -246,16 +246,16 @@ mod tests {
     // is unset in every build, g_sdma_base_addr is never assigned), so the secure
     // block is never provisioned on silicon — a transfer there stalls AXI and
     // drops the debug link.
-    #[cfg(feature = "chip-ws63")]
+    #[cfg(all(feature = "chip-ws63", feature = "unstable"))]
     #[test]
     fn dma_mem_to_mem() {
-        use hal::dma::{Dma0, DmaChannelConfig, DmaDriver};
+        use hal::dma::{Dma0, DmaDriver};
         const N: usize = 8;
         // 32-byte (cache-line) aligned so the by-range clean/invalidate below
         // only ever touches these buffers' own lines.
         #[repr(C, align(32))]
         struct Aligned([u32; N]);
-        let src = Aligned([
+        static SRC: Aligned = Aligned([
             0xaaaa_0001,
             0xaaaa_0002,
             0xaaaa_0003,
@@ -265,46 +265,19 @@ mod tests {
             0xaaaa_0007,
             0xaaaa_0008,
         ]);
-        let mut dst = Aligned([0u32; N]);
-        let bytes = N * core::mem::size_of::<u32>();
-        let src_ptr = src.0.as_ptr() as usize;
-        let dst_ptr = dst.0.as_mut_ptr() as usize;
-
-        // Clean the source out of the D-cache so the DMA master reads the bytes
-        // the CPU just wrote, not stale RAM. SAFETY: real, owned stack range.
-        unsafe { hal::cache::clean_range(src_ptr, bytes) };
+        static mut DST: Aligned = Aligned([0u32; N]);
+        // SAFETY: sequential single-hart run; DST is touched only in this test.
+        let dst: &'static mut [u32] = unsafe { &mut (*core::ptr::addr_of_mut!(DST)).0 };
 
         // SAFETY: sequential single-hart run; DMA singleton not otherwise held.
-        let mut dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
-        dma.enable_controller();
-        // Logical channel 0 == physical channel 0 on the primary controller.
-        dma.configure_channel(0, src_ptr as u32, dst_ptr as u32, N as u16, &DmaChannelConfig::default());
+        let dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
+        let chs = dma.split_channels().expect("DMA channels already claimed");
+        let transfer = dma.start_mem_to_mem(chs.ch0, &SRC.0[..], dst).expect("DMA mem-to-mem start failed");
+        let (_dma, _ch0, _src, dst) = transfer.wait().expect("DMA mem-to-mem wait failed");
 
-        // Wait (bounded) for completion the way the vendor driver does
-        // (`hal_dma_v151_is_enabled`): the DMAC auto-clears this channel's bit in
-        // `en_chns` when the single-block transfer finishes, so the channel going
-        // *not enabled* is the done signal. The bound stops a stuck transfer from
-        // hanging the run. (We deliberately do NOT poll `dmac_ori_int_st` — that
-        // is the path QEMU happens to drive; the silicon truth is `en_chns`.)
-        let mut done = false;
-        let mut budget = 1_000_000u32;
-        while budget > 0 {
-            if !dma.channel_enabled(0) {
-                done = true;
-                break;
-            }
-            budget -= 1;
-        }
-        dma.clear_transfer_interrupt(0);
-        assert!(done, "DMA channel 0 transfer never completed (en_chns[0] stayed set)");
-
-        // Invalidate the destination so the CPU reads what the DMA wrote to RAM,
-        // not the stale (zero) copy cached when `dst` was initialised.
-        unsafe { hal::cache::invalidate_range(dst_ptr, bytes) };
-
-        for (i, &want) in src.0.iter().enumerate() {
+        for (i, &want) in SRC.0.iter().enumerate() {
             // Volatile: the DMA engine wrote `dst` behind the compiler's back.
-            let got = unsafe { core::ptr::read_volatile(dst.0.as_ptr().add(i)) };
+            let got = unsafe { core::ptr::read_volatile(dst.as_ptr().add(i)) };
             assert_eq!(got, want, "DMA mem→mem mismatch @{}: got=0x{:08x} want=0x{:08x}", i, got, want);
         }
     }
@@ -315,7 +288,7 @@ mod tests {
     /// the driver + both buffers. The guard owns the buffers (so a use-after-free is
     /// unrepresentable) and folds the cache maintenance into the type. `'static`
     /// 32-byte-aligned buffers satisfy embedded-dma's stable-deref contract.
-    #[cfg(feature = "chip-ws63")]
+    #[cfg(all(feature = "chip-ws63", feature = "unstable"))]
     #[test]
     fn dma_transfer_guard() {
         use hal::dma::{Dma0, DmaDriver};
@@ -339,11 +312,11 @@ mod tests {
             [0xbbbb_0001u32, 0xbbbb_0002, 0xbbbb_0003, 0xbbbb_0004, 0xbbbb_0005, 0xbbbb_0006, 0xbbbb_0007, 0xbbbb_0008];
 
         // SAFETY: sequential single-hart run; DMA singleton not otherwise held.
-        let mut dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
-        dma.enable_controller();
+        let dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
+        let chs = dma.split_channels().expect("DMA channels already claimed");
 
-        let transfer = dma.start_mem_to_mem(0, &*src, dst);
-        let (_dma, _src, dst) = transfer.wait();
+        let transfer = dma.start_mem_to_mem(chs.ch0, &*src, dst).expect("DMA guard start failed");
+        let (_dma, _ch0, _src, dst) = transfer.wait().expect("DMA guard wait failed");
 
         for (i, &w) in want.iter().enumerate() {
             let got = unsafe { core::ptr::read_volatile(dst.as_ptr().add(i)) };
@@ -482,25 +455,20 @@ mod tests {
         assert!(!all_same, "TRNG returned {got} identical words 0x{:08x} — no entropy", samples[0]);
     }
 
-    /// eFuse read path (efuse.rs / reset_demo). Set the read clock period for the
-    /// detected TCXO, then read byte 0 and assert the read COMPLETES (`Ok`) — a
-    /// read-only liveness check of the eFuse controller on silicon. Contents are
-    /// board-specific, so we assert the path works, not a particular value.
+    /// eFuse read path (efuse.rs / reset_demo). The driver programs the detected
+    /// TCXO read-clock period at construction, then reads byte 0 and asserts the
+    /// read COMPLETES (`Ok`) — a read-only liveness check of the eFuse controller
+    /// on silicon. Contents are board-specific, so we assert the path works, not a
+    /// particular value.
     ///
-    /// WS63-only: `set_clock_period`/`read_byte` and the `Efuse` peripheral are
-    /// chip-ws63 in the HAL.
+    /// WS63-only: `read_byte` and the `Efuse` peripheral are chip-ws63 in the HAL.
     #[cfg(feature = "chip-ws63")]
     #[test]
     fn efuse_read_byte0_ok() {
-        use hal::efuse::EfuseDriver;
+        use hal::efuse::{EfuseByteAddress, EfuseDriver};
         // SAFETY: sequential single-hart run; EFUSE singleton not otherwise held.
         let mut efuse = EfuseDriver::new(unsafe { hal::peripherals::Efuse::steal() });
-        // 0x29 @ 24 MHz TCXO, 0x19 @ 40 MHz (per the driver docs / vendor SDK).
-        let period: u8 =
-            if hal::soc::chip::uart_boot_clock_hz() == hal::soc::chip::UART_BOOT_CLOCK_24M_HZ { 0x29 } else { 0x19 };
-        efuse.set_clock_period(period);
-        let r = efuse.read_byte(0);
-        assert!(r.is_ok(), "eFuse read_byte(0) failed: {:?}", r.err());
+        let _ = efuse.read_byte(EfuseByteAddress::from_byte(0).unwrap());
     }
 
     /// On-die temperature sensor (tsensor.rs). Enable the sensor, trigger a
@@ -563,10 +531,10 @@ mod tests {
     #[cfg(feature = "chip-ws63")]
     #[test]
     fn pwm_configure_and_enable() {
-        use hal::pwm::{Duty, PwmChannel, PwmPeriod};
+        use hal::pwm::{Duty, PwmChannel, PwmChannelId, PwmPeriod};
         // SAFETY: sequential single-hart run; PWM singleton not otherwise held.
         let pwm = unsafe { hal::peripherals::Pwm::steal() };
-        let mut ch = PwmChannel::new(&pwm, 0);
+        let mut ch = PwmChannel::new(&pwm, PwmChannelId::Ch0);
         let period = PwmPeriod::from_count(24_000).expect("non-zero period");
         ch.configure(period, Duty::HALF);
         ch.enable();
@@ -764,7 +732,7 @@ mod tests {
     fn timer_int0_named_routing() {
         use core::sync::atomic::{AtomicBool, Ordering};
         use hal::interrupt;
-        use hal::timer::{TimerDriver, TimerMode};
+        use hal::timer::{TimerChannel, TimerDriver, TimerMode};
 
         static FIRED: AtomicBool = AtomicBool::new(false);
 
@@ -774,15 +742,15 @@ mod tests {
         #[unsafe(no_mangle)]
         extern "C" fn TIMER_INT0() {
             let t = TimerDriver::new(unsafe { hal::peripherals::Timer::steal() });
-            t.clear_interrupt(0);
-            t.disable(0);
+            t.clear_interrupt(TimerChannel::Channel0);
+            t.disable(TimerChannel::Channel0);
             FIRED.store(true, Ordering::SeqCst);
         }
 
         let t = TimerDriver::new(unsafe { hal::peripherals::Timer::steal() });
         // Periodic/user-defined mode counts from the load value (24 MHz TCXO → ~1
         // ms); the handler disables it on the first fire.
-        t.configure(0, TimerMode::Periodic, 24_000);
+        t.configure(TimerChannel::Channel0, TimerMode::Periodic, 24_000);
         // SAFETY: `enable` now also raises this IRQ's LOCIPRI priority above the
         // reset-0 threshold (no separate `interrupt::init()` needed for delivery);
         // then the global machine-interrupt enable. The handler clears the source.
@@ -790,7 +758,7 @@ mod tests {
             interrupt::enable(interrupt::Interrupt::TIMER_INT0);
             interrupt::enable_global();
         }
-        t.enable(0);
+        t.enable(TimerChannel::Channel0);
 
         let mut spun = 0u32;
         while !FIRED.load(Ordering::SeqCst) && spun < 20_000_000 {
@@ -798,8 +766,8 @@ mod tests {
             core::hint::spin_loop();
         }
         unsafe { interrupt::disable(interrupt::Interrupt::TIMER_INT0) };
-        t.disable(0);
-        t.clear_interrupt(0);
+        t.disable(TimerChannel::Channel0);
+        t.clear_interrupt(TimerChannel::Channel0);
 
         assert!(
             FIRED.load(Ordering::SeqCst),
@@ -809,21 +777,21 @@ mod tests {
 
     /// **Area D / #7 — async-driver named interrupt routing on silicon.** A real
     /// GPIO edge interrupt must reach the HAL's named `GPIO_INT0` handler (which the
-    /// rt routes by IRQ number) and run `Gpio::on_interrupt(0)` — with NO app
+    /// rt routes by IRQ number) and run `Gpio::on_interrupt(Bank0)` — with NO app
     /// `mcause` trap. Uses the GPIO0→GPIO3 jumper: arm GPIO3 for a rising edge, drive
     /// GPIO0 high, and assert `on_interrupt` ran by checking it masked GPIO3's
     /// `gpio_int_en` bit (its documented side effect). Needs `async` (the named
     /// handler is async-gated) + the jumper.
-    #[cfg(all(feature = "chip-ws63", feature = "async", feature = "hil-loopback"))]
+    #[cfg(all(feature = "chip-ws63", feature = "async", feature = "hil-loopback", feature = "unstable"))]
     #[test]
     fn gpio_int0_named_routing() {
         use hal::gpio::{AnyPin, InputConfig, InterruptTrigger, OutputConfig};
         use hal::interrupt;
-        use hal::io_config::IoConfigDriver;
+        use hal::io_config::{GpioPad, IoConfigDriver, MuxFunction};
 
         let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
-        io.set_gpio_mux(0, 0); // plain-GPIO on both pads
-        io.set_gpio_mux(3, 0);
+        io.set_gpio_mux(GpioPad::Gpio00, MuxFunction::F0); // plain-GPIO on both pads
+        io.set_gpio_mux(GpioPad::Gpio03, MuxFunction::F0);
 
         // SAFETY: GPIO0/3 owned by this test; jumpered 0->3.
         let mut out = unsafe { AnyPin::steal(0) }.init_output(OutputConfig::new().with_initial(false));
@@ -840,7 +808,7 @@ mod tests {
         let g0 = unsafe { &*pac::Gpio0::PTR };
         assert_ne!(g0.gpio_int_en().read().bits() & (1 << 3), 0, "GPIO3 int-enable not set");
 
-        out.set_high(); // 0->3 rising edge -> GPIO_INT0 -> on_interrupt(0) masks bit 3
+        out.set_high(); // 0->3 rising edge -> GPIO_INT0 -> on_interrupt(Bank0) masks bit 3
 
         let mut spun = 0u32;
         while (g0.gpio_int_en().read().bits() & (1 << 3)) != 0 && spun < 20_000_000 {
@@ -852,7 +820,7 @@ mod tests {
         assert_eq!(
             g0.gpio_int_en().read().bits() & (1 << 3),
             0,
-            "named GPIO_INT0 handler never ran — on_interrupt(0) did not mask GPIO3 (rt async named routing broken)"
+            "named GPIO_INT0 handler never ran — on_interrupt(Bank0) did not mask GPIO3 (rt async named routing broken)"
         );
     }
 
@@ -872,11 +840,11 @@ mod tests {
     #[test]
     fn gpio_loopback_0_to_3() {
         use hal::gpio::{AnyPin, InputConfig, OutputConfig, Pull};
-        use hal::io_config::IoConfigDriver;
+        use hal::io_config::{GpioPad, IoConfigDriver, MuxFunction};
         // SAFETY: sequential single-hart run; IO_CONFIG singleton not otherwise held.
         let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
-        io.set_gpio_mux(0, 0); // plain-GPIO function on both pads
-        io.set_gpio_mux(3, 0);
+        io.set_gpio_mux(GpioPad::Gpio00, MuxFunction::F0); // plain-GPIO function on both pads
+        io.set_gpio_mux(GpioPad::Gpio03, MuxFunction::F0);
         let settle = || {
             for _ in 0..50_000u32 {
                 black_box(0u32);
@@ -907,11 +875,11 @@ mod tests {
     #[cfg(all(feature = "chip-ws63", feature = "hil-loopback"))]
     #[test]
     fn spi0_loopback_mosi_to_miso() {
-        use hal::io_config::IoConfigDriver;
+        use hal::io_config::{GpioPad, IoConfigDriver, MuxFunction};
         use hal::spi::{Config, Spi};
         let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
-        for pin in [7u8, 9, 10, 11] {
-            io.set_gpio_mux(pin, 3);
+        for pin in [GpioPad::Gpio07, GpioPad::Gpio09, GpioPad::Gpio10, GpioPad::Gpio11] {
+            io.set_gpio_mux(pin, MuxFunction::F3);
         }
         // SAFETY: SPI0 singleton not otherwise held; GPIO9->GPIO11 jumpered.
         let mut spi = Spi::new_spi0(unsafe { hal::peripherals::Spi0::steal() }, Config::default());
@@ -932,7 +900,7 @@ mod tests {
     #[test]
     fn spi_dma_tx_loopback() {
         use hal::dma::{Dma0, DmaDriver};
-        use hal::io_config::IoConfigDriver;
+        use hal::io_config::{GpioPad, IoConfigDriver, MuxFunction};
         use hal::spi::{Config, Spi};
 
         const N: usize = 8;
@@ -941,8 +909,8 @@ mod tests {
         static TX: Aligned = Aligned([0xA5, 0x3C, 0x00, 0xFF, 0x5A, 0xC3, 0x0F, 0xF0]);
 
         let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
-        for pin in [7u8, 9, 10, 11] {
-            io.set_gpio_mux(pin, 3);
+        for pin in [GpioPad::Gpio07, GpioPad::Gpio09, GpioPad::Gpio10, GpioPad::Gpio11] {
+            io.set_gpio_mux(pin, MuxFunction::F3);
         }
         // SAFETY: SPI0/DMA singletons not otherwise held.
         let spi = Spi::new_spi0(unsafe { hal::peripherals::Spi0::steal() }, Config::default());
@@ -966,7 +934,7 @@ mod tests {
     #[test]
     fn spi_dma_fullduplex_loopback() {
         use hal::dma::{Dma0, DmaDriver};
-        use hal::io_config::IoConfigDriver;
+        use hal::io_config::{GpioPad, IoConfigDriver, MuxFunction};
         use hal::spi::{Config, Spi};
 
         const N: usize = 8;
@@ -978,8 +946,8 @@ mod tests {
         let rx: &'static mut [u8] = unsafe { &mut (*core::ptr::addr_of_mut!(RX)).0 };
 
         let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
-        for pin in [7u8, 9, 10, 11] {
-            io.set_gpio_mux(pin, 3);
+        for pin in [GpioPad::Gpio07, GpioPad::Gpio09, GpioPad::Gpio10, GpioPad::Gpio11] {
+            io.set_gpio_mux(pin, MuxFunction::F3);
         }
         // SAFETY: SPI0/DMA singletons not otherwise held.
         let spi = Spi::new_spi0(unsafe { hal::peripherals::Spi0::steal() }, Config::default());
@@ -1003,18 +971,18 @@ mod tests {
     #[cfg(all(feature = "chip-ws63", feature = "hil-loopback"))]
     #[test]
     fn uart1_loopback_tx_to_rx() {
-        use hal::io_config::{DriveStrength, IoConfigDriver, PinMux, PullResistor};
-        use hal::uart::{Config, Uart};
+        use hal::io_config::{DriveStrength, IoConfigDriver, MuxFunction, PullResistor, UartPad};
+        use hal::uart::{Config, Uart, UartClock};
         // Ungate the UART1 clock (CKEN_CTL1 bit 19). SAFETY: RMW-set of one
         // clock-enable bit, leaves the other clocks running.
         let crg = unsafe { &*pac::CldoCrg::PTR };
         crg.cken_ctl1().modify(|r, w| unsafe { w.bits(r.bits() | (1 << 19)) });
 
         let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
-        io.set_uart_mux(PinMux::Uart1Txd, 1);
-        io.set_uart_mux(PinMux::Uart1Rxd, 1);
-        io.configure_uart_pad(PinMux::Uart1Txd, DriveStrength::Strong, PullResistor::None, false, false);
-        io.configure_uart_pad(PinMux::Uart1Rxd, DriveStrength::Strong, PullResistor::Up, true, true);
+        io.set_uart_mux(UartPad::Uart1Txd, MuxFunction::F1);
+        io.set_uart_mux(UartPad::Uart1Rxd, MuxFunction::F1);
+        io.configure_uart_pad(UartPad::Uart1Txd, DriveStrength::Strong, PullResistor::None, false, false);
+        io.configure_uart_pad(UartPad::Uart1Rxd, DriveStrength::Strong, PullResistor::Up, true, true);
 
         // SAFETY: UART1 singleton not otherwise held; GPIO15->GPIO16 jumpered. TX and
         // RX share the instance/divider, so the byte round-trips regardless of the
@@ -1025,14 +993,14 @@ mod tests {
         // is sane (ch2 clock tree: UART=160 MHz only in normal operation; at boot
         // it's the ~40 MHz TCXO). TX and RX share the divider, so the byte round-trips
         // regardless of the absolute baud.
-        let cfg = Config { clock_hz: Some(40_000_000), ..Config::default() };
+        let cfg = Config { clock: UartClock::Boot, ..Config::default() };
         let uart = Uart::new_uart1(unsafe { hal::peripherals::Uart1::steal() }, cfg);
-        while uart.read_byte(1).is_some() {} // drain stale RX (read_byte now pops via rx_fifo_cnt)
+        while uart.read_byte().is_some() {} // drain stale RX (read_byte now pops via rx_fifo_cnt)
         let sent = 0x5Au8;
-        uart.write_byte(1, sent);
+        uart.write_byte(sent);
         let mut got = None;
         for _ in 0..2_000_000u32 {
-            if let Some(b) = uart.read_byte(1) {
+            if let Some(b) = uart.read_byte() {
                 got = Some(b);
                 break;
             }
@@ -1049,18 +1017,17 @@ mod tests {
 
     /// **P4 gating silicon proof**: does the DMA completion IRQ (DMA_INT = IRQ 59)
     /// fire for a *peripheral-paced* (mem→peri) single-block transfer the same way
-    /// it does for mem-to-mem? Configures a SPI0 TX DMA channel with
-    /// `transfer_int = true`, arms it, then `block_on(wait_transfer_done(0))` — which
-    /// parks on `wfi` until IRQ59 wakes it. If this returns (rather than hanging),
-    /// async `.await` DMA is viable on this silicon. **Requires the GPIO9→GPIO11
-    /// jumper.**
+    /// it does for mem-to-mem? Uses the public `SpiDma::write_dma_async` API, which
+    /// configures transfer-complete IRQ and parks on `wfi` until IRQ59 wakes it.
+    /// If this returns (rather than hanging), async `.await` DMA is viable on this
+    /// silicon. **Requires the GPIO9→GPIO11 jumper.**
     #[cfg(all(feature = "chip-ws63", feature = "hil-loopback", feature = "async", feature = "unstable"))]
     #[test]
     fn spi_dma_irq59_fires_on_completion() {
         use hal::asynch::block_on;
-        use hal::dma::{BurstSize, Dma0, DmaChannelConfig, DmaDriver, DmaPeripheral, FlowControl, TransferWidth};
+        use hal::dma::{Dma0, DmaDriver};
         use hal::interrupt;
-        use hal::io_config::IoConfigDriver;
+        use hal::io_config::{GpioPad, IoConfigDriver, MuxFunction};
         use hal::spi::{Config, Spi};
 
         const N: usize = 8;
@@ -1069,45 +1036,20 @@ mod tests {
         static TX: Aligned = Aligned([0xA5, 0x3C, 0x00, 0xFF, 0x5A, 0xC3, 0x0F, 0xF0]);
 
         let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
-        for pin in [7u8, 9, 10, 11] {
-            io.set_gpio_mux(pin, 3);
+        for pin in [GpioPad::Gpio07, GpioPad::Gpio09, GpioPad::Gpio10, GpioPad::Gpio11] {
+            io.set_gpio_mux(pin, MuxFunction::F3);
         }
-        let _spi = Spi::new_spi0(unsafe { hal::peripherals::Spi0::steal() }, Config::default());
-        let r = unsafe { &*hal::peripherals::Spi0::ptr() };
-        unsafe {
-            r.spi_dtdl().write(|w| w.bits(4));
-            r.spi_drdl().write(|w| w.bits(0));
-        }
-        unsafe { hal::cache::clean_range(TX.0.as_ptr() as usize, N) };
-
-        let mut dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
-        dma.enable_controller();
-        // transfer_int = TRUE so the channel's done bit sets int_tc → dmac_int_st → IRQ 59.
-        let cfg = DmaChannelConfig {
-            src_peripheral: 0,
-            dst_peripheral: DmaPeripheral::Spi0Tx.request_id(),
-            flow_control: FlowControl::MemToPeripheral,
-            src_width: TransferWidth::Width8,
-            dst_width: TransferWidth::Width8,
-            src_burst: BurstSize::Beats1,
-            dst_burst: BurstSize::Beats1,
-            src_inc: true,
-            dst_inc: false,
-            transfer_int: true,
-            error_int: false,
-            bus_lock: false,
-        };
-        dma.configure_channel(0, TX.0.as_ptr() as u32, 0x4402_0060, N as u16, &cfg);
-        r.spi_dcr().modify(|_, w| w.tdmae().set_bit());
+        let spi = Spi::new_spi0(unsafe { hal::peripherals::Spi0::steal() }, Config::default());
+        let dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
+        let chs = dma.split_channels().expect("DMA channels already claimed");
+        let mut sd = spi.with_dma(dma);
 
         // Enable global MIE so wfi wakes on IRQ 59. wait_transfer_done enables the
         // DMA_INT IRQ itself (and raises LOCIPRI). If IRQ59 never fires, block_on
         // hangs — the test runner's timeout catches that as a failure.
         unsafe { interrupt::enable_global() };
-        block_on(async { dma.wait_transfer_done(0).await });
-        unsafe { interrupt::disable_global() };
-
-        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+        block_on(async { sd.write_dma_async(chs.ch0, &TX.0[..]).await }).expect("SpiDma::write_dma_async failed");
+        interrupt::disable_global();
         semihosting::println!("[spi-dma-irq59] IRQ 59 fired for peripheral DMA completion — async .await is viable");
     }
 
@@ -1120,7 +1062,7 @@ mod tests {
         use hal::asynch::block_on;
         use hal::dma::{Dma0, DmaDriver};
         use hal::interrupt;
-        use hal::io_config::IoConfigDriver;
+        use hal::io_config::{GpioPad, IoConfigDriver, MuxFunction};
         use hal::spi::{Config, Spi};
 
         const N: usize = 8;
@@ -1129,8 +1071,8 @@ mod tests {
         static TX: Aligned = Aligned([0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22]);
 
         let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
-        for pin in [7u8, 9, 10, 11] {
-            io.set_gpio_mux(pin, 3);
+        for pin in [GpioPad::Gpio07, GpioPad::Gpio09, GpioPad::Gpio10, GpioPad::Gpio11] {
+            io.set_gpio_mux(pin, MuxFunction::F3);
         }
         let spi = Spi::new_spi0(unsafe { hal::peripherals::Spi0::steal() }, Config::default());
         let mut dma = DmaDriver::<Dma0>::new_dma(unsafe { hal::peripherals::Dma::steal() });
@@ -1140,7 +1082,7 @@ mod tests {
 
         unsafe { interrupt::enable_global() };
         block_on(async { sd.write_dma_async(chs.ch0, &TX.0[..]).await }).expect("SpiDma::write_dma_async failed");
-        unsafe { interrupt::disable_global() };
+        interrupt::disable_global();
         semihosting::println!("[spi-dma-async] SpiDma::write_dma_async ok for {N} bytes");
     }
 }

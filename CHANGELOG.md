@@ -30,22 +30,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### UNSTABLE surfaces (now gated — add `unstable` to restore)
 
-- **Peripheral-DMA unproven subset**: `SpiDma::transfer_dma_async`/`release`,
-  `UartDma` (ALL methods + `UartDmaError` + `Uart::with_dma`), `PeripheralTransfer`
-  + `start_mem_to_peripheral`/`start_peripheral_to_mem`, `DmaChannelConfig` builders
-  (`mem_to_peripheral`/`peripheral_to_mem`/`with_width`/`with_transfer_int`),
-  `DmaFrame`/`PeriKind`/`PeriDmaCtl`/`DmaError`/`DmaDirection`. (The HIL-proven
-  subset — `write_dma`/`transfer_dma`/`write_dma_async` + `with_dma`/`split_channels`/
-  `DmaChannel`/`DmaPeripheral`/`DmaChannelConfig` struct — stays STABLE.)
+- **Public `dma` module as a whole**: `Dma0`/`Sdma0`, `DmaDriver`, typed channel
+  tokens, mem-to-mem `Transfer`, `DmaTransferSize`/`DmaSyncMask`, peripheral-paced
+  `SpiDma`/`UartDma`, `PeripheralTransfer`, `DmaFrame`/`PeriKind`/`PeriDmaCtl`, and
+  all DMA async hooks. This is conservative: individual HIL tests exist, but safe
+  DMA still has open cache-line ownership/alignment, timeout quiescence, async
+  cancellation, and SPI1/UART DMA evidence gaps.
+- **Interrupt/waker async helpers**: `asynch::block_on`, `IrqSignal`, GPIO `Wait`,
+  timer `AsyncDelay`, UART async I/O, LSADC async. SPI/I2C blocking-backed async
+  trait impls still build with `async` alone.
 - **`embassy`** — no end-to-end HIL (the module is now `unstable`-gated; the
   `embassy` feature still exists but the module requires `all(embassy, unstable)`).
+- **Other scoped knobs**: `EfuseDriver::set_clock_period`/`read_buffer`/`write_byte`,
+  `System::software_reset*`, `Instant::now`/`elapsed`, interrupt priority/threshold
+  getters/setters, SFC pad config, broad I2S data/FIFO/IRQ methods, broad LSADC and
+  TSENSOR config/data-path methods, TRNG manual clock/divider/status controls.
 - **WS63 untested drivers**: `clock_init`, `km`, `pke`, `safety`, `sfc`, `spacc`,
   `ulp_gpio`, `rtc`-WS63 (the `hil-rtc` test is opt-in + this board lacks the crystal,
   so it never ran on connected silicon), `delay` (no HIL).
 - **Entire BS2X-specific series**: `gadc`, `keyscan`, `pdm`, `qdec`, `usb`,
   `i2c`-v151, `rtc`-v150, `trng`-v1 (no BS2X silicon board — QEMU only per ROADMAP).
-- **`prelude`**: the `sfc::SfcDriver` + `ulp_gpio::UlpGpioPin` re-exports are now
-  `unstable`-gated (both re-export from now-UNSTABLE modules).
+- **`prelude`**: `Delay`, `Dma0`/`DmaDriver`/`Sdma0`, `RtcDriver`, `SfcDriver`, and
+  `UlpGpioPin` re-exports are now `unstable`-gated.
+
+### Changed (BREAKING typed config / operational validation)
+
+- **UART**: `Config::clock_hz: Option<u32>` was replaced with typed
+  `Config::clock: UartClock` (`Pll` or `Boot`). Boot-console firmware now writes
+  `Config { clock: UartClock::Boot, .. }` instead of passing a raw clock override.
+- **GPIO**: removed `OutputConfig::open_drain` and `with_open_drain`; the field was a
+  no-op and is not kept as a misleading stable knob.
+- **I2C**: blocking and async operations reject `addr > 0x7f` with
+  `I2cError::InvalidAddress` instead of programming an invalid 7-bit address.
+- **PWM**: `SetDutyCycle` now returns `PwmError::DutyOutOfRange` for duty values above
+  `max_duty_cycle()` instead of claiming `Infallible`.
 
 ### Fixed
 
@@ -271,12 +289,12 @@ so it is a minor (0.x-breaking) bump.
 
 ### Added
 
-- **uart**: `Config::clock_hz: Option<u32>` (a per-instance baud-base override)
+- **uart**: `Config::clock: UartClock` (a typed baud-base selection)
   plus `soc::chip::uart_boot_clock_hz()` and `UART_BOOT_CLOCK_{24M,40M}_HZ`.
   Examples that skip the (XIP-unsafe) `clock_init` run on flashboot's raw-TCXO
   console clock, not the 160 MHz PLL — **confirmed 40 MHz on silicon** (HW_CTL
   TCXO strap; `div_fra = 44` ⟺ 40 MHz), resolving the boot-baud root cause of
-  #15/#10. Default `None` keeps the 160 MHz post-`clock_init` behaviour.
+  #15/#10. `UartClock::Pll` keeps the 160 MHz post-`clock_init` behaviour.
 - **`cache`** module (WS63): `clean_range` / `invalidate_range` / `flush_range`
   D-cache maintenance via the HiSilicon custom CSRs (`DCINCVA`/`DCMAINT`). The
   RV32 core's D-cache is non-coherent with the DMA master, so a mem→mem transfer

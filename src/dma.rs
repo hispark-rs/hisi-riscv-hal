@@ -26,10 +26,14 @@
 use crate::peripherals::{Dma, Sdma};
 use core::marker::PhantomData;
 
+mod sealed {
+    pub trait DmaInstanceSealed {}
+}
+
 // ── Type-level DMA instance markers ───────────────────────────────
 
 /// DMA instance trait.
-pub trait DmaInstance {
+pub trait DmaInstance: sealed::DmaInstanceSealed {
     /// Returns the PAC pointer for this DMA controller.
     fn ptr() -> *const crate::soc::pac::dma::RegisterBlock;
 
@@ -53,6 +57,7 @@ pub trait DmaInstance {
 
 /// Marker type for the primary DMA controller (logical channels 0-3).
 pub struct Dma0;
+impl sealed::DmaInstanceSealed for Dma0 {}
 impl DmaInstance for Dma0 {
     fn ptr() -> *const crate::soc::pac::dma::RegisterBlock {
         Dma::ptr()
@@ -64,7 +69,9 @@ impl DmaInstance for Dma0 {
 }
 
 /// Marker type for the secure DMA controller (logical channels 8-11).
+#[instability::unstable]
 pub struct Sdma0;
+impl sealed::DmaInstanceSealed for Sdma0 {}
 impl DmaInstance for Sdma0 {
     fn ptr() -> *const crate::soc::pac::dma::RegisterBlock {
         Sdma::ptr()
@@ -78,6 +85,55 @@ impl DmaInstance for Sdma0 {
 fn physical_channel_index(base: u8, channel: u8) -> usize {
     assert!(channel >= base && channel < base + 4, "DMA channel out of range for this controller");
     (channel - base) as usize
+}
+
+/// DMA transfer length in source-width beats.
+///
+/// The DesignWare v151 single-block `trans_size` field is 12 bits, so a single
+/// descriptor can transfer at most 4095 beats. Values are constructed fallibly so
+/// callers cannot accidentally rely on the old silent low-12-bit truncation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[instability::unstable]
+pub struct DmaTransferSize(u16);
+
+impl DmaTransferSize {
+    /// Maximum number of beats in one single-block DMA transfer.
+    pub const MAX_BEATS: usize = 0x0fff;
+
+    /// Build a transfer size from a beat count, rejecting values that do not fit
+    /// the hardware `trans_size` field.
+    pub const fn from_beats(beats: usize) -> Option<Self> {
+        if beats <= Self::MAX_BEATS { Some(Self(beats as u16)) } else { None }
+    }
+
+    #[inline]
+    const fn get(self) -> u16 {
+        self.0
+    }
+}
+
+/// DMA sync register mask for the four physical channels of one controller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[instability::unstable]
+pub struct DmaSyncMask(u8);
+
+impl DmaSyncMask {
+    /// Build a sync mask. Only bits 0..=3 are valid because each controller has
+    /// four physical channels.
+    pub const fn from_bits(bits: u16) -> Option<Self> {
+        if bits & !0x000f == 0 { Some(Self(bits as u8)) } else { None }
+    }
+
+    /// No channel sync bypass bits set.
+    pub const NONE: Self = Self(0);
+
+    /// All channel sync bypass bits set.
+    pub const ALL: Self = Self(0x0f);
+
+    #[inline]
+    const fn bits(self) -> u16 {
+        self.0 as u16
+    }
 }
 
 // ── Configuration types ───────────────────────────────────────────
@@ -131,33 +187,40 @@ pub enum FlowControl {
 #[derive(Debug, Clone, Copy)]
 pub struct DmaChannelConfig {
     /// Source peripheral select (0-15).
-    pub src_peripheral: u8,
+    src_peripheral: u8,
     /// Destination peripheral select (0-15).
-    pub dst_peripheral: u8,
+    dst_peripheral: u8,
     /// Flow control mode.
-    pub flow_control: FlowControl,
+    flow_control: FlowControl,
     /// Source transfer width.
-    pub src_width: TransferWidth,
+    src_width: TransferWidth,
     /// Destination transfer width.
-    pub dst_width: TransferWidth,
+    dst_width: TransferWidth,
     /// Source burst size.
-    pub src_burst: BurstSize,
+    src_burst: BurstSize,
     /// Destination burst size.
-    pub dst_burst: BurstSize,
+    dst_burst: BurstSize,
     /// Increment source address after each beat.
-    pub src_inc: bool,
+    src_inc: bool,
     /// Increment destination address after each beat.
-    pub dst_inc: bool,
+    dst_inc: bool,
     /// Enable transfer complete interrupt.
-    pub transfer_int: bool,
+    transfer_int: bool,
     /// Enable error interrupt.
-    pub error_int: bool,
+    error_int: bool,
     /// Bus lock during transfer.
-    pub bus_lock: bool,
+    bus_lock: bool,
 }
 
 impl Default for DmaChannelConfig {
     fn default() -> Self {
+        Self::mem_to_mem()
+    }
+}
+
+impl DmaChannelConfig {
+    /// Memory-to-memory, 32-bit beat, incrementing on both sides.
+    pub const fn mem_to_mem() -> Self {
         Self {
             src_peripheral: 0,
             dst_peripheral: 0,
@@ -173,6 +236,45 @@ impl Default for DmaChannelConfig {
             bus_lock: false,
         }
     }
+
+    #[inline]
+    fn control_word(self, transfer_size: DmaTransferSize) -> u32 {
+        let mut control: u32 = 0;
+        control |= (transfer_size.get() as u32) & 0x0fff; // trans_size [0:11]
+        control |= ((self.src_burst as u32) & 0x07) << 12; // s_bsize [12:14]
+        control |= ((self.dst_burst as u32) & 0x07) << 15; // d_bsize [15:17]
+        control |= ((self.src_width as u32) & 0x07) << 18; // s_width [18:20]
+        control |= ((self.dst_width as u32) & 0x07) << 21; // d_width [21:23]
+        if self.src_inc {
+            control |= 1 << 26;
+        }
+        if self.dst_inc {
+            control |= 1 << 27;
+        }
+        if self.transfer_int {
+            control |= 1 << 31;
+        }
+        control
+    }
+
+    #[inline]
+    fn channel_config_word(self) -> u32 {
+        let mut ch_cfg: u32 = 0;
+        ch_cfg |= 0x01; // chn_en
+        ch_cfg |= ((self.src_peripheral as u32) & 0x0f) << 1; // s_peripheral [1:4]
+        ch_cfg |= ((self.dst_peripheral as u32) & 0x0f) << 5; // d_peripheral [5:8]
+        ch_cfg |= ((self.flow_control as u32) & 0x07) << 9; // flow_ctl [9:11]
+        if self.error_int {
+            ch_cfg |= 1 << 12;
+        }
+        if self.transfer_int {
+            ch_cfg |= 1 << 13;
+        }
+        if self.bus_lock {
+            ch_cfg |= 1 << 14;
+        }
+        ch_cfg
+    }
 }
 
 // ── DMA driver ────────────────────────────────────────────────────
@@ -183,8 +285,8 @@ pub struct DmaDriver<'d, T: DmaInstance> {
 }
 
 impl<'d, T: DmaInstance> DmaDriver<'d, T> {
-    /// Create a new DMA driver from a DMA peripheral.
-    pub fn new(_dma: impl Into<PhantomData<&'d T>>) -> Self {
+    #[cfg(all(test, not(target_arch = "riscv32")))]
+    fn new_for_test() -> Self {
         Self { _instance: PhantomData }
     }
 
@@ -236,12 +338,12 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     /// * `dst_addr` — Destination address.
     /// * `transfer_size` — Number of source-width beats to transfer.
     /// * `config` — Channel configuration.
-    pub fn configure_channel(
+    pub(crate) fn configure_channel_raw(
         &mut self,
         channel: u8,
         src_addr: u32,
         dst_addr: u32,
-        transfer_size: u16,
+        transfer_size: DmaTransferSize,
         config: &DmaChannelConfig,
     ) {
         let ch = Self::physical_channel(channel);
@@ -267,46 +369,12 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
             r.dmac_lli_0(ch).write(|w| w.bits(0));
         }
 
-        // Build control register
-        let mut control: u32 = 0;
-        control |= (transfer_size as u32) & 0xFFF; // trans_size [0:11]
-        control |= ((config.src_burst as u32) & 0x07) << 12; // s_bsize [12:14]
-        control |= ((config.dst_burst as u32) & 0x07) << 15; // d_bsize [15:17]
-        control |= ((config.src_width as u32) & 0x07) << 18; // s_width [18:20]
-        control |= ((config.dst_width as u32) & 0x07) << 21; // d_width [21:23]
-        control |= 0 << 24; // s_master = M1
-        control |= 0 << 25; // d_master = M1
-        if config.src_inc {
-            control |= 1 << 26;
-        }
-        if config.dst_inc {
-            control |= 1 << 27;
-        }
-        control |= 0 << 28; // prot = 0
-        if config.transfer_int {
-            control |= 1 << 31;
-        }
-
+        let control = config.control_word(transfer_size);
         unsafe {
             r.dmac_chn_control_0(ch).write(|w| w.bits(control));
         }
 
-        // Build channel config register
-        let mut ch_cfg: u32 = 0;
-        ch_cfg |= 0x01; // chn_en
-        ch_cfg |= ((config.src_peripheral as u32) & 0x0F) << 1; // s_peripheral [1:4]
-        ch_cfg |= ((config.dst_peripheral as u32) & 0x0F) << 5; // d_peripheral [5:8]
-        ch_cfg |= ((config.flow_control as u32) & 0x07) << 9; // flow_ctl [9:11]
-        if config.error_int {
-            ch_cfg |= 1 << 12; // int_en
-        }
-        if config.transfer_int {
-            ch_cfg |= 1 << 13; // int_tc
-        }
-        if config.bus_lock {
-            ch_cfg |= 1 << 14; // lock
-        }
-
+        let ch_cfg = config.channel_config_word();
         unsafe {
             r.dmac_chn_config_0(ch).write(|w| w.bits(ch_cfg));
         }
@@ -325,8 +393,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         }
     }
 
-    /// Enable a specific DMA channel.
-    pub fn enable_channel(&mut self, channel: u8) {
+    pub(crate) fn enable_channel_raw(&mut self, channel: u8) {
         let ch = Self::physical_channel(channel);
         let r = Self::regs();
         let cfg = r.dmac_chn_config_0(ch).read().bits();
@@ -335,8 +402,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         }
     }
 
-    /// Disable a specific DMA channel.
-    pub fn disable_channel(&mut self, channel: u8) {
+    pub(crate) fn disable_channel_raw(&mut self, channel: u8) {
         let ch = Self::physical_channel(channel);
         let r = Self::regs();
         let cfg = r.dmac_chn_config_0(ch).read().bits();
@@ -345,21 +411,18 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         }
     }
 
-    /// Check if a DMA channel is enabled.
-    pub fn channel_enabled(&self, channel: u8) -> bool {
+    pub(crate) fn channel_enabled_raw(&self, channel: u8) -> bool {
         let ch = Self::physical_channel(channel);
         let mask = 1u32 << ch;
         Self::regs().dmac_en_chns().read().bits() & mask != 0
     }
 
-    /// Check if a channel has data in its FIFO (active transfer).
-    pub fn channel_active(&self, channel: u8) -> bool {
+    pub(crate) fn channel_active_raw(&self, channel: u8) -> bool {
         let ch = Self::physical_channel(channel);
         Self::regs().dmac_chn_config_0(ch).read().bits() & (1 << 15) != 0
     }
 
-    /// Halt a DMA channel (ignore further DMA requests).
-    pub fn halt_channel(&mut self, channel: u8) {
+    pub(crate) fn halt_channel_raw(&mut self, channel: u8) {
         let ch = Self::physical_channel(channel);
         let r = Self::regs();
         let cfg = r.dmac_chn_config_0(ch).read().bits();
@@ -368,8 +431,7 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         }
     }
 
-    /// Resume a halted DMA channel.
-    pub fn resume_channel(&mut self, channel: u8) {
+    pub(crate) fn resume_channel_raw(&mut self, channel: u8) {
         let ch = Self::physical_channel(channel);
         let r = Self::regs();
         let cfg = r.dmac_chn_config_0(ch).read().bits();
@@ -378,16 +440,14 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         }
     }
 
-    /// Issue a software burst request for a channel.
-    pub fn burst_request(&mut self, channel: u8) {
+    pub(crate) fn burst_request_raw(&mut self, channel: u8) {
         let ch = Self::physical_channel(channel);
         unsafe {
             Self::regs().dmac_burst_req().write(|w| w.bits(1 << ch));
         }
     }
 
-    /// Issue a software single request for a channel.
-    pub fn single_request(&mut self, channel: u8) {
+    pub(crate) fn single_request_raw(&mut self, channel: u8) {
         let ch = Self::physical_channel(channel);
         unsafe {
             Self::regs().dmac_single_req().write(|w| w.bits(1 << ch));
@@ -415,16 +475,14 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         ((sts & 0xFF) as u8, ((sts >> 16) & 0xFF) as u8)
     }
 
-    /// Clear transfer complete interrupt for a channel.
-    pub fn clear_transfer_interrupt(&mut self, channel: u8) {
+    pub(crate) fn clear_transfer_interrupt_raw(&mut self, channel: u8) {
         let ch = Self::physical_channel(channel);
         unsafe {
             Self::regs().dmac_int_clr().write(|w| w.bits(1 << ch));
         }
     }
 
-    /// Clear error interrupt for a channel.
-    pub fn clear_error_interrupt(&mut self, channel: u8) {
+    pub(crate) fn clear_error_interrupt_raw(&mut self, channel: u8) {
         let ch = Self::physical_channel(channel);
         unsafe {
             Self::regs().dmac_int_clr().write(|w| w.bits(1 << (ch + 8)));
@@ -435,9 +493,10 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     ///
     /// Each bit controls sync for the corresponding channel
     /// (0 = enable sync logic, 1 = disable sync logic).
-    pub fn set_sync(&mut self, sync_mask: u16) {
+    #[instability::unstable]
+    pub fn set_sync(&mut self, sync_mask: DmaSyncMask) {
         unsafe {
-            Self::regs().dmac_sync().write(|w| w.bits(sync_mask as u32));
+            Self::regs().dmac_sync().write(|w| w.bits(sync_mask.bits() as u32));
         }
     }
 }
@@ -511,7 +570,7 @@ pub enum DmaPeripheral {
 impl DmaPeripheral {
     /// The hardware handshaking request ID (the `dma_porting.h` index), as
     /// programmed into the channel config's peripheral-select field.
-    pub const fn request_id(self) -> u8 {
+    pub(crate) const fn request_id(self) -> u8 {
         self as u8
     }
 }
@@ -561,6 +620,7 @@ impl DmaChannelConfig {
 
 impl<'d> DmaDriver<'d, Sdma0> {
     /// Create a new secure DMA driver.
+    #[instability::unstable]
     pub fn new_sdma(_sdma: Sdma<'d>) -> Self {
         Self { _instance: PhantomData }
     }
@@ -581,7 +641,7 @@ pub const DMA_ALIGN: usize = 32;
 /// (the transfer is then treated as done) instead of spinning the CPU forever.
 const DMA_WAIT_LOOPS: u32 = 5_000_000;
 
-impl<'d, T: DmaInstance> DmaDriver<'d, T> {
+impl<'d> DmaDriver<'d, Dma0> {
     /// Launch a **memory-to-memory** transfer on `channel` that OWNS both buffers
     /// for its whole lifetime, returning a [`Transfer`] guard you [`wait`] to reclaim
     /// the driver + buffers.
@@ -597,7 +657,13 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
     /// [`DMA_ALIGN`]-aligned. The transfer length is `min(src.len(), dst.len())` words.
     ///
     /// [`wait`]: Transfer::wait
-    pub fn start_mem_to_mem<SRC, DST>(mut self, channel: u8, src: SRC, mut dst: DST) -> Transfer<'d, T, SRC, DST>
+    #[instability::unstable]
+    pub fn start_mem_to_mem<SRC, DST>(
+        mut self,
+        channel: DmaChannel,
+        src: SRC,
+        mut dst: DST,
+    ) -> Result<Transfer<'d, SRC, DST>, DmaStartError<'d, SRC, DST>>
     where
         SRC: ReadBuffer<Word = u32>,
         DST: WriteBuffer<Word = u32>,
@@ -607,7 +673,13 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
         let (src_ptr, src_len) = unsafe { src.read_buffer() };
         let (dst_ptr, dst_len) = unsafe { dst.write_buffer() };
         let words = src_len.min(dst_len);
+        let transfer_size = match DmaTransferSize::from_beats(words) {
+            Some(size) => size,
+            None => return Err(DmaStartError { error: DmaError::TransferTooLarge, driver: self, channel, src, dst }),
+        };
         let bytes = words * core::mem::size_of::<u32>();
+
+        self.enable_controller();
 
         // Clean the source so the DMA master reads CPU-written data (non-coherent core).
         #[cfg(feature = "chip-ws63")]
@@ -617,9 +689,10 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 
         // mem-to-mem, 32-bit, both addresses incrementing (the Default config).
         let cfg = DmaChannelConfig::default();
-        self.configure_channel(channel, src_ptr as u32, dst_ptr as u32, words as u16, &cfg);
+        let ch = channel.logical;
+        self.configure_channel_raw(ch, src_ptr as u32, dst_ptr as u32, transfer_size, &cfg);
 
-        Transfer { driver: self, channel, src, dst, dst_addr: dst_ptr as usize, bytes }
+        Ok(Transfer { driver: self, channel, src, dst, dst_addr: dst_ptr as usize, bytes })
     }
 }
 
@@ -627,9 +700,10 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
 /// with [`wait`](Self::wait); dropping the guard early aborts the channel (so the DMA
 /// stops touching the buffers before they are freed). Owning the buffers is what makes
 /// a use-after-free of an active DMA region unrepresentable in safe code.
-pub struct Transfer<'d, T: DmaInstance, SRC, DST> {
-    driver: DmaDriver<'d, T>,
-    channel: u8,
+#[instability::unstable]
+pub struct Transfer<'d, SRC, DST> {
+    driver: DmaDriver<'d, Dma0>,
+    channel: DmaChannel,
     src: SRC,
     dst: DST,
     // Only read by the chip-ws63 cache maintenance in `wait()`; BS2X DMA is coherent
@@ -640,10 +714,10 @@ pub struct Transfer<'d, T: DmaInstance, SRC, DST> {
     bytes: usize,
 }
 
-impl<'d, T: DmaInstance, SRC, DST> Transfer<'d, T, SRC, DST> {
+impl<'d, SRC, DST> Transfer<'d, SRC, DST> {
     /// True once the channel has auto-cleared its enable bit (single-block done).
     pub fn is_done(&self) -> bool {
-        !self.driver.channel_enabled(self.channel)
+        !self.driver.channel_enabled_raw(self.channel.logical)
     }
 
     /// Block (bounded) until the transfer completes, invalidate the destination cache
@@ -653,14 +727,13 @@ impl<'d, T: DmaInstance, SRC, DST> Transfer<'d, T, SRC, DST> {
     /// On `DMA_WAIT_LOOPS` exhaustion (a wedged channel — rare for mem-to-mem, which
     /// always self-completes) the channel is **quiesced** (halt → drain `active` →
     /// disable) *before* the buffers are handed back, so the DMA engine is provably
-    /// stopped before the buffers can be freed. The caller cannot distinguish a
-    /// timed-out mem-to-mem `wait` from a completed one by this legacy signature; the
-    /// peripheral guard ([`PeripheralTransfer::wait`]) returns a `Result` instead.
-    pub fn wait(self) -> (DmaDriver<'d, T>, SRC, DST) {
+    /// stopped before the buffers can be freed. A wedged transfer is reported as
+    /// [`DmaError::Timeout`] with the driver, channel token, and buffers returned.
+    pub fn wait(self) -> Result<(DmaDriver<'d, Dma0>, DmaChannel, SRC, DST), DmaWaitError<'d, SRC, DST>> {
         // Skip the abort-on-drop: the transfer is completing normally.
         let mut this = ManuallyDrop::new(self);
         let mut n = DMA_WAIT_LOOPS;
-        while this.driver.channel_enabled(this.channel) {
+        while this.driver.channel_enabled_raw(this.channel.logical) {
             n -= 1;
             if n == 0 {
                 break;
@@ -670,8 +743,9 @@ impl<'d, T: DmaInstance, SRC, DST> Transfer<'d, T, SRC, DST> {
         // If the channel never auto-cleared, quiesce it before the buffers escape —
         // otherwise a still-live engine could write a buffer the caller then frees.
         // (Copy `channel` out so the `&mut this.driver` calls don't borrow `this` whole.)
-        let ch = this.channel;
-        if this.driver.channel_enabled(ch) {
+        let ch = this.channel.logical;
+        let timed_out = this.driver.channel_enabled_raw(ch);
+        if timed_out {
             quiesce_channel(&mut this.driver, ch);
         }
         // Drop the stale destination cache lines so the CPU re-reads what DMA wrote.
@@ -683,14 +757,76 @@ impl<'d, T: DmaInstance, SRC, DST> Transfer<'d, T, SRC, DST> {
         // exactly once, so there is no double-read or double-drop.
         unsafe {
             let driver = core::ptr::read(&this.driver);
+            let channel = core::ptr::read(&this.channel);
             let src = core::ptr::read(&this.src);
             let dst = core::ptr::read(&this.dst);
-            (driver, src, dst)
+            if timed_out {
+                Err(DmaWaitError { error: DmaError::Timeout, driver, channel, src, dst })
+            } else {
+                Ok((driver, channel, src, dst))
+            }
         }
     }
 }
 
-impl<T: DmaInstance, SRC, DST> Drop for Transfer<'_, T, SRC, DST> {
+/// Resources returned when a DMA transfer cannot be started.
+#[instability::unstable]
+pub struct DmaStartError<'d, SRC, DST> {
+    error: DmaError,
+    driver: DmaDriver<'d, Dma0>,
+    channel: DmaChannel,
+    src: SRC,
+    dst: DST,
+}
+
+impl<SRC, DST> core::fmt::Debug for DmaStartError<'_, SRC, DST> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DmaStartError").field("error", &self.error).finish_non_exhaustive()
+    }
+}
+
+impl<'d, SRC, DST> DmaStartError<'d, SRC, DST> {
+    /// The reason the transfer could not be started.
+    pub const fn error(&self) -> DmaError {
+        self.error
+    }
+
+    /// Recover the driver, claimed channel, and buffers.
+    pub fn into_parts(self) -> (DmaError, DmaDriver<'d, Dma0>, DmaChannel, SRC, DST) {
+        (self.error, self.driver, self.channel, self.src, self.dst)
+    }
+}
+
+/// Resources returned when a started DMA transfer times out while waiting.
+#[instability::unstable]
+pub struct DmaWaitError<'d, SRC, DST> {
+    error: DmaError,
+    driver: DmaDriver<'d, Dma0>,
+    channel: DmaChannel,
+    src: SRC,
+    dst: DST,
+}
+
+impl<SRC, DST> core::fmt::Debug for DmaWaitError<'_, SRC, DST> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DmaWaitError").field("error", &self.error).finish_non_exhaustive()
+    }
+}
+
+impl<'d, SRC, DST> DmaWaitError<'d, SRC, DST> {
+    /// The reason waiting failed.
+    pub const fn error(&self) -> DmaError {
+        self.error
+    }
+
+    /// Recover the driver, claimed channel, and buffers after the channel has been
+    /// quiesced and the destination cache maintenance has run.
+    pub fn into_parts(self) -> (DmaError, DmaDriver<'d, Dma0>, DmaChannel, SRC, DST) {
+        (self.error, self.driver, self.channel, self.src, self.dst)
+    }
+}
+
+impl<SRC, DST> Drop for Transfer<'_, SRC, DST> {
     /// Abort the channel so the engine stops reading/writing the owned buffers before
     /// they are dropped — the use-after-free guard for an early-dropped transfer.
     ///
@@ -698,7 +834,7 @@ impl<T: DmaInstance, SRC, DST> Drop for Transfer<'_, T, SRC, DST> {
     /// clear `ch_enable` — clearing `ch_enable` mid-burst (the old behaviour) could
     /// let an outstanding bus write land after the buffer is freed.
     fn drop(&mut self) {
-        quiesce_channel(&mut self.driver, self.channel);
+        quiesce_channel(&mut self.driver, self.channel.logical);
     }
 }
 
@@ -713,16 +849,16 @@ impl<T: DmaInstance, SRC, DST> Drop for Transfer<'_, T, SRC, DST> {
 /// Factored as a free function over `&mut DmaDriver` so both the mem-to-mem
 /// [`Transfer`] and the peripheral [`PeripheralTransfer`] share one teardown path.
 fn quiesce_channel<T: DmaInstance>(driver: &mut DmaDriver<'_, T>, channel: u8) {
-    driver.halt_channel(channel);
+    driver.halt_channel_raw(channel);
     let mut n = DMA_WAIT_LOOPS;
-    while driver.channel_active(channel) {
+    while driver.channel_active_raw(channel) {
         if n == 0 {
             break;
         }
         n -= 1;
         core::hint::spin_loop();
     }
-    driver.disable_channel(channel);
+    driver.disable_channel_raw(channel);
 }
 
 /// Cancel-then-quiesce for a peripheral-paced transfer: clear the peripheral's
@@ -738,10 +874,8 @@ fn cancel_then_quiesce(peri_dis: &mut PeriDmaCtl, driver: &mut DmaDriver<'_, Dma
 
 // ── Peripheral-paced DMA (hisi-riscv-hal#6 / 0.5.1) ──────────────────────────
 
-/// Errors from a peripheral-paced DMA transfer.
-#[derive(Debug)]
-#[cfg(feature = "chip-ws63")]
-#[instability::unstable]
+/// Errors from DMA transfer setup or completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DmaError {
@@ -865,12 +999,10 @@ impl PeriDmaCtl {
 /// once (all-or-nothing). The claim is a runtime bitmask (no-atomics-safe via
 /// `portable-atomic`'s critical-section polyfill); a second `split_channels` while
 /// any channel is outstanding returns `None`.
-#[cfg(feature = "chip-ws63")]
 pub struct DmaChannel {
     logical: u8,
 }
 
-#[cfg(feature = "chip-ws63")]
 impl DmaChannel {
     /// The logical channel number (0-3 on Dma0).
     pub const fn logical(&self) -> u8 {
@@ -878,7 +1010,6 @@ impl DmaChannel {
     }
 }
 
-#[cfg(feature = "chip-ws63")]
 impl Drop for DmaChannel {
     fn drop(&mut self) {
         DMA0_CHANNELS_CLAIMED.fetch_and(!(1 << self.logical), portable_atomic::Ordering::AcqRel);
@@ -886,7 +1017,6 @@ impl Drop for DmaChannel {
 }
 
 /// The four Dma0 channel tokens, returned by [`DmaDriver::split_channels`].
-#[cfg(feature = "chip-ws63")]
 pub struct DmaChannels {
     /// Logical channel 0.
     pub ch0: DmaChannel,
@@ -900,10 +1030,8 @@ pub struct DmaChannels {
 
 /// Bitmask of claimed Dma0 channels (bit `n` = logical channel `n`). A channel token
 /// claims its bit on `split_channels` and releases it on `Drop`.
-#[cfg(feature = "chip-ws63")]
 static DMA0_CHANNELS_CLAIMED: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(0);
 
-#[cfg(feature = "chip-ws63")]
 impl DmaDriver<'_, Dma0> {
     /// Claim all four Dma0 channels at once, returning owned tokens. Returns `None`
     /// if any channel is already outstanding (call it once, after the previous
@@ -924,6 +1052,56 @@ impl DmaDriver<'_, Dma0> {
             }),
             Err(_) => None,
         }
+    }
+
+    /// Enable a claimed DMA channel.
+    pub fn enable_channel(&mut self, channel: &DmaChannel) {
+        self.enable_channel_raw(channel.logical);
+    }
+
+    /// Disable a claimed DMA channel.
+    pub fn disable_channel(&mut self, channel: &DmaChannel) {
+        self.disable_channel_raw(channel.logical);
+    }
+
+    /// Check whether a claimed DMA channel is enabled.
+    pub fn channel_enabled(&self, channel: &DmaChannel) -> bool {
+        self.channel_enabled_raw(channel.logical)
+    }
+
+    /// Check whether a claimed DMA channel has data in its FIFO or bus pipeline.
+    pub fn channel_active(&self, channel: &DmaChannel) -> bool {
+        self.channel_active_raw(channel.logical)
+    }
+
+    /// Halt a claimed DMA channel.
+    pub fn halt_channel(&mut self, channel: &DmaChannel) {
+        self.halt_channel_raw(channel.logical);
+    }
+
+    /// Resume a halted claimed DMA channel.
+    pub fn resume_channel(&mut self, channel: &DmaChannel) {
+        self.resume_channel_raw(channel.logical);
+    }
+
+    /// Issue a software burst request for a claimed channel.
+    pub fn burst_request(&mut self, channel: &DmaChannel) {
+        self.burst_request_raw(channel.logical);
+    }
+
+    /// Issue a software single request for a claimed channel.
+    pub fn single_request(&mut self, channel: &DmaChannel) {
+        self.single_request_raw(channel.logical);
+    }
+
+    /// Clear transfer complete interrupt for a claimed channel.
+    pub fn clear_transfer_interrupt(&mut self, channel: &DmaChannel) {
+        self.clear_transfer_interrupt_raw(channel.logical);
+    }
+
+    /// Clear error interrupt for a claimed channel.
+    pub fn clear_error_interrupt(&mut self, channel: &DmaChannel) {
+        self.clear_error_interrupt_raw(channel.logical);
     }
 }
 
@@ -975,8 +1153,9 @@ impl<'d> DmaDriver<'d, Dma0> {
             crate::cache::clean_range(src_ptr as usize, bytes);
         }
 
+        let size = DmaTransferSize::from_beats(beats).expect("beats checked above");
         let cfg = DmaChannelConfig::default().mem_to_peripheral(peri).with_width(frame).with_transfer_int(true);
-        self.configure_channel(ch, src_ptr as u32, peri_data_addr as u32, beats as u16, &cfg);
+        self.configure_channel_raw(ch, src_ptr as u32, peri_data_addr as u32, size, &cfg);
 
         Ok(PeripheralTransfer {
             driver: self,
@@ -1018,8 +1197,9 @@ impl<'d> DmaDriver<'d, Dma0> {
         // No clean before launch — the CPU hasn't written the RX destination; the DMA
         // will. invalidate_range runs on wait() AFTER completion. The peripheral DATA
         // register is uncached MMIO.
+        let size = DmaTransferSize::from_beats(beats).expect("beats checked above");
         let cfg = DmaChannelConfig::default().peripheral_to_mem(peri).with_width(frame).with_transfer_int(true);
-        self.configure_channel(ch, peri_data_addr as u32, dst_ptr as u32, beats as u16, &cfg);
+        self.configure_channel_raw(ch, peri_data_addr as u32, dst_ptr as u32, size, &cfg);
 
         Ok(PeripheralTransfer {
             driver: self,
@@ -1059,7 +1239,7 @@ impl<'d, BUF> PeripheralTransfer<'d, BUF> {
     /// True once the channel has auto-cleared its enable bit (single-block done).
     #[instability::unstable]
     pub fn is_done(&self) -> bool {
-        !self.driver.channel_enabled(self.channel.logical)
+        !self.driver.channel_enabled_raw(self.channel.logical)
     }
 
     /// Block (bounded) until the transfer completes, do the direction-correct cache
@@ -1077,7 +1257,7 @@ impl<'d, BUF> PeripheralTransfer<'d, BUF> {
         let mut this = ManuallyDrop::new(self);
         let ch = this.channel.logical;
         let mut n = DMA_WAIT_LOOPS;
-        while this.driver.channel_enabled(ch) {
+        while this.driver.channel_enabled_raw(ch) {
             n -= 1;
             if n == 0 {
                 break;
@@ -1085,7 +1265,7 @@ impl<'d, BUF> PeripheralTransfer<'d, BUF> {
             core::hint::spin_loop();
         }
 
-        if this.driver.channel_enabled(ch) {
+        if this.driver.channel_enabled_raw(ch) {
             // Timed out: cancel-then-quiesce so the engine is stopped before any
             // buffer/cache teardown, then invalidate the RX destination (the DMA may
             // have written partial data) before the buffer drops. The two `&mut`
@@ -1325,8 +1505,7 @@ mod tests {
         // HOST-CHUNK-4095: a >4095-beat buffer is rejected with TransferTooLarge
         // (not silently truncated — the 12-bit trans_size field hazard). The check
         // runs before configure_channel, so this is host-safe (no MMIO touched).
-        use core::marker::PhantomData;
-        let dma: DmaDriver<'static, Dma0> = DmaDriver::new(PhantomData);
+        let dma: DmaDriver<'static, Dma0> = DmaDriver::new_for_test();
         // Construct a channel token directly (in-module, so the private field is
         // accessible) — avoids the global split_channels CAS so this test is
         // thread-safe alongside split_channels tests.
@@ -1344,7 +1523,6 @@ mod tests {
         // HOST-DOUBLE-SPLIT: split_channels claims all 4 at once; a second split while
         // any channel is outstanding returns None. Serialized with a mutex because the
         // claim is a process-global static (tests run in parallel by default).
-        use core::marker::PhantomData;
         use std::sync::Mutex;
         static LOCK: Mutex<()> = Mutex::new(());
         let _g = LOCK.lock().unwrap();
@@ -1352,7 +1530,7 @@ mod tests {
         // independent (a poisoned/dropped token from another test could leave a bit set).
         DMA0_CHANNELS_CLAIMED.store(0, portable_atomic::Ordering::Release);
 
-        let dma: DmaDriver<'static, Dma0> = DmaDriver::new(PhantomData);
+        let dma: DmaDriver<'static, Dma0> = DmaDriver::new_for_test();
         let chs = dma.split_channels();
         assert!(chs.is_some(), "first split must succeed");
         // While all four are outstanding, a second split fails.
@@ -1595,7 +1773,7 @@ mod proptests {
 }
 
 // ── Async DMA completion (bespoke; DMA_INT = IRQ 59) ────────────────────────
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 mod asynch_impl {
     use super::{Dma0, DmaDriver, DmaInstance};
     use crate::asynch::IrqSignal;
@@ -1662,7 +1840,8 @@ mod asynch_impl {
         /// per-channel demux means a concurrent transfer on another channel won't
         /// false-wake this one. Silicon-verified: IRQ 59 fires for both mem-to-mem
         /// and peripheral-paced single-block completion (spi_dma_irq59 test).
-        pub async fn wait_transfer_done(&mut self, channel: u8) {
+        pub async fn wait_transfer_done(&mut self, channel: &super::DmaChannel) {
+            let channel = channel.logical;
             let bit = 1u8 << channel; // Dma0: physical channel == logical channel
             if self.raw_interrupt_status().0 & bit == 0 {
                 DMA_SIGNAL[(channel as usize).min(3)].reset();
@@ -1673,10 +1852,10 @@ mod asynch_impl {
                     DmaDoneFuture { ch: channel }.await;
                 }
             }
-            self.clear_transfer_interrupt(channel);
+            self.clear_transfer_interrupt_raw(channel);
         }
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 pub use asynch_impl::on_interrupt;

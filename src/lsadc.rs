@@ -186,11 +186,13 @@ impl<'d> LsAdc<'d> {
     }
 
     /// Release the analog reset (`LSADC_CTRL_11.da_lsadc_rstn = 1`, active-low).
+    #[instability::unstable]
     pub fn enable(&mut self) {
         self.regs().lsadc_ctrl_11().modify(|_, w| w.da_lsadc_rstn().set_bit());
     }
 
     /// Assert the analog reset (`LSADC_CTRL_11.da_lsadc_rstn = 0`).
+    #[instability::unstable]
     pub fn disable(&mut self) {
         self.regs().lsadc_ctrl_11().modify(|_, w| w.da_lsadc_rstn().clear_bit());
     }
@@ -199,6 +201,7 @@ impl<'d> LsAdc<'d> {
     ///
     /// The SDK power-up sequence ORs in `0x7000`, `0xE7F`, `0x100`, `0x80`
     /// across several steps; this exposes the raw field for porting it.
+    #[instability::unstable]
     pub fn set_analog_enable(&mut self, bits: u16) {
         self.regs().lsadc_ctrl_11().modify(|_, w| unsafe { w.da_lsadc_en().bits(bits) });
     }
@@ -223,11 +226,13 @@ impl<'d> LsAdc<'d> {
     }
 
     /// Start an ADC scan (`LSADC_CTRL_8.lsadc_start = 1`).
+    #[instability::unstable]
     pub fn start_scan(&mut self) {
         self.regs().lsadc_ctrl_8().write(|w| w.lsadc_start().set_bit());
     }
 
     /// Stop an ADC scan (`LSADC_CTRL_8.lsadc_stop = 1`).
+    #[instability::unstable]
     pub fn stop_scan(&mut self) {
         self.regs().lsadc_ctrl_8().write(|w| w.lsadc_stop().set_bit());
     }
@@ -235,6 +240,7 @@ impl<'d> LsAdc<'d> {
     /// Set the RX-FIFO interrupt waterline (`LSADC_CTRL_1.rxintsize`, 3-bit). The
     /// level is a validated [`FifoWaterline`] so an out-of-range value is rejected
     /// at construction rather than silently masked here.
+    #[instability::unstable]
     pub fn set_fifo_waterline(&mut self, level: FifoWaterline) {
         self.regs().lsadc_ctrl_1().modify(|_, w| unsafe { w.rxintsize().bits(level.bits()) });
     }
@@ -242,6 +248,7 @@ impl<'d> LsAdc<'d> {
     /// True if the RX FIFO holds at least one sample (`LSADC_CTRL_1.rne`).
     ///
     /// This is the reliable empty check — read it before [`Self::read_sample`].
+    #[instability::unstable]
     pub fn data_ready(&self) -> bool {
         self.regs().lsadc_ctrl_1().read().rne().bit_is_set()
     }
@@ -250,6 +257,7 @@ impl<'d> LsAdc<'d> {
     ///
     /// Returns `None` when the FIFO is empty (checked via `rne`), so a genuine
     /// 0-code reading is **not** mistaken for "no data".
+    #[instability::unstable]
     pub fn read_sample(&self) -> Option<AdcSample> {
         if !self.data_ready() {
             return None;
@@ -258,6 +266,7 @@ impl<'d> LsAdc<'d> {
     }
 
     /// Enable the CIC filter with the given oversampling ratio.
+    #[instability::unstable]
     pub fn enable_cic_filter(&mut self, oversampling_ratio: u8) {
         let r = self.regs();
         unsafe {
@@ -267,21 +276,25 @@ impl<'d> LsAdc<'d> {
     }
 
     /// Disable the CIC filter.
+    #[instability::unstable]
     pub fn disable_cic_filter(&mut self) {
         self.regs().cfg_cic_filter_en().write(|w| w.cic_filter_en().clear_bit());
     }
 
     /// Set the ADC offset correction value (`CFG_OFFSET`).
+    #[instability::unstable]
     pub fn set_offset(&mut self, offset: u16) {
         self.regs().cfg_offset().write(|w| unsafe { w.offset().bits(offset) });
     }
 
     /// Set the ADC gain correction value (`CFG_GAIN`).
+    #[instability::unstable]
     pub fn set_gain(&mut self, gain: u16) {
         self.regs().cfg_gain().write(|w| unsafe { w.gain().bits(gain) });
     }
 
     /// Select the data source: `true` = post-processed, `false` = raw ADC code.
+    #[instability::unstable]
     pub fn set_data_select(&mut self, processed: bool) {
         self.regs().cfg_data_sel().write(|w| w.data_sel().bit(processed));
     }
@@ -384,7 +397,7 @@ mod proptests {
 }
 
 // ── Async LSADC (bespoke; LSADC_INTR = IRQ 72) ──────────────────────────────
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 mod asynch_impl {
     use super::{AdcSample, LsAdc};
     use crate::asynch::IrqSignal;
@@ -439,5 +452,5 @@ mod asynch_impl {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 pub use asynch_impl::on_interrupt;

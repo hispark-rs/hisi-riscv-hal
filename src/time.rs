@@ -12,6 +12,7 @@ pub struct Instant(u64);
 
 impl Instant {
     /// Returns an instant corresponding to "now".
+    #[instability::unstable]
     pub fn now() -> Self {
         // SAFETY: TCXO PAC pointer is a valid physical MMIO address (0x4400_04C0)
         let tcxo = unsafe { &*Tcxo::ptr() };
@@ -30,6 +31,7 @@ impl Instant {
     }
 
     /// Returns the amount of time elapsed since this instant.
+    #[instability::unstable]
     pub fn elapsed(&self) -> Duration {
         Instant::now().checked_duration_since(*self).unwrap_or(Duration::from_micros(0))
     }

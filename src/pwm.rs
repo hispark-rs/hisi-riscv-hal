@@ -148,17 +148,68 @@ fn enable_pwm_clock() {
     }
 }
 
+/// One of the 8 PWM output channels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PwmChannelId {
+    /// PWM channel 0.
+    Ch0,
+    /// PWM channel 1.
+    Ch1,
+    /// PWM channel 2.
+    Ch2,
+    /// PWM channel 3.
+    Ch3,
+    /// PWM channel 4.
+    Ch4,
+    /// PWM channel 5.
+    Ch5,
+    /// PWM channel 6.
+    Ch6,
+    /// PWM channel 7.
+    Ch7,
+}
+
+impl PwmChannelId {
+    /// Build a PWM channel ID from a raw index, rejecting values outside 0..=7.
+    pub const fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Ch0),
+            1 => Some(Self::Ch1),
+            2 => Some(Self::Ch2),
+            3 => Some(Self::Ch3),
+            4 => Some(Self::Ch4),
+            5 => Some(Self::Ch5),
+            6 => Some(Self::Ch6),
+            7 => Some(Self::Ch7),
+            _ => None,
+        }
+    }
+
+    /// The PWM channel index (0-7).
+    pub const fn index(self) -> u8 {
+        match self {
+            Self::Ch0 => 0,
+            Self::Ch1 => 1,
+            Self::Ch2 => 2,
+            Self::Ch3 => 3,
+            Self::Ch4 => 4,
+            Self::Ch5 => 5,
+            Self::Ch6 => 6,
+            Self::Ch7 => 7,
+        }
+    }
+}
+
 /// A handle to one of the 8 PWM output channels. Disables its own output on
 /// `Drop` (unless consumed by [`into_running`](PwmChannel::into_running)).
 pub struct PwmChannel<'d> {
-    channel: u8,
+    channel: PwmChannelId,
     _marker: PhantomData<&'d ()>,
 }
 
 impl<'d> PwmChannel<'d> {
-    /// Create a handle for `channel` (0..8); panics if `channel >= 8`.
-    pub fn new(_pwm: &Pwm<'d>, channel: u8) -> Self {
-        assert!(channel < 8);
+    /// Create a handle for `channel`.
+    pub fn new(_pwm: &Pwm<'d>, channel: PwmChannelId) -> Self {
         Self { channel, _marker: PhantomData }
     }
 
@@ -167,11 +218,15 @@ impl<'d> PwmChannel<'d> {
         unsafe { &*Pwm::ptr() }
     }
 
+    fn channel_index(&self) -> u8 {
+        self.channel.index()
+    }
+
     /// The configured 32-bit period count for this channel (reassembled from the
     /// `pwm_freq_l`/`pwm_freq_h` register halves). 0 if never configured.
     fn period_count(&self) -> u32 {
         let r = self.regs();
-        let (lo, hi) = match self.channel {
+        let (lo, hi) = match self.channel_index() {
             0 => (r.pwm_freq_l0().read().bits(), r.pwm_freq_h0().read().bits()),
             1 => (r.pwm_freq_l1().read().bits(), r.pwm_freq_h1().read().bits()),
             2 => (r.pwm_freq_l2().read().bits(), r.pwm_freq_h2().read().bits()),
@@ -197,7 +252,7 @@ impl<'d> PwmChannel<'d> {
         // match below still writes both halves, so the high write clears to 0.
         let period = period_cfg.count() as u32;
         let duty = period_cfg.duty_count(duty_cfg) as u32;
-        match self.channel {
+        match self.channel_index() {
             0 => {
                 r.pwm_freq_l0().write(|w| unsafe { w.bits(period & 0xFFFF) });
                 r.pwm_freq_h0().write(|w| unsafe { w.bits((period >> 16) & 0xFFFF) });
@@ -252,7 +307,7 @@ impl<'d> PwmChannel<'d> {
 
     /// Start driving the output by setting this channel's `pwm_enN` enable bit.
     pub fn enable(&mut self) {
-        match self.channel {
+        match self.channel_index() {
             0 => self.regs().pwm_en0().write(|w| unsafe { w.bits(1u32) }),
             1 => self.regs().pwm_en1().write(|w| unsafe { w.bits(1u32) }),
             2 => self.regs().pwm_en2().write(|w| unsafe { w.bits(1u32) }),
@@ -266,7 +321,7 @@ impl<'d> PwmChannel<'d> {
     }
     /// Stop driving the output by clearing this channel's `pwm_enN` enable bit.
     pub fn disable(&mut self) {
-        match self.channel {
+        match self.channel_index() {
             0 => self.regs().pwm_en0().write(|w| unsafe { w.bits(0u32) }),
             1 => self.regs().pwm_en1().write(|w| unsafe { w.bits(0u32) }),
             2 => self.regs().pwm_en2().write(|w| unsafe { w.bits(0u32) }),
@@ -282,7 +337,7 @@ impl<'d> PwmChannel<'d> {
     /// (`true` = active-high, `false` = active-low).
     pub fn set_polarity(&mut self, active_high: bool) {
         let val = if active_high { 1u32 } else { 0u32 };
-        match self.channel {
+        match self.channel_index() {
             0 => self.regs().pwm_portity0().write(|w| unsafe { w.bits(val) }),
             1 => self.regs().pwm_portity1().write(|w| unsafe { w.bits(val) }),
             2 => self.regs().pwm_portity2().write(|w| unsafe { w.bits(val) }),
@@ -297,12 +352,12 @@ impl<'d> PwmChannel<'d> {
     /// Trigger output generation by writing this channel's bit (`1 << channel`)
     /// to the shared `pwm_start0` register.
     pub fn start(&mut self) {
-        self.regs().pwm_start0().write(|w| unsafe { w.bits(1u32 << self.channel) });
+        self.regs().pwm_start0().write(|w| unsafe { w.bits(1u32 << self.channel_index()) });
     }
     /// Set the number of pulses to emit via this channel's `pwm_period_valN`
     /// register (pulse-count / one-shot mode).
     pub fn set_pulse_count(&mut self, count: u32) {
-        match self.channel {
+        match self.channel_index() {
             0 => self.regs().pwm_period_val0().write(|w| unsafe { w.bits(count) }),
             1 => self.regs().pwm_period_val1().write(|w| unsafe { w.bits(count) }),
             2 => self.regs().pwm_period_val2().write(|w| unsafe { w.bits(count) }),
@@ -343,7 +398,22 @@ impl Drop for PwmChannel<'_> {
 }
 
 impl embedded_hal::pwm::ErrorType for PwmChannel<'_> {
-    type Error = core::convert::Infallible;
+    type Error = PwmError;
+}
+
+/// PWM operation error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum PwmError {
+    /// The requested duty exceeds the current configured period.
+    DutyOutOfRange,
+}
+
+impl embedded_hal::pwm::Error for PwmError {
+    fn kind(&self) -> embedded_hal::pwm::ErrorKind {
+        embedded_hal::pwm::ErrorKind::Other
+    }
 }
 
 impl embedded_hal::pwm::SetDutyCycle for PwmChannel<'_> {
@@ -354,9 +424,12 @@ impl embedded_hal::pwm::SetDutyCycle for PwmChannel<'_> {
     }
 
     fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        if duty > self.max_duty_cycle() {
+            return Err(PwmError::DutyOutOfRange);
+        }
         let r = self.regs();
         let duty_val = duty as u32;
-        match self.channel {
+        match self.channel_index() {
             0 => {
                 unsafe { r.pwm_duty_l0().write(|w| w.bits(duty_val & 0xFFFF)) };
                 unsafe { r.pwm_duty_h0().write(|w| w.bits((duty_val >> 16) & 0xFFFF)) };

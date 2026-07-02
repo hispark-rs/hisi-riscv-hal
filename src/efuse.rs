@@ -66,6 +66,22 @@ pub enum EfuseError {
     OutOfRange,
 }
 
+/// A validated byte address inside the eFuse array.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EfuseByteAddress(u16);
+
+impl EfuseByteAddress {
+    /// Build an eFuse byte address, rejecting values outside the 256-byte array.
+    pub const fn from_byte(byte_addr: u16) -> Option<Self> {
+        if byte_addr < EFUSE_MAX_BYTES { Some(Self(byte_addr)) } else { None }
+    }
+
+    /// The raw byte address inside the eFuse array.
+    pub const fn byte(self) -> u16 {
+        self.0
+    }
+}
+
 /// eFuse controller driver.
 pub struct EfuseDriver<'d> {
     _efuse: Efuse<'d>,
@@ -74,7 +90,9 @@ pub struct EfuseDriver<'d> {
 impl<'d> EfuseDriver<'d> {
     /// Create a new eFuse driver.
     pub fn new(efuse: Efuse<'d>) -> Self {
-        Self { _efuse: efuse }
+        let mut driver = Self { _efuse: efuse };
+        driver.set_clock_period_raw(default_clock_period());
+        driver
     }
 
     fn regs(&self) -> &'static crate::soc::pac::efuse::RegisterBlock {
@@ -82,12 +100,17 @@ impl<'d> EfuseDriver<'d> {
         unsafe { &*Efuse::ptr() }
     }
 
-    /// Set the eFuse clock period (cycles). The SDK uses `0x29` @ 24 MHz TCXO
-    /// and `0x19` @ 40 MHz; call before any read/program.
-    pub fn set_clock_period(&mut self, period: u8) {
+    fn set_clock_period_raw(&mut self, period: u8) {
         unsafe {
             self.regs().efuse_clk_period().write(|w| w.bits(period as u32));
         }
+    }
+
+    /// Override the eFuse clock period (cycles). The SDK uses `0x29` @ 24 MHz TCXO
+    /// and `0x19` @ 40 MHz; [`new`](Self::new) programs the detected board default.
+    #[instability::unstable]
+    pub fn set_clock_period(&mut self, period: u8) {
+        self.set_clock_period_raw(period);
     }
 
     /// Read the boot-done status register.
@@ -106,21 +129,26 @@ impl<'d> EfuseDriver<'d> {
     /// Arms read mode (`0x5A5A`), then loads the latched word from the data
     /// window and extracts the requested byte. No delay is required for reads
     /// (matches `hal_efuse_read_byte`).
-    pub fn read_byte(&mut self, byte_addr: u16) -> Result<u8, EfuseError> {
-        if byte_addr >= EFUSE_MAX_BYTES {
-            return Err(EfuseError::OutOfRange);
-        }
+    pub fn read_byte(&mut self, byte_addr: EfuseByteAddress) -> u8 {
+        let byte_addr = byte_addr.byte();
         unsafe {
             self.regs().efuse_ctl_data().write(|w| w.bits(EFUSE_READ_MAGIC));
         }
         let word = self.regs().efuse_data(word_index(byte_addr)).read().bits();
-        Ok(extract_byte(word, byte_addr))
+        extract_byte(word, byte_addr)
     }
 
     /// Read `buf.len()` consecutive eFuse bytes starting at `start_byte`.
-    pub fn read_buffer(&mut self, start_byte: u16, buf: &mut [u8]) -> Result<(), EfuseError> {
+    #[instability::unstable]
+    pub fn read_buffer(&mut self, start_byte: EfuseByteAddress, buf: &mut [u8]) -> Result<(), EfuseError> {
+        let start_byte = start_byte.byte();
         for (i, slot) in buf.iter_mut().enumerate() {
-            *slot = self.read_byte(start_byte + i as u16)?;
+            if i > u16::MAX as usize {
+                return Err(EfuseError::OutOfRange);
+            }
+            let addr =
+                start_byte.checked_add(i as u16).and_then(EfuseByteAddress::from_byte).ok_or(EfuseError::OutOfRange)?;
+            *slot = self.read_byte(addr);
         }
         Ok(())
     }
@@ -131,11 +159,10 @@ impl<'d> EfuseDriver<'d> {
     /// raise AVDD, settle, write the packed byte to the window, lower AVDD,
     /// settle. eFuse bits can only be burned 0→1; this does not erase.
     ///
-    /// Not validated on silicon — treat as experimental.
-    pub fn write_byte(&mut self, byte_addr: u16, value: u8) -> Result<(), EfuseError> {
-        if byte_addr >= EFUSE_MAX_BYTES {
-            return Err(EfuseError::OutOfRange);
-        }
+    /// Not validated on silicon — gated behind `unstable`.
+    #[instability::unstable]
+    pub fn write_byte(&mut self, byte_addr: EfuseByteAddress, value: u8) {
+        let byte_addr = byte_addr.byte();
         let delay = crate::delay::Delay::new();
         unsafe {
             self.regs().efuse_ctl_data().write(|w| w.bits(EFUSE_WRITE_MAGIC));
@@ -147,8 +174,11 @@ impl<'d> EfuseDriver<'d> {
             self.regs().efuse_avdd_ctl().write(|w| w.bits(0));
         }
         delay.delay_micros(EFUSE_PROGRAM_DELAY_US);
-        Ok(())
     }
+}
+
+fn default_clock_period() -> u8 {
+    if crate::soc::chip::uart_boot_clock_hz() == crate::soc::chip::UART_BOOT_CLOCK_24M_HZ { 0x29 } else { 0x19 }
 }
 
 /// eFuse status information.
@@ -216,6 +246,14 @@ mod tests {
                 assert_eq!(extract_byte(pack_byte(v, addr), addr), v);
             }
         }
+    }
+
+    #[test]
+    fn byte_address_accepts_only_array_range() {
+        assert_eq!(EfuseByteAddress::from_byte(0).unwrap().byte(), 0);
+        assert_eq!(EfuseByteAddress::from_byte(EFUSE_MAX_BYTES - 1).unwrap().byte(), EFUSE_MAX_BYTES - 1);
+        assert_eq!(EfuseByteAddress::from_byte(EFUSE_MAX_BYTES), None);
+        assert_eq!(EfuseByteAddress::from_byte(u16::MAX), None);
     }
 
     #[test]

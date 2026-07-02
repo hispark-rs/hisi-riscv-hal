@@ -9,7 +9,7 @@
 //!
 //! ```ignore
 //! let timer = TimerDriver::new(peripherals.TIMER);
-//! let mut oneshot = timer.oneshot(0);
+//! let mut oneshot = timer.oneshot(TimerChannel::Channel0);
 //! oneshot.start(24_000); // 1ms at 24MHz
 //! while !oneshot.expired() {}
 //! ```
@@ -24,6 +24,38 @@ pub enum TimerMode {
     OneShot = 0,
     /// Periodic: timer reloads and repeats.
     Periodic = 1,
+}
+
+/// One of the three WS63 timer channels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimerChannel {
+    /// Timer channel 0.
+    Channel0,
+    /// Timer channel 1.
+    Channel1,
+    /// Timer channel 2.
+    Channel2,
+}
+
+impl TimerChannel {
+    /// Build a timer channel from a raw index, rejecting values outside 0..=2.
+    pub const fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Channel0),
+            1 => Some(Self::Channel1),
+            2 => Some(Self::Channel2),
+            _ => None,
+        }
+    }
+
+    /// The timer channel index (0-2).
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Channel0 => 0,
+            Self::Channel1 => 1,
+            Self::Channel2 => 2,
+        }
+    }
 }
 
 /// Timer configuration error.
@@ -86,54 +118,48 @@ impl<'d> TimerDriver<'d> {
     /// 32-bit** `timerN_load_count` register, so every `u32` is a valid, runnable
     /// value — there is nothing to truncate or clamp. The fallible duration helpers
     /// ([`OneShotTimer::start_micros`] etc.) are the typed path for time units.
-    pub fn configure(&self, n: usize, mode: TimerMode, load_value: u32) {
+    pub fn configure(&self, channel: TimerChannel, mode: TimerMode, load_value: u32) {
         let r = self.regs();
-        match n {
-            0 => r.timer0_load_count(0).write(|w| unsafe { w.bits(load_value) }),
-            1 => r.timer0_load_count(1).write(|w| unsafe { w.bits(load_value) }),
-            2 => r.timer0_load_count(2).write(|w| unsafe { w.bits(load_value) }),
-            _ => unreachable!(),
+        match channel {
+            TimerChannel::Channel0 => r.timer0_load_count(0).write(|w| unsafe { w.bits(load_value) }),
+            TimerChannel::Channel1 => r.timer0_load_count(1).write(|w| unsafe { w.bits(load_value) }),
+            TimerChannel::Channel2 => r.timer0_load_count(2).write(|w| unsafe { w.bits(load_value) }),
         };
         let ctl = ((mode as u32) & 0x3) << 1;
-        match n {
-            0 => r.timer0_control(0).write(|w| unsafe { w.bits(ctl) }),
-            1 => r.timer0_control(1).write(|w| unsafe { w.bits(ctl) }),
-            2 => r.timer0_control(2).write(|w| unsafe { w.bits(ctl) }),
-            _ => unreachable!(),
+        match channel {
+            TimerChannel::Channel0 => r.timer0_control(0).write(|w| unsafe { w.bits(ctl) }),
+            TimerChannel::Channel1 => r.timer0_control(1).write(|w| unsafe { w.bits(ctl) }),
+            TimerChannel::Channel2 => r.timer0_control(2).write(|w| unsafe { w.bits(ctl) }),
         };
     }
 
     /// Enable a timer channel.
-    pub fn enable(&self, n: usize) {
+    pub fn enable(&self, channel: TimerChannel) {
         let r = self.regs();
-        let prev = match n {
-            0 => r.timer0_control(0).read().bits(),
-            1 => r.timer0_control(1).read().bits(),
-            2 => r.timer0_control(2).read().bits(),
-            _ => unreachable!(),
+        let prev = match channel {
+            TimerChannel::Channel0 => r.timer0_control(0).read().bits(),
+            TimerChannel::Channel1 => r.timer0_control(1).read().bits(),
+            TimerChannel::Channel2 => r.timer0_control(2).read().bits(),
         };
-        match n {
-            0 => r.timer0_control(0).write(|w| unsafe { w.bits(prev | 1) }),
-            1 => r.timer0_control(1).write(|w| unsafe { w.bits(prev | 1) }),
-            2 => r.timer0_control(2).write(|w| unsafe { w.bits(prev | 1) }),
-            _ => unreachable!(),
+        match channel {
+            TimerChannel::Channel0 => r.timer0_control(0).write(|w| unsafe { w.bits(prev | 1) }),
+            TimerChannel::Channel1 => r.timer0_control(1).write(|w| unsafe { w.bits(prev | 1) }),
+            TimerChannel::Channel2 => r.timer0_control(2).write(|w| unsafe { w.bits(prev | 1) }),
         };
     }
 
     /// Disable a timer channel.
-    pub fn disable(&self, n: usize) {
+    pub fn disable(&self, channel: TimerChannel) {
         let r = self.regs();
-        let prev = match n {
-            0 => r.timer0_control(0).read().bits(),
-            1 => r.timer0_control(1).read().bits(),
-            2 => r.timer0_control(2).read().bits(),
-            _ => unreachable!(),
+        let prev = match channel {
+            TimerChannel::Channel0 => r.timer0_control(0).read().bits(),
+            TimerChannel::Channel1 => r.timer0_control(1).read().bits(),
+            TimerChannel::Channel2 => r.timer0_control(2).read().bits(),
         };
-        match n {
-            0 => r.timer0_control(0).write(|w| unsafe { w.bits(prev & !1) }),
-            1 => r.timer0_control(1).write(|w| unsafe { w.bits(prev & !1) }),
-            2 => r.timer0_control(2).write(|w| unsafe { w.bits(prev & !1) }),
-            _ => unreachable!(),
+        match channel {
+            TimerChannel::Channel0 => r.timer0_control(0).write(|w| unsafe { w.bits(prev & !1) }),
+            TimerChannel::Channel1 => r.timer0_control(1).write(|w| unsafe { w.bits(prev & !1) }),
+            TimerChannel::Channel2 => r.timer0_control(2).write(|w| unsafe { w.bits(prev & !1) }),
         };
     }
 
@@ -147,7 +173,7 @@ impl<'d> TimerDriver<'d> {
     /// which is why the un-handshaked read passed under emulation but froze on
     /// silicon (hisi-riscv-rs#10). A disabled channel keeps a stale latch, so we
     /// return 0 there (matching the vendor HAL) rather than a meaningless value.
-    pub fn current_value(&self, n: usize) -> u32 {
+    pub fn current_value(&self, channel: TimerChannel) -> u32 {
         // The poll bound mirrors the vendor TIMER_CURRENT_COUNT_LOCK_TIMEOUT
         // (0xFFFF) so a never-locking channel cannot spin forever. cnt_req
         // (bit 5) / cnt_lock (bit 6) are now named fields in ws63-pac.
@@ -189,6 +215,7 @@ impl<'d> TimerDriver<'d> {
         };
 
         // A disabled timer holds a stale latch; the vendor HAL returns 0.
+        let n = channel.index();
         if ctrl(n).read().enable().bit_is_clear() {
             return 0;
         }
@@ -208,40 +235,38 @@ impl<'d> TimerDriver<'d> {
     }
 
     /// Check if a timer interrupt is pending.
-    pub fn interrupt_pending(&self, n: usize) -> bool {
+    pub fn interrupt_pending(&self, channel: TimerChannel) -> bool {
         let r = self.regs();
-        match n {
-            0 => r.timer0_raw_intr(0).read().bits() & 1 != 0,
-            1 => r.timer0_raw_intr(1).read().bits() & 1 != 0,
-            2 => r.timer0_raw_intr(2).read().bits() & 1 != 0,
-            _ => unreachable!(),
+        match channel {
+            TimerChannel::Channel0 => r.timer0_raw_intr(0).read().bits() & 1 != 0,
+            TimerChannel::Channel1 => r.timer0_raw_intr(1).read().bits() & 1 != 0,
+            TimerChannel::Channel2 => r.timer0_raw_intr(2).read().bits() & 1 != 0,
         }
     }
 
     /// Clear a timer interrupt (per-channel EOI).
-    pub fn clear_interrupt(&self, n: usize) {
+    pub fn clear_interrupt(&self, channel: TimerChannel) {
         let r = self.regs();
-        match n {
-            0 => {
+        match channel {
+            TimerChannel::Channel0 => {
                 let _ = r.timer0_eoi(0).read().bits();
             }
-            1 => {
+            TimerChannel::Channel1 => {
                 let _ = r.timer0_eoi(1).read().bits();
             }
-            2 => {
+            TimerChannel::Channel2 => {
                 let _ = r.timer0_eoi(2).read().bits();
             }
-            _ => unreachable!(),
         }
     }
 
     /// Create a one-shot timer wrapper for the given channel.
-    pub fn oneshot(&self, channel: usize) -> OneShotTimer<'_> {
+    pub fn oneshot(&self, channel: TimerChannel) -> OneShotTimer<'_> {
         OneShotTimer { driver: self, channel }
     }
 
     /// Create a periodic timer wrapper for the given channel.
-    pub fn periodic(&self, channel: usize) -> PeriodicTimer<'_> {
+    pub fn periodic(&self, channel: TimerChannel) -> PeriodicTimer<'_> {
         PeriodicTimer { driver: self, channel }
     }
 }
@@ -253,7 +278,7 @@ impl<'d> TimerDriver<'d> {
 /// Counts down from a loaded value and stops when it reaches zero.
 pub struct OneShotTimer<'a> {
     driver: &'a TimerDriver<'a>,
-    channel: usize,
+    channel: TimerChannel,
 }
 
 impl OneShotTimer<'_> {
@@ -348,7 +373,7 @@ impl embedded_hal::delay::DelayNs for OneShotTimer<'_> {
 /// Counts down and automatically reloads, generating an interrupt each cycle.
 pub struct PeriodicTimer<'a> {
     driver: &'a TimerDriver<'a>,
-    channel: usize,
+    channel: TimerChannel,
 }
 
 impl PeriodicTimer<'_> {
@@ -468,9 +493,9 @@ mod proptests {
 }
 
 // ── Async (embedded-hal-async) ──────────────────────────────────────────────
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 mod asynch_impl {
-    use super::{TIMER_CLOCK_HZ, Timer, TimerDriver, TimerMode};
+    use super::{TIMER_CLOCK_HZ, Timer, TimerChannel, TimerDriver, TimerMode};
     use crate::asynch::IrqSignal;
     use crate::interrupt::{self, Interrupt};
     use core::future::Future;
@@ -479,11 +504,11 @@ mod asynch_impl {
 
     static TIMER_SIGNAL: [IrqSignal; 3] = [IrqSignal::new(), IrqSignal::new(), IrqSignal::new()];
 
-    fn ch_irq(ch: usize) -> Interrupt {
+    fn ch_irq(ch: TimerChannel) -> Interrupt {
         match ch {
-            0 => Interrupt::TIMER_INT0,
-            1 => Interrupt::TIMER_INT1,
-            _ => Interrupt::TIMER_INT2,
+            TimerChannel::Channel0 => Interrupt::TIMER_INT0,
+            TimerChannel::Channel1 => Interrupt::TIMER_INT1,
+            TimerChannel::Channel2 => Interrupt::TIMER_INT2,
         }
     }
 
@@ -491,28 +516,28 @@ mod asynch_impl {
     /// interrupt, and wake the awaiting [`AsyncDelay`] future. Call this from the
     /// machine-interrupt trap when `mcause` is TIMER_INT0..2 (IRQ 26..28). The
     /// EOI clears `mip`, so no `LOCIPCLR` is needed for these MIE-class lines.
-    pub fn on_interrupt(ch: usize) {
+    pub fn on_interrupt(ch: TimerChannel) {
         // SAFETY: RMW of the timer MMIO block. The AsyncDelay owns the peripheral
         // handle, but the ISR uses raw register access (the standard ISR pattern).
         let r = unsafe { &*Timer::ptr() };
         match ch {
-            0 => {
+            TimerChannel::Channel0 => {
                 let prev = r.timer0_control(0).read().bits();
                 r.timer0_control(0).write(|w| unsafe { w.bits(prev & !1) }); // stop (clear EN)
                 let _ = r.timer0_eoi(0).read().bits(); // EOI (read-clear)
             }
-            1 => {
+            TimerChannel::Channel1 => {
                 let prev = r.timer0_control(1).read().bits();
                 r.timer0_control(1).write(|w| unsafe { w.bits(prev & !1) });
                 let _ = r.timer0_eoi(1).read().bits();
             }
-            _ => {
+            TimerChannel::Channel2 => {
                 let prev = r.timer0_control(2).read().bits();
                 r.timer0_control(2).write(|w| unsafe { w.bits(prev & !1) });
                 let _ = r.timer0_eoi(2).read().bits();
             }
         }
-        TIMER_SIGNAL[ch].signal();
+        TIMER_SIGNAL[ch.index()].signal();
     }
 
     // Named device.x handlers (TIMER_INT0..2 = IRQ 26..28). TIMER_INT0 is the
@@ -523,15 +548,15 @@ mod asynch_impl {
     #[cfg(not(feature = "embassy"))]
     #[unsafe(no_mangle)]
     extern "C" fn TIMER_INT0() {
-        on_interrupt(0);
+        on_interrupt(TimerChannel::Channel0);
     }
     #[unsafe(no_mangle)]
     extern "C" fn TIMER_INT1() {
-        on_interrupt(1);
+        on_interrupt(TimerChannel::Channel1);
     }
     #[unsafe(no_mangle)]
     extern "C" fn TIMER_INT2() {
-        on_interrupt(2);
+        on_interrupt(TimerChannel::Channel2);
     }
 
     /// Async delay backed by one WS63 TIMER channel (one-shot + completion IRQ).
@@ -542,18 +567,18 @@ mod asynch_impl {
     /// have enabled global interrupts (see `ws63-examples/async_delay`).
     pub struct AsyncDelay<'d> {
         driver: TimerDriver<'d>,
-        channel: usize,
+        channel: TimerChannel,
     }
 
     impl<'d> AsyncDelay<'d> {
-        /// Create an async delay on `channel` (0..=2).
-        pub fn new(timer: Timer<'d>, channel: usize) -> Self {
+        /// Create an async delay on `channel`.
+        pub fn new(timer: Timer<'d>, channel: TimerChannel) -> Self {
             Self { driver: TimerDriver::new(timer), channel }
         }
 
         async fn delay_ticks(&mut self, ticks: u32) {
             let ch = self.channel;
-            TIMER_SIGNAL[ch].reset();
+            TIMER_SIGNAL[ch.index()].reset();
             self.driver.clear_interrupt(ch);
             self.driver.configure(ch, TimerMode::OneShot, ticks.max(1));
             // SAFETY: enabling a known, fixed WS63 timer IRQ line.
@@ -564,16 +589,16 @@ mod asynch_impl {
     }
 
     struct DelayFuture {
-        ch: usize,
+        ch: TimerChannel,
     }
 
     impl Future for DelayFuture {
         type Output = ();
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-            if TIMER_SIGNAL[self.ch].take_fired() {
+            if TIMER_SIGNAL[self.ch.index()].take_fired() {
                 Poll::Ready(())
             } else {
-                TIMER_SIGNAL[self.ch].register(cx.waker());
+                TIMER_SIGNAL[self.ch.index()].register(cx.waker());
                 Poll::Pending
             }
         }
@@ -587,5 +612,5 @@ mod asynch_impl {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 pub use asynch_impl::{AsyncDelay, on_interrupt};

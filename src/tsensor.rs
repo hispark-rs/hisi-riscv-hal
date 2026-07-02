@@ -62,6 +62,7 @@ impl<'d> TempSensor<'d> {
     ///
     /// * `mode` — Mode value (0-3). The exact meaning depends on the chip
     ///   configuration.
+    #[instability::unstable]
     pub fn set_mode(&mut self, mode: u8) {
         let r = self.regs();
         let ctrl = r.tsensor_ctrl().read().bits();
@@ -97,6 +98,7 @@ impl<'d> TempSensor<'d> {
     }
 
     /// Read the temperature code, blocking until ready.
+    #[instability::unstable]
     pub fn read_blocking(&self) -> u16 {
         while !self.data_ready() {}
         let sts = self.regs().tsensor_sts().read().bits();
@@ -115,6 +117,7 @@ impl<'d> TempSensor<'d> {
     /// Set the high temperature limit.
     ///
     /// Interrupt triggers when temperature code exceeds this value.
+    #[instability::unstable]
     pub fn set_high_limit(&mut self, code: u16) {
         unsafe {
             self.regs().tsensor_temp_high_limit().write(|w| w.bits((code & 0x3FF) as u32));
@@ -124,6 +127,7 @@ impl<'d> TempSensor<'d> {
     /// Set the low temperature limit.
     ///
     /// Interrupt triggers when temperature code falls below this value.
+    #[instability::unstable]
     pub fn set_low_limit(&mut self, code: u16) {
         unsafe {
             self.regs().tsensor_temp_low_limit().write(|w| w.bits((code & 0x3FF) as u32));
@@ -131,6 +135,7 @@ impl<'d> TempSensor<'d> {
     }
 
     /// Set the over-temperature threshold.
+    #[instability::unstable]
     pub fn set_over_temp_threshold(&mut self, code: u16, enable_interrupt: bool) {
         let mut val = (code & 0x3FF) as u32;
         if enable_interrupt {
@@ -146,6 +151,7 @@ impl<'d> TempSensor<'d> {
     /// * `done_int` — Conversion done interrupt
     /// * `out_thresh_int` — Out-of-threshold interrupt
     /// * `overtemp_int` — Over-temperature interrupt
+    #[instability::unstable]
     pub fn enable_interrupts(&mut self, done_int: bool, out_thresh_int: bool, overtemp_int: bool) {
         let mut val: u32 = 0;
         if done_int {
@@ -163,6 +169,7 @@ impl<'d> TempSensor<'d> {
     }
 
     /// Disable all temperature interrupts.
+    #[instability::unstable]
     pub fn disable_all_interrupts(&mut self) {
         unsafe {
             self.regs().tsensor_temp_int_en().write(|w| w.bits(0));
@@ -172,12 +179,14 @@ impl<'d> TempSensor<'d> {
     /// Check interrupt status.
     ///
     /// Returns `(done, out_thresh, overtemp)`.
+    #[instability::unstable]
     pub fn interrupt_status(&self) -> (bool, bool, bool) {
         let sts = self.regs().tsensor_temp_int_sts().read().bits();
         ((sts & 0x01) != 0, (sts & 0x02) != 0, (sts & 0x04) != 0)
     }
 
     /// Clear specific temperature interrupts.
+    #[instability::unstable]
     pub fn clear_interrupts(&mut self, done: bool, out_thresh: bool, overtemp: bool) {
         let mut val: u32 = 0;
         if done {
@@ -198,6 +207,7 @@ impl<'d> TempSensor<'d> {
     ///
     /// * `period` — Refresh period in 32kHz clock cycles.
     /// * `enable` — Enable auto refresh.
+    #[instability::unstable]
     pub fn configure_auto_refresh(&mut self, period: u16, enable: bool) {
         unsafe {
             self.regs().tsensor_auto_refresh_period().write(|w| w.bits(period as u32));
@@ -206,6 +216,7 @@ impl<'d> TempSensor<'d> {
     }
 
     /// Enable temperature calibration.
+    #[instability::unstable]
     pub fn enable_calibration(&mut self) {
         let ctrl1 = self.regs().tsensor_ctrl1().read().bits();
         unsafe {
@@ -214,6 +225,7 @@ impl<'d> TempSensor<'d> {
     }
 
     /// Disable temperature calibration.
+    #[instability::unstable]
     pub fn disable_calibration(&mut self) {
         let ctrl1 = self.regs().tsensor_ctrl1().read().bits();
         unsafe {

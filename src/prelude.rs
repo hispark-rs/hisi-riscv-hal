@@ -10,23 +10,24 @@ pub use embedded_io::{Read as _, Write as _};
 pub use nb::block;
 
 pub use crate::Peripherals;
+#[cfg(feature = "unstable")]
 pub use crate::delay::Delay;
-pub use crate::gpio::{AnyPin, Flex, Input, InputConfig, InterruptTrigger, Output, OutputConfig, Pull};
-pub use crate::interrupt::{Interrupt, Priority};
+pub use crate::gpio::{AnyPin, Flex, GpioBank, Input, InputConfig, InterruptTrigger, Output, OutputConfig, Pull};
+pub use crate::interrupt::{Interrupt, Priority, Threshold};
 pub use crate::tcxo::TcxoDriver;
 pub use crate::time::{Duration, Instant, Rate};
-pub use crate::timer::{OneShotTimer, PeriodicTimer, TimerDriver};
-pub use crate::uart::Uart;
+pub use crate::timer::{OneShotTimer, PeriodicTimer, TimerChannel, TimerDriver};
+pub use crate::uart::{Uart, UartClock, UartPort};
 #[cfg(feature = "chip-ws63")]
 pub use crate::{io_config::IoConfigDriver, system::System};
 
 // WS63-only drivers (gated to chip-ws63 until ported to BS21).
 #[cfg(feature = "chip-ws63")]
 pub use crate::clock::Peripheral;
-#[cfg(feature = "chip-ws63")]
+#[cfg(all(feature = "chip-ws63", feature = "unstable"))]
 pub use crate::dma::{Dma0, DmaDriver, Sdma0};
 #[cfg(feature = "chip-ws63")]
-pub use crate::efuse::EfuseDriver;
+pub use crate::efuse::{EfuseByteAddress, EfuseDriver};
 #[cfg(feature = "chip-ws63")]
 pub use crate::i2c::I2c;
 #[cfg(feature = "chip-ws63")]
@@ -34,8 +35,8 @@ pub use crate::i2s::I2sDriver;
 #[cfg(feature = "chip-ws63")]
 pub use crate::lsadc::LsAdc;
 #[cfg(feature = "chip-ws63")]
-pub use crate::pwm::{Duty, PwmChannel, PwmPeriod};
-#[cfg(feature = "chip-ws63")]
+pub use crate::pwm::{Duty, PwmChannel, PwmChannelId, PwmPeriod};
+#[cfg(all(feature = "chip-ws63", feature = "unstable"))]
 pub use crate::rtc::RtcDriver;
 #[cfg(all(feature = "chip-ws63", feature = "unstable"))]
 pub use crate::sfc::SfcDriver;

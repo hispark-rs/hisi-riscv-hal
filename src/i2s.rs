@@ -329,6 +329,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Enable TX.
+    #[instability::unstable]
     pub fn enable_tx(&mut self) {
         unsafe {
             self.regs().ct_set().write(|w| w.bits(0x01)); // tx_en
@@ -336,6 +337,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Enable RX.
+    #[instability::unstable]
     pub fn enable_rx(&mut self) {
         unsafe {
             self.regs().ct_set().write(|w| w.bits(0x02)); // rx_en
@@ -343,6 +345,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Disable TX.
+    #[instability::unstable]
     pub fn disable_tx(&mut self) {
         unsafe {
             self.regs().ct_clr().write(|w| w.bits(0x01));
@@ -350,6 +353,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Disable RX.
+    #[instability::unstable]
     pub fn disable_rx(&mut self) {
         unsafe {
             self.regs().ct_clr().write(|w| w.bits(0x02));
@@ -357,6 +361,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Reset TX FIFO.
+    #[instability::unstable]
     pub fn reset_tx(&mut self) {
         unsafe {
             self.regs().ct_set().write(|w| w.bits(0x04));
@@ -364,6 +369,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Reset RX FIFO.
+    #[instability::unstable]
     pub fn reset_rx(&mut self) {
         unsafe {
             self.regs().ct_set().write(|w| w.bits(0x08));
@@ -371,6 +377,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Enable TX interrupt.
+    #[instability::unstable]
     pub fn enable_tx_interrupt(&mut self) {
         unsafe {
             self.regs().ct_set().write(|w| w.bits(0x10));
@@ -378,6 +385,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Enable RX interrupt.
+    #[instability::unstable]
     pub fn enable_rx_interrupt(&mut self) {
         unsafe {
             self.regs().ct_set().write(|w| w.bits(0x20));
@@ -385,6 +393,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Write a sample to the left TX channel.
+    #[instability::unstable]
     pub fn write_left(&mut self, data: u32) {
         unsafe {
             self.regs().left_tx().write(|w| w.bits(data));
@@ -392,6 +401,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Write a sample to the right TX channel.
+    #[instability::unstable]
     pub fn write_right(&mut self, data: u32) {
         unsafe {
             self.regs().right_tx().write(|w| w.bits(data));
@@ -399,31 +409,37 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     }
 
     /// Read a sample from the left RX channel.
+    #[instability::unstable]
     pub fn read_left(&self) -> u32 {
         self.regs().left_rx().read().bits()
     }
 
     /// Read a sample from the right RX channel.
+    #[instability::unstable]
     pub fn read_right(&self) -> u32 {
         self.regs().right_rx().read().bits()
     }
 
     /// Get TX FIFO depth (left channel).
+    #[instability::unstable]
     pub fn tx_fifo_left_depth(&self) -> u8 {
         (self.regs().tx_sta().read().bits() & 0xFF) as u8
     }
 
     /// Get TX FIFO depth (right channel).
+    #[instability::unstable]
     pub fn tx_fifo_right_depth(&self) -> u8 {
         ((self.regs().tx_sta().read().bits() >> 8) & 0xFF) as u8
     }
 
     /// Get RX FIFO depth (left channel).
+    #[instability::unstable]
     pub fn rx_fifo_left_depth(&self) -> u8 {
         (self.regs().rx_sta().read().bits() & 0xFF) as u8
     }
 
     /// Get RX FIFO depth (right channel).
+    #[instability::unstable]
     pub fn rx_fifo_right_depth(&self) -> u8 {
         ((self.regs().rx_sta().read().bits() >> 8) & 0xFF) as u8
     }
@@ -431,12 +447,14 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     /// Check interrupt status.
     ///
     /// Returns `(rx_int, tx_int, rx_overflow, tx_underflow)`.
+    #[instability::unstable]
     pub fn interrupt_status(&self) -> (bool, bool, bool, bool) {
         let sts = self.regs().intstatus().read().bits();
         ((sts & 0x01) != 0, (sts & 0x02) != 0, (sts & 0x04) != 0, (sts & 0x08) != 0)
     }
 
     /// Clear all interrupts.
+    #[instability::unstable]
     pub fn clear_interrupts(&mut self) {
         unsafe {
             self.regs().intclr().write(|w| w.bits(0x0F));
@@ -449,6 +467,7 @@ impl<'d, R: sealed::Role> I2sDriver<'d, R> {
     /// * `tx_int_mask` — Mask TX interrupt
     /// * `rx_overflow_mask` — Mask RX overflow interrupt
     /// * `tx_underflow_mask` — Mask TX underflow interrupt
+    #[instability::unstable]
     pub fn set_interrupt_mask(
         &mut self,
         rx_int_mask: bool,

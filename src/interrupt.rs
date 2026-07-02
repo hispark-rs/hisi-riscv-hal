@@ -232,19 +232,56 @@ impl Priority {
     /// Highest priority (7).
     pub const HIGHEST: Self = Priority(7);
 
-    /// Create a priority, clamping `level` into the valid `1..=7` range.
-    pub const fn new(level: u8) -> Self {
-        let l = if level < 1 {
-            1
+    /// Build a priority level, rejecting values outside `1..=7`.
+    pub const fn from_level(level: u8) -> Option<Self> {
+        if level >= 1 && level <= 7 { Some(Priority(level)) } else { None }
+    }
+
+    const fn from_register(level: u8) -> Self {
+        if level < 1 {
+            Self::LOWEST
         } else if level > 7 {
-            7
+            Self::HIGHEST
         } else {
-            level
-        };
-        Priority(l)
+            Priority(level)
+        }
     }
 
     /// The numeric priority level (1..=7).
+    pub const fn level(self) -> u8 {
+        self.0
+    }
+}
+
+/// Global local-interrupt priority threshold (`PRITHD`). Valid range is `0..=7`.
+/// Only interrupts with priority strictly greater than this threshold are delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Threshold(u8);
+
+impl Threshold {
+    /// Threshold level 0: admit all deliverable priorities (`>= 1`).
+    pub const T0: Self = Threshold(0);
+    /// Threshold level 1.
+    pub const T1: Self = Threshold(1);
+    /// Threshold level 2.
+    pub const T2: Self = Threshold(2);
+    /// Threshold level 3.
+    pub const T3: Self = Threshold(3);
+    /// Threshold level 4.
+    pub const T4: Self = Threshold(4);
+    /// Threshold level 5.
+    pub const T5: Self = Threshold(5);
+    /// Threshold level 6.
+    pub const T6: Self = Threshold(6);
+    /// Threshold level 7: mask every priority representable by [`Priority`].
+    pub const T7: Self = Threshold(7);
+
+    /// Build a threshold, rejecting values outside `0..=7`.
+    pub const fn from_level(level: u8) -> Option<Self> {
+        if level <= 7 { Some(Threshold(level)) } else { None }
+    }
+
+    /// The numeric threshold level (0..=7).
     pub const fn level(self) -> u8 {
         self.0
     }
@@ -325,6 +362,7 @@ pub fn is_enabled(irq: Interrupt) -> bool {
 
 /// Set a local interrupt's 4-bit priority (`LOCIPRI`). Applies to IRQ >= 26;
 /// a no-op for the system vectors below that.
+#[instability::unstable]
 pub fn set_priority(irq: Interrupt, priority: Priority) {
     let n = irq_num(irq);
     if (SYS_VECTOR_CNT..PRIORITY_IRQ_END).contains(&n) {
@@ -335,6 +373,7 @@ pub fn set_priority(irq: Interrupt, priority: Priority) {
 }
 
 /// Read back a local interrupt's configured priority (`LOCIPRI`).
+#[instability::unstable]
 pub fn priority(irq: Interrupt) -> Priority {
     let n = irq_num(irq);
     if (SYS_VECTOR_CNT..PRIORITY_IRQ_END).contains(&n) {
@@ -342,7 +381,7 @@ pub fn priority(irq: Interrupt) -> Priority {
         let reg = (n - SYS_VECTOR_CNT) / LOCIPRI_IRQ_NUM;
         let shift = order * LOCIPRI_IRQ_BITS;
         let field = (locipri_read(reg) >> shift) & LOCIPRI_FIELD_MASK;
-        Priority::new(field as u8)
+        Priority::from_register(field as u8)
     } else {
         Priority::LOWEST
     }
@@ -351,13 +390,15 @@ pub fn priority(irq: Interrupt) -> Priority {
 /// Set the global priority threshold (`PRITHD`, 0..=7). Only interrupts with a
 /// priority **strictly greater** than this are delivered; 0 admits all
 /// priorities >= 1.
-pub fn set_threshold(level: u8) {
-    unsafe { csr_write!("0xbfe", (level & 0x7) as u32) };
+#[instability::unstable]
+pub fn set_threshold(threshold: Threshold) {
+    unsafe { csr_write!("0xbfe", threshold.level() as u32) };
 }
 
 /// Read the current global priority threshold (`PRITHD`).
-pub fn threshold() -> u8 {
-    (unsafe { csr_read!("0xbfe") } & 0x7) as u8
+#[instability::unstable]
+pub fn threshold() -> Threshold {
+    Threshold((unsafe { csr_read!("0xbfe") } & 0x7) as u8)
 }
 
 // --- pending ----------------------------------------------------------------
@@ -458,7 +499,7 @@ where
 }
 
 // ── Tests ──────────────────────────────────────────────────────
-// Host-only: pure logic only (priority clamping + the IRQ→register/bit/field
+// Host-only: pure logic only (priority/threshold typing + the IRQ→register/bit/field
 // arithmetic). NO CSR access — the csr_* macros are no-op stubs off riscv32, but
 // these tests never call the MMIO/CSR-touching driver functions regardless.
 
@@ -467,23 +508,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn priority_new_clamps_low() {
-        // Levels below 1 saturate up to the lowest valid priority (1).
-        assert_eq!(Priority::new(0).level(), 1);
+    fn priority_from_level_rejects_low() {
+        assert_eq!(Priority::from_level(0), None);
     }
 
     #[test]
-    fn priority_new_clamps_high() {
-        // Levels above 7 saturate down to the highest valid priority (7).
-        assert_eq!(Priority::new(8).level(), 7);
-        assert_eq!(Priority::new(u8::MAX).level(), 7);
+    fn priority_from_level_rejects_high() {
+        assert_eq!(Priority::from_level(8), None);
+        assert_eq!(Priority::from_level(u8::MAX), None);
     }
 
     #[test]
-    fn priority_new_passes_through_in_range() {
-        // Every in-range level round-trips through new()/level() unchanged.
+    fn priority_from_level_passes_through_in_range() {
+        // Every in-range level round-trips through from_level()/level() unchanged.
         for l in 1u8..=7 {
-            assert_eq!(Priority::new(l).level(), l);
+            assert_eq!(Priority::from_level(l).unwrap().level(), l);
         }
     }
 
@@ -639,11 +678,12 @@ mod tests {
     }
 
     #[test]
-    fn threshold_masks_to_three_bits() {
-        // set_threshold/threshold keep only the low 3 bits (range 0..=7).
-        assert_eq!((7u8 & 0x7), 7);
-        assert_eq!((8u8 & 0x7), 0);
-        assert_eq!((0xFFu8 & 0x7), 7);
+    fn threshold_from_level_accepts_only_three_bit_values() {
+        for level in 0u8..=7 {
+            assert_eq!(Threshold::from_level(level).unwrap().level(), level);
+        }
+        assert_eq!(Threshold::from_level(8), None);
+        assert_eq!(Threshold::from_level(u8::MAX), None);
     }
 }
 
@@ -655,23 +695,26 @@ mod proptests {
     use proptest::prelude::*;
 
     proptest! {
-        /// Fuzz: Priority::new always clamps into the valid 1..=7 range for any byte.
+        /// Fuzz: Priority::from_level accepts exactly 1..=7.
         #[test]
-        fn priority_new_always_in_range(level in any::<u8>()) {
-            let p = Priority::new(level).level();
-            prop_assert!((1..=7).contains(&p), "level {} -> {}", level, p);
+        fn priority_from_level_acceptance_matches_range(level in any::<u8>()) {
+            let p = Priority::from_level(level);
+            prop_assert_eq!(p.is_some(), (1..=7).contains(&level));
         }
 
-        /// Fuzz: in-range levels round-trip exactly; out-of-range saturate to a bound.
+        /// Fuzz: in-range priority levels round-trip exactly.
         #[test]
-        fn priority_new_roundtrip_or_saturates(level in any::<u8>()) {
-            let p = Priority::new(level).level();
-            if (1..=7).contains(&level) {
-                prop_assert_eq!(p, level);
-            } else if level == 0 {
-                prop_assert_eq!(p, 1);
-            } else {
-                prop_assert_eq!(p, 7);
+        fn priority_from_level_roundtrips_when_valid(level in 1u8..=7) {
+            prop_assert_eq!(Priority::from_level(level).unwrap().level(), level);
+        }
+
+        /// Fuzz: Threshold::from_level accepts exactly 0..=7.
+        #[test]
+        fn threshold_from_level_acceptance_matches_range(level in any::<u8>()) {
+            let threshold = Threshold::from_level(level);
+            prop_assert_eq!(threshold.is_some(), level <= 7);
+            if let Some(threshold) = threshold {
+                prop_assert_eq!(threshold.level(), level);
             }
         }
 
@@ -694,10 +737,5 @@ mod proptests {
             prop_assert!(u32::from(shift) + u32::from(LOCIPRI_IRQ_BITS) <= 32);
         }
 
-        /// Fuzz: masking any byte to the 3-bit threshold field yields a value in 0..=7.
-        #[test]
-        fn threshold_mask_in_range(level in any::<u8>()) {
-            prop_assert!((level & 0x7) <= 7);
-        }
     }
 }

@@ -1,8 +1,8 @@
 //! # hisi-riscv-hal — Hardware Abstraction Layer for HiSilicon WS63 (RISC-V).
 //!
 //! A comprehensive HAL providing safe, idiomatic Rust APIs for all WS63
-//! peripherals. Modeled on esp-hal patterns with typed GPIO drivers, RAII
-//! clock guards, DMA typing, and embedded-hal trait implementations.
+//! peripherals. Modeled on esp-hal patterns with typed GPIO drivers, audited
+//! clock metadata, typed identities, and embedded-hal trait implementations.
 //!
 //! ## Clock gating
 //!
@@ -77,8 +77,8 @@ pub mod interrupt;
 pub mod peripherals;
 /// Common re-exports for `use hisi_riscv_hal::prelude::*;`.
 pub mod prelude;
-/// Sealed marker traits restricting external trait implementations.
-pub mod private;
+// Sealed marker traits restricting external trait implementations.
+mod private;
 /// SoC-specific constants and PAC aliases for the selected chip.
 pub mod soc;
 /// TCXO always-on clock/counter driver.
@@ -95,16 +95,18 @@ pub mod uart;
 // full crypto block, SFC) or WS63-specific CRG/clock registers. BS21 ports land
 // in later milestones; gating keeps the BS21 build to the milestone-1 subset
 // while leaving the WS63 build (the default) byte-identical.
-/// Async runtime helpers: `block_on`, `IrqSignal`, and per-driver `on_interrupt`.
-#[cfg(all(feature = "chip-ws63", feature = "async"))]
-pub mod asynch;
+unstable_driver! {
+    /// Async runtime helpers: `block_on`, `IrqSignal`, and per-driver `on_interrupt`.
+    #[cfg(all(feature = "chip-ws63", feature = "async"))]
+    pub mod asynch;
+}
 // D-cache maintenance (custom HiSilicon CSRs). WS63-only: the cache CSR layout is
 // core-specific and only validated on WS63. Needed for correct DMA on the
 // non-coherent core (clean source / invalidate destination around a transfer).
 /// D-cache maintenance via custom HiSilicon CSRs (clean/invalidate for DMA).
 #[cfg(feature = "chip-ws63")]
 pub mod cache;
-/// Clock and reset generator control: clock gates and RAII `PeripheralGuard`s.
+/// Clock and reset generator metadata: audited peripheral clock-gate bits.
 #[cfg(feature = "chip-ws63")]
 pub mod clock;
 unstable_module! {
@@ -115,15 +117,17 @@ unstable_module! {
 // DMA: the register block + the mem-to-mem path are chip-neutral (Dma0 uses the
 // chip-neutral PAC base). Peripheral-paced flow control (DmaPeripheral request IDs)
 // is chip-ws63-only within the module; BS2X gets mem-to-mem.
-/// DMA controllers (Dma0/Sdma0): mem-to-mem and peripheral-paced transfers.
-pub mod dma;
+unstable_module! {
+    /// DMA controllers (Dma0/Sdma0): mem-to-mem and peripheral-paced transfers.
+    pub mod dma;
+}
 /// eFuse one-time-programmable memory access.
 #[cfg(feature = "chip-ws63")]
 pub mod efuse;
 // Chip-neutral: the embassy-time driver reads TCXO_HZ/TIMER_CLOCK_HZ and the
 // alarm interrupt from `soc::chip`, and the TCXO/TIMER register blocks are
 // register-identical across WS63 and BS2X (verified vs fbb_ws63 / fbb_bs2x).
-unstable_module! {
+unstable_driver! {
     /// embassy-time `Driver` implementation backed by TCXO/TIMER for `embassy-executor`.
     #[cfg(feature = "embassy")]
     pub mod embassy;

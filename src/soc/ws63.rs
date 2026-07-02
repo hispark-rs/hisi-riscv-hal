@@ -66,7 +66,7 @@ pub const TIMER_CLOCK_HZ: u32 = TCXO_HZ;
 /// NOT run the (XIP-unsafe) full `clock_init` inherit flashboot's UART clock, which
 /// is NOT this PLL base — so their baud is wrong on real hardware. The boot UART
 /// clock is the raw TCXO crystal (24 or 40 MHz), selected per board; use
-/// [`uart_boot_clock_hz`] + [`crate::uart::Config::clock_hz`] for those examples.
+/// [`crate::uart::UartClock::Boot`] for those examples.
 pub const UART_CLOCK_HZ: u32 = 160_000_000;
 
 /// Boot (pre-`clock_init`) UART baud base for a 24 MHz-TCXO board.
@@ -85,8 +85,8 @@ pub const UART_BOOT_CLOCK_40M_HZ: u32 = 40_000_000;
 /// `div = 21, div_fra = 44` — the divider the HAL must reproduce for examples
 /// that skip `clock_init` (hisi-riscv-rs#10/#15).
 ///
-/// Pass `Some(uart_boot_clock_hz())` as [`crate::uart::Config::clock_hz`] in such
-/// examples so the divider is computed against the real base.
+/// [`crate::uart::UartClock::Boot`] uses this value so the divider is computed
+/// against the real base.
 pub fn uart_boot_clock_hz() -> u32 {
     // HW_CTL TCXO-frequency-detect strap; bit 0: 1 = 24 MHz TCXO, 0 = 40 MHz
     // (CLK24M_TCXO = 1, CLK40M_TCXO = 0 in the vendor `soc_porting.h`).

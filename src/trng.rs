@@ -108,6 +108,7 @@ impl<'d> TrngDriver<'d> {
     /// Select the FRO sample clock source.
     ///
     /// * `external` — `true` for external clock, `false` for internal clock.
+    #[instability::unstable]
     pub fn set_sample_clock(&mut self, external: bool) {
         unsafe {
             self.regs().trng_fro_sample_clk_sel().write(|w| w.bits(if external { 1 } else { 0 }));
@@ -118,6 +119,7 @@ impl<'d> TrngDriver<'d> {
     ///
     /// Controls the sampling rate of the FRO entropy source.
     /// Default is 0x1b (27).
+    #[instability::unstable]
     pub fn set_divider(&mut self, div: u8) {
         unsafe {
             self.regs().trng_fro_div_cnt().write(|w| w.bits(div as u32));
@@ -125,6 +127,7 @@ impl<'d> TrngDriver<'d> {
     }
 
     /// Get the data status register value (for debugging).
+    #[instability::unstable]
     pub fn data_status(&self) -> u32 {
         self.regs().trng_data_st().read().bits()
     }

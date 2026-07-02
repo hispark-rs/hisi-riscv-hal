@@ -5,11 +5,69 @@
 //! ([`crate::soc::chip::UART_CLOCK_HZ`]), NOT the 240 MHz CPU clock (vendor
 //! `clock_init` sets the baud base to 160 MHz). Examples that skip `clock_init`
 //! run on flashboot's raw-TCXO console clock (24/40 MHz, confirmed 40 MHz on
-//! silicon) — they pass `Config::clock_hz = Some(soc::chip::uart_boot_clock_hz())`
-//! so the divider matches the real base (issue #15/#10).
+//! silicon) — they use [`UartClock::Boot`] so the divider matches the real base
+//! (issue #15/#10).
 
 use crate::peripherals::{Uart0, Uart1, Uart2};
 use core::marker::PhantomData;
+
+mod sealed {
+    pub trait UartInstanceSealed {}
+}
+
+/// UART port identity for the three UART instances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UartPort {
+    /// UART0.
+    Uart0,
+    /// UART1.
+    Uart1,
+    /// UART2.
+    Uart2,
+}
+
+impl UartPort {
+    /// Build a UART port from a raw index, rejecting values outside 0..=2.
+    pub const fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Uart0),
+            1 => Some(Self::Uart1),
+            2 => Some(Self::Uart2),
+            _ => None,
+        }
+    }
+
+    /// The UART port index (0-2).
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Uart0 => 0,
+            Self::Uart1 => 1,
+            Self::Uart2 => 2,
+        }
+    }
+}
+
+/// Sealed marker implemented by the HAL's UART peripheral token types.
+pub trait UartInstance: sealed::UartInstanceSealed {
+    /// The concrete UART port for this instance.
+    const PORT: UartPort;
+}
+
+impl<'d> sealed::UartInstanceSealed for Uart0<'d> {}
+impl<'d> sealed::UartInstanceSealed for Uart1<'d> {}
+impl<'d> sealed::UartInstanceSealed for Uart2<'d> {}
+
+impl<'d> UartInstance for Uart0<'d> {
+    const PORT: UartPort = UartPort::Uart0;
+}
+
+impl<'d> UartInstance for Uart1<'d> {
+    const PORT: UartPort = UartPort::Uart1;
+}
+
+impl<'d> UartInstance for Uart2<'d> {
+    const PORT: UartPort = UartPort::Uart2;
+}
 
 /// Number of data bits per UART frame ([3:2] field of UART_CTL).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,10 +106,8 @@ pub enum StopBits {
 /// `div = UART_CLOCK_HZ / (16 · baud)`, so against the default 160 MHz PLL base the
 /// realisable baud is `[~153, 10 000 000]`. `try_new` rejects anything outside that
 /// instead of the old silent low-clamp (`baud < min_baud → min_baud`). Note: a
-/// `Config.clock_hz` override (the 24/40 MHz flashboot console clock) shifts the
-/// realisable range down — `BaudRate` validates against the default base, so pairing
-/// a very high baud with a low override clock is the caller's responsibility (the
-/// documented `clock_hz` footgun).
+/// [`UartClock::Boot`] (the 24/40 MHz flashboot console clock) shifts the realisable
+/// range down — keep boot-console firmware at ordinary baud rates such as 115200.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BaudRate(u32);
@@ -80,6 +136,35 @@ impl BaudRate {
     }
 }
 
+/// UART baud-base clock selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UartClock {
+    /// Normal post-clock-init PLL-derived UART clock.
+    Pll,
+    /// Boot-console clock inherited from flashboot before normal clock init.
+    Boot,
+}
+
+impl UartClock {
+    fn hz(self) -> u32 {
+        match self {
+            Self::Pll => crate::soc::chip::UART_CLOCK_HZ,
+            Self::Boot => boot_uart_clock_hz(),
+        }
+    }
+}
+
+#[cfg(feature = "chip-ws63")]
+fn boot_uart_clock_hz() -> u32 {
+    crate::soc::chip::uart_boot_clock_hz()
+}
+
+#[cfg(not(feature = "chip-ws63"))]
+fn boot_uart_clock_hz() -> u32 {
+    crate::soc::chip::UART_CLOCK_HZ
+}
+
 /// UART frame and clock configuration passed to the `new_uartN` constructors.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -91,15 +176,8 @@ pub struct Config {
     pub parity: Parity,
     /// Number of stop bits per frame.
     pub stop_bits: StopBits,
-    /// UART baud-base clock in Hz. `None` = the post-`clock_init` PLL base
-    /// ([`crate::soc::chip::UART_CLOCK_HZ`], 160 MHz). Examples that skip
-    /// `clock_init` run on the flashboot console clock — the raw 24/40 MHz TCXO,
-    /// NOT the PLL — so they must set this to
-    /// `Some(crate::soc::chip::uart_boot_clock_hz())` for a correct divider on
-    /// real hardware. Otherwise the baud is off by the PLL/TCXO ratio (≈4× on a
-    /// 40 MHz board, confirmed on silicon), the root cause of garbled-console
-    /// issue #15/#10.
-    pub clock_hz: Option<u32>,
+    /// UART baud-base clock source.
+    pub clock: UartClock,
 }
 
 impl Default for Config {
@@ -109,7 +187,7 @@ impl Default for Config {
             data_bits: DataBits::Eight,
             parity: Parity::None,
             stop_bits: StopBits::One,
-            clock_hz: None,
+            clock: UartClock::Pll,
         }
     }
 }
@@ -125,24 +203,23 @@ fn regs() -> &'static crate::soc::pac::uart0::RegisterBlock {
     unsafe { &*Uart0::ptr() }
 }
 
-fn uart_ptr(idx: u8) -> *const crate::soc::pac::uart0::RegisterBlock {
-    match idx {
-        0 => Uart0::ptr(),
-        1 => Uart1::ptr(),
-        2 => Uart2::ptr(),
-        _ => unreachable!(),
+fn uart_ptr(port: UartPort) -> *const crate::soc::pac::uart0::RegisterBlock {
+    match port {
+        UartPort::Uart0 => Uart0::ptr(),
+        UartPort::Uart1 => Uart1::ptr(),
+        UartPort::Uart2 => Uart2::ptr(),
     }
 }
 
-fn uart_regs(idx: u8) -> &'static crate::soc::pac::uart0::RegisterBlock {
-    // SAFETY: uart_ptr(idx) returns valid PAC MMIO addresses (UART0/1/2 at 0x4401_0000/1000/2000)
-    unsafe { &*uart_ptr(idx) }
+fn uart_regs(port: UartPort) -> &'static crate::soc::pac::uart0::RegisterBlock {
+    // SAFETY: uart_ptr(port) returns valid PAC MMIO addresses (UART0/1/2 at 0x4401_0000/1000/2000)
+    unsafe { &*uart_ptr(port) }
 }
 
 impl<'d> Uart<'d, Uart0<'d>> {
     /// Create and configure a UART0 driver from the peripheral token and config.
     pub fn new_uart0(_uart: Uart0<'d>, config: Config) -> Self {
-        configure_uart(0, &config);
+        configure_uart(UartPort::Uart0, &config);
         Self { _peripheral: PhantomData }
     }
 }
@@ -150,7 +227,7 @@ impl<'d> Uart<'d, Uart0<'d>> {
 impl<'d> Uart<'d, Uart1<'d>> {
     /// Create and configure a UART1 driver from the peripheral token and config.
     pub fn new_uart1(_uart: Uart1<'d>, config: Config) -> Self {
-        configure_uart(1, &config);
+        configure_uart(UartPort::Uart1, &config);
         Self { _peripheral: PhantomData }
     }
 }
@@ -158,13 +235,13 @@ impl<'d> Uart<'d, Uart1<'d>> {
 impl<'d> Uart<'d, Uart2<'d>> {
     /// Create and configure a UART2 driver from the peripheral token and config.
     pub fn new_uart2(_uart: Uart2<'d>, config: Config) -> Self {
-        configure_uart(2, &config);
+        configure_uart(UartPort::Uart2, &config);
         Self { _peripheral: PhantomData }
     }
 }
 
-fn configure_uart(idx: u8, config: &Config) {
-    let r = uart_regs(idx);
+fn configure_uart(port: UartPort, config: &Config) {
+    let r = uart_regs(port);
 
     // Enable divider access
     r.uart_ctl().modify(|_, w| unsafe { w.bits(0) });
@@ -174,9 +251,9 @@ fn configure_uart(idx: u8, config: &Config) {
     // Valid range: div ∈ [1, 65535] (16-bit divider). `BaudRate::try_new` already
     // rejected any baud whose divider would fall outside that against the 160 MHz
     // PLL base, so no runtime clamp is needed (and `baud()` is never 0 → no div0).
-    // `config.clock_hz` overrides the base for pre-`clock_init` examples (the
-    // 24/40 MHz flashboot console clock); `None` keeps the 160 MHz PLL default.
-    let pclk = config.clock_hz.unwrap_or(crate::soc::chip::UART_CLOCK_HZ);
+    // `UartClock::Boot` selects the pre-`clock_init` flashboot console clock; the
+    // default `Pll` keeps the normal 160 MHz PLL base.
+    let pclk = config.clock.hz();
     let baudrate = config.baudrate.baud();
     // div = pclk / (16 * baud), as fixed-point with 6 fractional bits (div_fra ∈
     // [0,63] sixty-fourths). Dropping the fraction (old div_fra=0) is fine at high
@@ -221,17 +298,17 @@ fn configure_uart(idx: u8, config: &Config) {
     r.fifo_ctl().write(|w| unsafe { w.bits(0x07) });
 }
 
-impl<T> Uart<'_, T> {
-    /// Write one byte to UART `idx`, blocking while the TX FIFO is full.
-    pub fn write_byte(&self, idx: u8, byte: u8) {
-        let r = uart_regs(idx);
+impl<T: UartInstance> Uart<'_, T> {
+    /// Write one byte, blocking while this UART's TX FIFO is full.
+    pub fn write_byte(&self, byte: u8) {
+        let r = uart_regs(T::PORT);
         while r.fifo_status().read().tx_fifo_full().bit_is_set() {}
         r.data().write(|w| unsafe { w.bits(byte as u16) });
     }
 
-    /// Read one byte from UART `idx`, or `None` if the RX FIFO is empty.
-    pub fn read_byte(&self, idx: u8) -> Option<u8> {
-        let r = uart_regs(idx);
+    /// Read one byte, or `None` if this UART's RX FIFO is empty.
+    pub fn read_byte(&self) -> Option<u8> {
+        let r = uart_regs(T::PORT);
         // Gate on the RX FIFO *count* (0x4c), not the `fifo_status.rx_fifo_empty`
         // bit. The vendor `hal_uart_v151` polls `rx_fifo_cnt` to decide whether to
         // read `data` (0x04), and on silicon the `rx_fifo_empty` status bit does not
@@ -241,27 +318,27 @@ impl<T> Uart<'_, T> {
         if r.rx_fifo_cnt().read().bits() == 0 { None } else { Some(r.data().read().bits() as u8) }
     }
 
-    /// Block until UART `idx`'s TX FIFO is fully drained.
-    pub fn flush_tx(&self, idx: u8) {
-        let r = uart_regs(idx);
+    /// Block until this UART's TX FIFO is fully drained.
+    pub fn flush_tx(&self) {
+        let r = uart_regs(T::PORT);
         while !r.fifo_status().read().tx_fifo_empty().bit_is_set() {}
     }
 
     /// Non-blocking check: returns true if TX FIFO is fully drained.
-    pub fn tx_flushed(&self, idx: u8) -> bool {
-        uart_regs(idx).fifo_status().read().tx_fifo_empty().bit_is_set()
+    pub fn tx_flushed(&self) -> bool {
+        uart_regs(T::PORT).fifo_status().read().tx_fifo_empty().bit_is_set()
     }
 
-    /// Write a byte slice to UART `idx`, blocking per byte.
-    pub fn write(&self, idx: u8, data: &[u8]) {
+    /// Write a byte slice, blocking per byte.
+    pub fn write(&self, data: &[u8]) {
         for &b in data {
-            self.write_byte(idx, b);
+            self.write_byte(b);
         }
     }
 
-    /// Return the PAC register block for UART `idx` (0/1/2).
-    pub fn uart_regs(&self, idx: u8) -> &'static crate::soc::pac::uart0::RegisterBlock {
-        uart_regs(idx)
+    /// Return this UART's PAC register block.
+    pub fn register_block(&self) -> &'static crate::soc::pac::uart0::RegisterBlock {
+        uart_regs(T::PORT)
     }
 }
 
@@ -270,7 +347,7 @@ impl<'d> Uart<'d, Uart0<'d>> {
     /// Consume the blocking UART0 + a DMA driver → DMA-capable [`UartDma`] (idx 0).
     #[instability::unstable]
     pub fn with_dma(self, dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>) -> UartDma<'d, Uart0<'d>> {
-        UartDma { idx: 0, dma, _p: PhantomData }
+        UartDma { port: UartPort::Uart0, dma, _p: PhantomData }
     }
 }
 #[cfg(feature = "chip-ws63")]
@@ -278,7 +355,7 @@ impl<'d> Uart<'d, Uart1<'d>> {
     /// Consume the blocking UART1 + a DMA driver → DMA-capable [`UartDma`] (idx 1).
     #[instability::unstable]
     pub fn with_dma(self, dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>) -> UartDma<'d, Uart1<'d>> {
-        UartDma { idx: 1, dma, _p: PhantomData }
+        UartDma { port: UartPort::Uart1, dma, _p: PhantomData }
     }
 }
 #[cfg(feature = "chip-ws63")]
@@ -286,7 +363,7 @@ impl<'d> Uart<'d, Uart2<'d>> {
     /// Consume the blocking UART2 + a DMA driver → DMA-capable [`UartDma`] (idx 2).
     #[instability::unstable]
     pub fn with_dma(self, dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>) -> UartDma<'d, Uart2<'d>> {
-        UartDma { idx: 2, dma, _p: PhantomData }
+        UartDma { port: UartPort::Uart2, dma, _p: PhantomData }
     }
 }
 
@@ -306,7 +383,7 @@ impl<'d> Uart<'d, Uart2<'d>> {
 #[cfg(feature = "chip-ws63")]
 #[instability::unstable]
 pub struct UartDma<'d, T> {
-    idx: u8,
+    port: UartPort,
     dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>,
     _p: PhantomData<&'d T>,
 }
@@ -314,7 +391,7 @@ pub struct UartDma<'d, T> {
 #[cfg(feature = "chip-ws63")]
 impl<'d, T> UartDma<'d, T> {
     fn regs(&self) -> &'static crate::soc::pac::uart0::RegisterBlock {
-        uart_regs(self.idx)
+        uart_regs(self.port)
     }
 
     fn data_addr(&self) -> u32 {
@@ -322,20 +399,18 @@ impl<'d, T> UartDma<'d, T> {
     }
 
     fn tx_peri(&self) -> crate::dma::DmaPeripheral {
-        match self.idx {
-            0 => crate::dma::DmaPeripheral::Uart0Tx,
-            1 => crate::dma::DmaPeripheral::Uart1Tx,
-            2 => crate::dma::DmaPeripheral::Uart2Tx,
-            _ => unreachable!(),
+        match self.port {
+            UartPort::Uart0 => crate::dma::DmaPeripheral::Uart0Tx,
+            UartPort::Uart1 => crate::dma::DmaPeripheral::Uart1Tx,
+            UartPort::Uart2 => crate::dma::DmaPeripheral::Uart2Tx,
         }
     }
 
     fn rx_peri(&self) -> crate::dma::DmaPeripheral {
-        match self.idx {
-            0 => crate::dma::DmaPeripheral::Uart0Rx,
-            1 => crate::dma::DmaPeripheral::Uart1Rx,
-            2 => crate::dma::DmaPeripheral::Uart2Rx,
-            _ => unreachable!(),
+        match self.port {
+            UartPort::Uart0 => crate::dma::DmaPeripheral::Uart0Rx,
+            UartPort::Uart1 => crate::dma::DmaPeripheral::Uart1Rx,
+            UartPort::Uart2 => crate::dma::DmaPeripheral::Uart2Rx,
         }
     }
 
@@ -348,12 +423,13 @@ impl<'d, T> UartDma<'d, T> {
         ch: crate::dma::DmaChannel,
         buf: B,
     ) -> Result<B, UartDmaError> {
-        use crate::dma::{BurstSize, DmaChannelConfig, FlowControl, TransferWidth};
+        use crate::dma::{DmaChannelConfig, DmaFrame, DmaTransferSize};
         let r = self.regs();
         let (ptr, beats) = unsafe { buf.read_buffer() };
         if beats > 0xFFF {
             return Err(UartDmaError::BufferTooLong);
         }
+        let size = DmaTransferSize::from_beats(beats).ok_or(UartDmaError::BufferTooLong)?;
         let bytes = beats;
         let data_addr = self.data_addr();
 
@@ -365,32 +441,19 @@ impl<'d, T> UartDma<'d, T> {
         // Clean the TX source (non-coherent core). The DATA register is uncached MMIO.
         unsafe { crate::cache::clean_range(ptr as usize, bytes) };
 
-        let cfg = DmaChannelConfig {
-            src_peripheral: 0,
-            dst_peripheral: self.tx_peri().request_id(),
-            flow_control: FlowControl::MemToPeripheral,
-            src_width: TransferWidth::Width8,
-            dst_width: TransferWidth::Width8,
-            src_burst: BurstSize::Beats1,
-            dst_burst: BurstSize::Beats1,
-            src_inc: true,
-            dst_inc: false,
-            transfer_int: false,
-            error_int: false,
-            bus_lock: false,
-        };
+        let cfg = DmaChannelConfig::default().mem_to_peripheral(self.tx_peri()).with_width(DmaFrame::Byte);
         let chn = ch.logical();
-        self.dma.configure_channel(chn, ptr as u32, data_addr, beats as u16, &cfg);
+        self.dma.configure_channel_raw(chn, ptr as u32, data_addr, size, &cfg);
         // (uart_parameter.dma_mode is PAC-read-only — DMA paces on the FIFO triggers above.)
 
         // Bounded wait for the channel to auto-clear its enable bit.
         let mut n = 1_000_000u32;
-        while self.dma.channel_enabled(chn) {
+        while self.dma.channel_enabled_raw(chn) {
             n -= 1;
             if n == 0 {
                 r.fifo_ctl().modify(|_, w| w.tx_empty_trig().empty().rx_empty_trig().char1());
-                self.dma.halt_channel(chn);
-                self.dma.disable_channel(chn);
+                self.dma.halt_channel_raw(chn);
+                self.dma.disable_channel_raw(chn);
                 return Err(UartDmaError::Timeout);
             }
             core::hint::spin_loop();
@@ -411,41 +474,29 @@ impl<'d, T> UartDma<'d, T> {
         ch: crate::dma::DmaChannel,
         mut buf: B,
     ) -> Result<B, UartDmaError> {
-        use crate::dma::{BurstSize, DmaChannelConfig, FlowControl, TransferWidth};
+        use crate::dma::{DmaChannelConfig, DmaFrame, DmaTransferSize};
         let r = self.regs();
         let (ptr, beats) = unsafe { buf.write_buffer() };
         if beats > 0xFFF {
             return Err(UartDmaError::BufferTooLong);
         }
+        let size = DmaTransferSize::from_beats(beats).ok_or(UartDmaError::BufferTooLong)?;
         let bytes = beats;
         let data_addr = self.data_addr();
 
         r.fifo_ctl().modify(|_, w| w.fifo_en().set_bit().tx_empty_trig().chars2().rx_empty_trig().quarter());
 
-        let cfg = DmaChannelConfig {
-            dst_peripheral: 0,
-            src_peripheral: self.rx_peri().request_id(),
-            flow_control: FlowControl::PeripheralToMem,
-            src_width: TransferWidth::Width8,
-            dst_width: TransferWidth::Width8,
-            src_burst: BurstSize::Beats1,
-            dst_burst: BurstSize::Beats1,
-            src_inc: false,
-            dst_inc: true,
-            transfer_int: false,
-            error_int: false,
-            bus_lock: false,
-        };
+        let cfg = DmaChannelConfig::default().peripheral_to_mem(self.rx_peri()).with_width(DmaFrame::Byte);
         let chn = ch.logical();
-        self.dma.configure_channel(chn, data_addr, ptr as u32, beats as u16, &cfg);
+        self.dma.configure_channel_raw(chn, data_addr, ptr as u32, size, &cfg);
 
         let mut n = 1_000_000u32;
-        while self.dma.channel_enabled(chn) {
+        while self.dma.channel_enabled_raw(chn) {
             n -= 1;
             if n == 0 {
                 r.fifo_ctl().modify(|_, w| w.tx_empty_trig().empty().rx_empty_trig().char1());
-                self.dma.halt_channel(chn);
-                self.dma.disable_channel(chn);
+                self.dma.halt_channel_raw(chn);
+                self.dma.disable_channel_raw(chn);
                 return Err(UartDmaError::Timeout);
             }
             core::hint::spin_loop();
@@ -468,6 +519,7 @@ impl<'d, T> UartDma<'d, T> {
 
 /// Errors from a UART DMA transfer.
 #[cfg(feature = "chip-ws63")]
+#[instability::unstable]
 #[derive(Debug)]
 #[non_exhaustive]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -484,12 +536,12 @@ impl embedded_io::ErrorType for Uart<'_, Uart0<'_>> {
 impl embedded_io::Write for Uart<'_, Uart0<'_>> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         for &b in buf {
-            self.write_byte(0, b);
+            self.write_byte(b);
         }
         Ok(buf.len())
     }
     fn flush(&mut self) -> Result<(), Self::Error> {
-        self.flush_tx(0);
+        self.flush_tx();
         Ok(())
     }
 }
@@ -497,7 +549,7 @@ impl embedded_io::Read for Uart<'_, Uart0<'_>> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut n = 0;
         for b in buf.iter_mut() {
-            if let Some(byte) = self.read_byte(0) {
+            if let Some(byte) = self.read_byte() {
                 *b = byte;
                 n += 1;
             } else {
@@ -515,12 +567,12 @@ impl embedded_io::ErrorType for Uart<'_, Uart1<'_>> {
 impl embedded_io::Write for Uart<'_, Uart1<'_>> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         for &b in buf {
-            self.write_byte(1, b);
+            self.write_byte(b);
         }
         Ok(buf.len())
     }
     fn flush(&mut self) -> Result<(), Self::Error> {
-        self.flush_tx(1);
+        self.flush_tx();
         Ok(())
     }
 }
@@ -528,7 +580,7 @@ impl embedded_io::Read for Uart<'_, Uart1<'_>> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut n = 0;
         for b in buf.iter_mut() {
-            if let Some(byte) = self.read_byte(1) {
+            if let Some(byte) = self.read_byte() {
                 *b = byte;
                 n += 1;
             } else {
@@ -546,12 +598,12 @@ impl embedded_io::ErrorType for Uart<'_, Uart2<'_>> {
 impl embedded_io::Write for Uart<'_, Uart2<'_>> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         for &b in buf {
-            self.write_byte(2, b);
+            self.write_byte(b);
         }
         Ok(buf.len())
     }
     fn flush(&mut self) -> Result<(), Self::Error> {
-        self.flush_tx(2);
+        self.flush_tx();
         Ok(())
     }
 }
@@ -559,7 +611,7 @@ impl embedded_io::Read for Uart<'_, Uart2<'_>> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut n = 0;
         for b in buf.iter_mut() {
-            if let Some(byte) = self.read_byte(2) {
+            if let Some(byte) = self.read_byte() {
                 *b = byte;
                 n += 1;
             } else {
@@ -573,13 +625,13 @@ impl embedded_io::Read for Uart<'_, Uart2<'_>> {
 // ── embedded-hal-nb serial traits ──────────────────────────────
 
 macro_rules! impl_nb_serial {
-    ($uart:ty, $idx:expr) => {
+    ($uart:ty) => {
         impl embedded_hal_nb::serial::ErrorType for Uart<'_, $uart> {
             type Error = core::convert::Infallible;
         }
         impl embedded_hal_nb::serial::Read for Uart<'_, $uart> {
             fn read(&mut self) -> nb::Result<u8, Self::Error> {
-                match self.read_byte($idx) {
+                match self.read_byte() {
                     Some(b) => Ok(b),
                     None => Err(nb::Error::WouldBlock),
                 }
@@ -587,24 +639,24 @@ macro_rules! impl_nb_serial {
         }
         impl embedded_hal_nb::serial::Write for Uart<'_, $uart> {
             fn write(&mut self, byte: u8) -> nb::Result<(), Self::Error> {
-                self.write_byte($idx, byte);
+                self.write_byte(byte);
                 Ok(())
             }
             fn flush(&mut self) -> nb::Result<(), Self::Error> {
-                if self.tx_flushed($idx) { Ok(()) } else { Err(nb::Error::WouldBlock) }
+                if self.tx_flushed() { Ok(()) } else { Err(nb::Error::WouldBlock) }
             }
         }
     };
 }
 
-impl_nb_serial!(Uart0<'_>, 0);
-impl_nb_serial!(Uart1<'_>, 1);
-impl_nb_serial!(Uart2<'_>, 2);
+impl_nb_serial!(Uart0<'_>);
+impl_nb_serial!(Uart1<'_>);
+impl_nb_serial!(Uart2<'_>);
 
 // ── Async UART (embedded-io-async) ──────────────────────────────────────────
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 mod asynch_impl {
-    use super::{Uart, uart_regs};
+    use super::{Uart, UartPort, uart_regs};
     use crate::asynch::IrqSignal;
     use crate::peripherals::{Uart0, Uart1, Uart2};
     use core::cell::Cell;
@@ -617,25 +669,26 @@ mod asynch_impl {
     static UART_RX: [IrqSignal; 3] = [IrqSignal::new(), IrqSignal::new(), IrqSignal::new()];
     static UART_BYTE: [Mutex<Cell<u8>>; 3] = [const { Mutex::new(Cell::new(0)) }; 3];
 
-    fn uart_base(idx: u8) -> usize {
-        match idx {
-            0 => 0x4401_0000,
-            1 => 0x4401_1000,
-            _ => 0x4401_2000,
+    fn uart_base(port: UartPort) -> usize {
+        match port {
+            UartPort::Uart0 => 0x4401_0000,
+            UartPort::Uart1 => 0x4401_1000,
+            UartPort::Uart2 => 0x4401_2000,
         }
     }
 
     /// UART trap hook: read the received byte (which de-asserts the RX IRQ) and
     /// wake the awaiting reader. Call from the trap when `mcause` is UART0..2_INT
     /// (IRQ 53..55). Reading in the ISR avoids a level-triggered RX storm.
-    pub fn on_interrupt(idx: u8) {
-        let r = uart_regs(idx);
+    pub fn on_interrupt(port: UartPort) {
+        let idx = port.index();
+        let r = uart_regs(port);
         // Gate on rx_fifo_cnt, not rx_fifo_empty (the status bit does not track a
         // single-byte pop on silicon — same fix as the blocking `read_byte`).
         if r.rx_fifo_cnt().read().bits() != 0 {
             let b = r.data().read().bits() as u8;
-            critical_section::with(|cs| UART_BYTE[idx as usize].borrow(cs).set(b));
-            UART_RX[idx as usize].signal();
+            critical_section::with(|cs| UART_BYTE[idx].borrow(cs).set(b));
+            UART_RX[idx].signal();
         }
     }
 
@@ -643,47 +696,49 @@ mod asynch_impl {
     // UART IRQ here by number, so an async UART app needs no `mcause` trap.
     #[unsafe(no_mangle)]
     extern "C" fn UART0_INT() {
-        on_interrupt(0);
+        on_interrupt(UartPort::Uart0);
     }
     #[unsafe(no_mangle)]
     extern "C" fn UART1_INT() {
-        on_interrupt(1);
+        on_interrupt(UartPort::Uart1);
     }
     #[unsafe(no_mangle)]
     extern "C" fn UART2_INT() {
-        on_interrupt(2);
+        on_interrupt(UartPort::Uart2);
     }
 
     struct RxFuture {
-        idx: u8,
+        port: UartPort,
     }
     impl Future for RxFuture {
         type Output = ();
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-            if UART_RX[self.idx as usize].take_fired() {
+            let idx = self.port.index();
+            if UART_RX[idx].take_fired() {
                 Poll::Ready(())
             } else {
-                UART_RX[self.idx as usize].register(cx.waker());
+                UART_RX[idx].register(cx.waker());
                 Poll::Pending
             }
         }
     }
 
-    async fn read_one(uart: &Uart<'_, impl Sized>, idx: u8) -> u8 {
-        let r = uart_regs(idx);
+    async fn read_one(uart: &Uart<'_, impl Sized>, port: UartPort) -> u8 {
+        let idx = port.index();
+        let r = uart_regs(port);
         if !r.fifo_status().read().rx_fifo_empty().bit_is_set() {
             return r.data().read().bits() as u8; // byte already waiting
         }
-        UART_RX[idx as usize].reset();
+        UART_RX[idx].reset();
         // Enable the UART RX interrupt (INTR_EN @ +0x18) so a byte raises the IRQ.
-        unsafe { core::ptr::write_volatile((uart_base(idx) + 0x18) as *mut u32, 1) };
+        unsafe { core::ptr::write_volatile((uart_base(port) + 0x18) as *mut u32, 1) };
         let _ = uart; // keep the &Uart borrow for the await's lifetime
-        RxFuture { idx }.await;
-        critical_section::with(|cs| UART_BYTE[idx as usize].borrow(cs).get())
+        RxFuture { port }.await;
+        critical_section::with(|cs| UART_BYTE[idx].borrow(cs).get())
     }
 
     macro_rules! async_uart {
-        ($uart:ty, $idx:expr) => {
+        ($uart:ty, $port:expr) => {
             // embedded_io::ErrorType is already implemented for the blocking impls;
             // the async Read/Write traits reuse it.
             impl Write for Uart<'_, $uart> {
@@ -691,12 +746,12 @@ mod asynch_impl {
                     // WS63 UART TX drains immediately on this model; write_byte polls
                     // tx_fifo_full, so this completes without parking.
                     for &b in buf {
-                        self.write_byte($idx, b);
+                        self.write_byte(b);
                     }
                     Ok(buf.len())
                 }
                 async fn flush(&mut self) -> Result<(), Self::Error> {
-                    self.flush_tx($idx);
+                    self.flush_tx();
                     Ok(())
                 }
             }
@@ -705,18 +760,18 @@ mod asynch_impl {
                     if buf.is_empty() {
                         return Ok(0);
                     }
-                    buf[0] = read_one(self, $idx).await;
+                    buf[0] = read_one(self, $port).await;
                     Ok(1)
                 }
             }
         };
     }
-    async_uart!(Uart0<'_>, 0);
-    async_uart!(Uart1<'_>, 1);
-    async_uart!(Uart2<'_>, 2);
+    async_uart!(Uart0<'_>, UartPort::Uart0);
+    async_uart!(Uart1<'_>, UartPort::Uart1);
+    async_uart!(Uart2<'_>, UartPort::Uart2);
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 pub use asynch_impl::on_interrupt;
 
 // ── Tests ──────────────────────────────────────────────────────
@@ -908,7 +963,7 @@ mod tests {
             data_bits: DataBits::Seven,
             parity: Parity::Even,
             stop_bits: StopBits::Two,
-            clock_hz: None,
+            clock: UartClock::Pll,
         };
         // data=2<<2 (0x08) | parity even (0x30) | 2-stop (0x80) = 0xB8.
         assert_eq!(build_ctl(&c), (2 << 2) | (1 << 5) | (1 << 4) | (1 << 7));

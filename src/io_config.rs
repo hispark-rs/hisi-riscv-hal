@@ -54,9 +54,9 @@ pub enum PullResistor {
     Down,
 }
 
-/// GPIO pin mux selection (15 GPIO pins, 4 UART pads).
+/// GPIO pad selection for IO_CONFIG-controlled GPIO pads (0-14).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PinMux {
+pub enum GpioPad {
     /// GPIO pin 0.
     Gpio00,
     /// GPIO pin 1.
@@ -87,6 +87,56 @@ pub enum PinMux {
     Gpio13,
     /// GPIO pin 14.
     Gpio14,
+}
+
+impl GpioPad {
+    /// Build a GPIO pad from a raw pad index, rejecting pads that IO_CONFIG does not expose.
+    pub const fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Gpio00),
+            1 => Some(Self::Gpio01),
+            2 => Some(Self::Gpio02),
+            3 => Some(Self::Gpio03),
+            4 => Some(Self::Gpio04),
+            5 => Some(Self::Gpio05),
+            6 => Some(Self::Gpio06),
+            7 => Some(Self::Gpio07),
+            8 => Some(Self::Gpio08),
+            9 => Some(Self::Gpio09),
+            10 => Some(Self::Gpio10),
+            11 => Some(Self::Gpio11),
+            12 => Some(Self::Gpio12),
+            13 => Some(Self::Gpio13),
+            14 => Some(Self::Gpio14),
+            _ => None,
+        }
+    }
+
+    /// The GPIO pad index (0-14).
+    pub const fn index(self) -> u8 {
+        match self {
+            Self::Gpio00 => 0,
+            Self::Gpio01 => 1,
+            Self::Gpio02 => 2,
+            Self::Gpio03 => 3,
+            Self::Gpio04 => 4,
+            Self::Gpio05 => 5,
+            Self::Gpio06 => 6,
+            Self::Gpio07 => 7,
+            Self::Gpio08 => 8,
+            Self::Gpio09 => 9,
+            Self::Gpio10 => 10,
+            Self::Gpio11 => 11,
+            Self::Gpio12 => 12,
+            Self::Gpio13 => 13,
+            Self::Gpio14 => 14,
+        }
+    }
+}
+
+/// UART pad selection for IO_CONFIG-controlled UART pads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UartPad {
     /// UART0 transmit data pad.
     Uart0Txd,
     /// UART0 receive data pad.
@@ -97,8 +147,42 @@ pub enum PinMux {
     Uart1Rxd,
 }
 
+/// A 3-bit IO_CONFIG mux-function selector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MuxFunction(u8);
+
+impl MuxFunction {
+    /// Function select value 0.
+    pub const F0: Self = Self(0);
+    /// Function select value 1.
+    pub const F1: Self = Self(1);
+    /// Function select value 2.
+    pub const F2: Self = Self(2);
+    /// Function select value 3.
+    pub const F3: Self = Self(3);
+    /// Function select value 4.
+    pub const F4: Self = Self(4);
+    /// Function select value 5.
+    pub const F5: Self = Self(5);
+    /// Function select value 6.
+    pub const F6: Self = Self(6);
+    /// Function select value 7.
+    pub const F7: Self = Self(7);
+
+    /// Build a mux selector from raw bits, rejecting values outside the 3-bit field.
+    pub const fn from_bits(bits: u8) -> Option<Self> {
+        if bits <= 0x07 { Some(Self(bits)) } else { None }
+    }
+
+    /// Raw 3-bit function select value.
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+}
+
 /// SFC pad selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[instability::unstable]
 pub enum SfcPad {
     /// SFC clock pad.
     Clk,
@@ -132,106 +216,102 @@ impl<'d> IoConfigDriver<'d> {
 
     // ── Pin mux ───────────────────────────────────────────────────
 
-    /// Set the function select value for a GPIO pin.
+    /// Set the function select value for a GPIO pad.
     ///
-    /// * `pin` — GPIO pin index (0-14).
-    /// * `function` — 3-bit function select value.
-    pub fn set_gpio_mux(&mut self, pin: u8, function: u8) {
-        assert!(pin < 15);
-        let val = (function & 0x07) as u32;
+    /// * `pin` — GPIO pad index (0-14), represented as [`GpioPad`].
+    /// * `function` — validated 3-bit function select value.
+    pub fn set_gpio_mux(&mut self, pin: GpioPad, function: MuxFunction) {
+        let val = function.bits() as u32;
         let r = self.regs();
         match pin {
-            0 => unsafe {
+            GpioPad::Gpio00 => unsafe {
                 r.gpio_00_sel().write(|w| w.bits(val));
             },
-            1 => unsafe {
+            GpioPad::Gpio01 => unsafe {
                 r.gpio_01_sel().write(|w| w.bits(val));
             },
-            2 => unsafe {
+            GpioPad::Gpio02 => unsafe {
                 r.gpio_02_sel().write(|w| w.bits(val));
             },
-            3 => unsafe {
+            GpioPad::Gpio03 => unsafe {
                 r.gpio_03_sel().write(|w| w.bits(val));
             },
-            4 => unsafe {
+            GpioPad::Gpio04 => unsafe {
                 r.gpio_04_sel().write(|w| w.bits(val));
             },
-            5 => unsafe {
+            GpioPad::Gpio05 => unsafe {
                 r.gpio_05_sel().write(|w| w.bits(val));
             },
-            6 => unsafe {
+            GpioPad::Gpio06 => unsafe {
                 r.gpio_06_sel().write(|w| w.bits(val));
             },
-            7 => unsafe {
+            GpioPad::Gpio07 => unsafe {
                 r.gpio_07_sel().write(|w| w.bits(val));
             },
-            8 => unsafe {
+            GpioPad::Gpio08 => unsafe {
                 r.gpio_08_sel().write(|w| w.bits(val));
             },
-            9 => unsafe {
+            GpioPad::Gpio09 => unsafe {
                 r.gpio_09_sel().write(|w| w.bits(val));
             },
-            10 => unsafe {
+            GpioPad::Gpio10 => unsafe {
                 r.gpio_10_sel().write(|w| w.bits(val));
             },
-            11 => unsafe {
+            GpioPad::Gpio11 => unsafe {
                 r.gpio_11_sel().write(|w| w.bits(val));
             },
-            12 => unsafe {
+            GpioPad::Gpio12 => unsafe {
                 r.gpio_12_sel().write(|w| w.bits(val));
             },
-            13 => unsafe {
+            GpioPad::Gpio13 => unsafe {
                 r.gpio_13_sel().write(|w| w.bits(val));
             },
-            14 => unsafe {
+            GpioPad::Gpio14 => unsafe {
                 r.gpio_14_sel().write(|w| w.bits(val));
             },
-            _ => {}
         }
     }
 
-    /// Get the function select value for a GPIO pin.
-    pub fn gpio_mux(&self, pin: u8) -> u8 {
-        assert!(pin < 15);
+    /// Get the function select value for a GPIO pad.
+    pub fn gpio_mux(&self, pin: GpioPad) -> MuxFunction {
         let r = self.regs();
-        (match pin {
-            0 => r.gpio_00_sel().read().bits(),
-            1 => r.gpio_01_sel().read().bits(),
-            2 => r.gpio_02_sel().read().bits(),
-            3 => r.gpio_03_sel().read().bits(),
-            4 => r.gpio_04_sel().read().bits(),
-            5 => r.gpio_05_sel().read().bits(),
-            6 => r.gpio_06_sel().read().bits(),
-            7 => r.gpio_07_sel().read().bits(),
-            8 => r.gpio_08_sel().read().bits(),
-            9 => r.gpio_09_sel().read().bits(),
-            10 => r.gpio_10_sel().read().bits(),
-            11 => r.gpio_11_sel().read().bits(),
-            12 => r.gpio_12_sel().read().bits(),
-            13 => r.gpio_13_sel().read().bits(),
-            14 => r.gpio_14_sel().read().bits(),
-            _ => 0,
-        } & 0x07) as u8
+        let bits = match pin {
+            GpioPad::Gpio00 => r.gpio_00_sel().read().bits(),
+            GpioPad::Gpio01 => r.gpio_01_sel().read().bits(),
+            GpioPad::Gpio02 => r.gpio_02_sel().read().bits(),
+            GpioPad::Gpio03 => r.gpio_03_sel().read().bits(),
+            GpioPad::Gpio04 => r.gpio_04_sel().read().bits(),
+            GpioPad::Gpio05 => r.gpio_05_sel().read().bits(),
+            GpioPad::Gpio06 => r.gpio_06_sel().read().bits(),
+            GpioPad::Gpio07 => r.gpio_07_sel().read().bits(),
+            GpioPad::Gpio08 => r.gpio_08_sel().read().bits(),
+            GpioPad::Gpio09 => r.gpio_09_sel().read().bits(),
+            GpioPad::Gpio10 => r.gpio_10_sel().read().bits(),
+            GpioPad::Gpio11 => r.gpio_11_sel().read().bits(),
+            GpioPad::Gpio12 => r.gpio_12_sel().read().bits(),
+            GpioPad::Gpio13 => r.gpio_13_sel().read().bits(),
+            GpioPad::Gpio14 => r.gpio_14_sel().read().bits(),
+        };
+        MuxFunction((bits & 0x07) as u8)
     }
 
     /// Set the function select for a UART pad.
-    pub fn set_uart_mux(&mut self, pin: PinMux, function: u8) {
-        let val = (function & 0x07) as u32;
+    pub fn set_uart_mux(&mut self, pin: UartPad, function: MuxFunction) {
+        let val = function.bits() as u32;
         let r = self.regs();
         match pin {
-            PinMux::Uart0Txd => unsafe {
+            UartPad::Uart0Txd => unsafe {
                 r.uart0_txd_sel().write(|w| w.bits(val));
             },
-            PinMux::Uart0Rxd => unsafe {
+            UartPad::Uart0Rxd => unsafe {
                 r.uart0_rxd_sel().write(|w| w.bits(val));
             },
-            PinMux::Uart1Txd => unsafe {
+            UartPad::Uart1Txd => unsafe {
                 r.uart1_txd_sel().write(|w| w.bits(val));
             },
-            PinMux::Uart1Rxd => unsafe {
+            UartPad::Uart1Rxd => unsafe {
                 r.uart1_rxd_sel().write(|w| w.bits(val));
             },
-            _ => {}
         }
     }
 
@@ -242,69 +322,67 @@ impl<'d> IoConfigDriver<'d> {
     /// * `pin` — GPIO pad index (0-14).
     pub fn configure_gpio_pad(
         &mut self,
-        pin: u8,
+        pin: GpioPad,
         drive: DriveStrength,
         pull: PullResistor,
         schmitt_trigger: bool,
         input_enable: bool,
     ) {
-        assert!(pin < 15);
         let val = build_pad_ctrl(drive, pull, schmitt_trigger, input_enable);
         let r = self.regs();
         match pin {
-            0 => unsafe {
+            GpioPad::Gpio00 => unsafe {
                 r.pad_gpio_00_ctrl().write(|w| w.bits(val));
             },
-            1 => unsafe {
+            GpioPad::Gpio01 => unsafe {
                 r.pad_gpio_01_ctrl().write(|w| w.bits(val));
             },
-            2 => unsafe {
+            GpioPad::Gpio02 => unsafe {
                 r.pad_gpio_02_ctrl().write(|w| w.bits(val));
             },
-            3 => unsafe {
+            GpioPad::Gpio03 => unsafe {
                 r.pad_gpio_03_ctrl().write(|w| w.bits(val));
             },
-            4 => unsafe {
+            GpioPad::Gpio04 => unsafe {
                 r.pad_gpio_04_ctrl().write(|w| w.bits(val));
             },
-            5 => unsafe {
+            GpioPad::Gpio05 => unsafe {
                 r.pad_gpio_05_ctrl().write(|w| w.bits(val));
             },
-            6 => unsafe {
+            GpioPad::Gpio06 => unsafe {
                 r.pad_gpio_06_ctrl().write(|w| w.bits(val));
             },
-            7 => unsafe {
+            GpioPad::Gpio07 => unsafe {
                 r.pad_gpio_07_ctrl().write(|w| w.bits(val));
             },
-            8 => unsafe {
+            GpioPad::Gpio08 => unsafe {
                 r.pad_gpio_08_ctrl().write(|w| w.bits(val));
             },
-            9 => unsafe {
+            GpioPad::Gpio09 => unsafe {
                 r.pad_gpio_09_ctrl().write(|w| w.bits(val));
             },
-            10 => unsafe {
+            GpioPad::Gpio10 => unsafe {
                 r.pad_gpio_10_ctrl().write(|w| w.bits(val));
             },
-            11 => unsafe {
+            GpioPad::Gpio11 => unsafe {
                 r.pad_gpio_11_ctrl().write(|w| w.bits(val));
             },
-            12 => unsafe {
+            GpioPad::Gpio12 => unsafe {
                 r.pad_gpio_12_ctrl().write(|w| w.bits(val));
             },
-            13 => unsafe {
+            GpioPad::Gpio13 => unsafe {
                 r.pad_gpio_13_ctrl().write(|w| w.bits(val));
             },
-            14 => unsafe {
+            GpioPad::Gpio14 => unsafe {
                 r.pad_gpio_14_ctrl().write(|w| w.bits(val));
             },
-            _ => {}
         }
     }
 
     /// Configure pad characteristics for a UART pad.
     pub fn configure_uart_pad(
         &mut self,
-        uart_pad: PinMux,
+        uart_pad: UartPad,
         drive: DriveStrength,
         pull: PullResistor,
         schmitt_trigger: bool,
@@ -313,23 +391,23 @@ impl<'d> IoConfigDriver<'d> {
         let val = build_pad_ctrl(drive, pull, schmitt_trigger, input_enable);
         let r = self.regs();
         match uart_pad {
-            PinMux::Uart0Txd => unsafe {
+            UartPad::Uart0Txd => unsafe {
                 r.pad_uart0_txd_ctrl().write(|w| w.bits(val));
             },
-            PinMux::Uart0Rxd => unsafe {
+            UartPad::Uart0Rxd => unsafe {
                 r.pad_uart0_rxd_ctrl().write(|w| w.bits(val));
             },
-            PinMux::Uart1Txd => unsafe {
+            UartPad::Uart1Txd => unsafe {
                 r.pad_uart1_txd_ctrl().write(|w| w.bits(val));
             },
-            PinMux::Uart1Rxd => unsafe {
+            UartPad::Uart1Rxd => unsafe {
                 r.pad_uart1_rxd_ctrl().write(|w| w.bits(val));
             },
-            _ => {}
         }
     }
 
     /// Configure pad characteristics for an SFC pad.
+    #[instability::unstable]
     pub fn configure_sfc_pad(
         &mut self,
         sfc_pad: SfcPad,
@@ -363,26 +441,24 @@ impl<'d> IoConfigDriver<'d> {
     }
 
     /// Read the current pad control value for a GPIO pad.
-    pub fn read_gpio_pad(&self, pin: u8) -> u32 {
-        assert!(pin < 15);
+    pub fn read_gpio_pad(&self, pin: GpioPad) -> u32 {
         let r = self.regs();
         match pin {
-            0 => r.pad_gpio_00_ctrl().read().bits(),
-            1 => r.pad_gpio_01_ctrl().read().bits(),
-            2 => r.pad_gpio_02_ctrl().read().bits(),
-            3 => r.pad_gpio_03_ctrl().read().bits(),
-            4 => r.pad_gpio_04_ctrl().read().bits(),
-            5 => r.pad_gpio_05_ctrl().read().bits(),
-            6 => r.pad_gpio_06_ctrl().read().bits(),
-            7 => r.pad_gpio_07_ctrl().read().bits(),
-            8 => r.pad_gpio_08_ctrl().read().bits(),
-            9 => r.pad_gpio_09_ctrl().read().bits(),
-            10 => r.pad_gpio_10_ctrl().read().bits(),
-            11 => r.pad_gpio_11_ctrl().read().bits(),
-            12 => r.pad_gpio_12_ctrl().read().bits(),
-            13 => r.pad_gpio_13_ctrl().read().bits(),
-            14 => r.pad_gpio_14_ctrl().read().bits(),
-            _ => 0,
+            GpioPad::Gpio00 => r.pad_gpio_00_ctrl().read().bits(),
+            GpioPad::Gpio01 => r.pad_gpio_01_ctrl().read().bits(),
+            GpioPad::Gpio02 => r.pad_gpio_02_ctrl().read().bits(),
+            GpioPad::Gpio03 => r.pad_gpio_03_ctrl().read().bits(),
+            GpioPad::Gpio04 => r.pad_gpio_04_ctrl().read().bits(),
+            GpioPad::Gpio05 => r.pad_gpio_05_ctrl().read().bits(),
+            GpioPad::Gpio06 => r.pad_gpio_06_ctrl().read().bits(),
+            GpioPad::Gpio07 => r.pad_gpio_07_ctrl().read().bits(),
+            GpioPad::Gpio08 => r.pad_gpio_08_ctrl().read().bits(),
+            GpioPad::Gpio09 => r.pad_gpio_09_ctrl().read().bits(),
+            GpioPad::Gpio10 => r.pad_gpio_10_ctrl().read().bits(),
+            GpioPad::Gpio11 => r.pad_gpio_11_ctrl().read().bits(),
+            GpioPad::Gpio12 => r.pad_gpio_12_ctrl().read().bits(),
+            GpioPad::Gpio13 => r.pad_gpio_13_ctrl().read().bits(),
+            GpioPad::Gpio14 => r.pad_gpio_14_ctrl().read().bits(),
         }
     }
 }

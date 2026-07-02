@@ -40,6 +40,38 @@ pub enum InterruptTrigger {
     LowLevel,
 }
 
+/// GPIO bank selection for the three WS63 GPIO interrupt banks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpioBank {
+    /// GPIO bank 0 (IRQ GPIO_INT0).
+    Bank0,
+    /// GPIO bank 1 (IRQ GPIO_INT1).
+    Bank1,
+    /// GPIO bank 2 (IRQ GPIO_INT2).
+    Bank2,
+}
+
+impl GpioBank {
+    /// Build a GPIO bank from a raw bank index, rejecting values outside 0..=2.
+    pub const fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Bank0),
+            1 => Some(Self::Bank1),
+            2 => Some(Self::Bank2),
+            _ => None,
+        }
+    }
+
+    /// The GPIO bank index (0-2).
+    pub const fn index(self) -> u8 {
+        match self {
+            Self::Bank0 => 0,
+            Self::Bank1 => 1,
+            Self::Bank2 => 2,
+        }
+    }
+}
+
 /// Digital input configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct InputConfig {
@@ -68,8 +100,6 @@ impl InputConfig {
 /// Digital output configuration.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OutputConfig {
-    /// Use open-drain drive instead of push-pull.
-    pub open_drain: bool,
     /// Drive the pin high on initialization (otherwise low).
     pub initial_high: bool,
 }
@@ -77,12 +107,7 @@ pub struct OutputConfig {
 impl OutputConfig {
     /// Create a default output config (push-pull, starts low).
     pub const fn new() -> Self {
-        Self { open_drain: false, initial_high: false }
-    }
-    /// Set whether the output is open-drain.
-    pub const fn with_open_drain(mut self, od: bool) -> Self {
-        self.open_drain = od;
-        self
+        Self { initial_high: false }
     }
     /// Set the initial drive level (true = high).
     pub const fn with_initial(mut self, high: bool) -> Self {
@@ -589,9 +614,9 @@ impl<'d> Io<'d> {
 }
 
 // ── Async (embedded-hal-async) ──────────────────────────────────────────────
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 mod asynch_impl {
-    use super::{Input, InterruptTrigger, regs};
+    use super::{GpioBank, Input, InterruptTrigger, regs};
     use crate::asynch::IrqSignal;
     use crate::interrupt::{self, Interrupt};
     use core::future::Future;
@@ -601,26 +626,27 @@ mod asynch_impl {
 
     static GPIO_SIGNAL: [IrqSignal; 3] = [IrqSignal::new(), IrqSignal::new(), IrqSignal::new()];
 
-    fn bank_irq(bank: usize) -> Interrupt {
+    fn bank_irq(bank: GpioBank) -> Interrupt {
         match bank {
-            0 => Interrupt::GPIO_INT0,
-            1 => Interrupt::GPIO_INT1,
-            _ => Interrupt::GPIO_INT2,
+            GpioBank::Bank0 => Interrupt::GPIO_INT0,
+            GpioBank::Bank1 => Interrupt::GPIO_INT1,
+            GpioBank::Bank2 => Interrupt::GPIO_INT2,
         }
     }
 
-    /// GPIO trap-handler hook for `bank` (0..2 → IRQ 33..35, custom local). Masks
+    /// GPIO trap-handler hook for `bank` (IRQ 33..35, custom local). Masks
     /// the fired pins (so they don't storm), clears their edge latch, wakes the
     /// awaiting [`Wait`] future, and clears the `LOCIPCLR` pending bit. Call this
     /// from the trap when `mcause` is GPIO_INT0..2.
-    pub fn on_interrupt(bank: u8) {
-        let r = regs(bank);
+    pub fn on_interrupt(bank: GpioBank) {
+        let index = bank.index();
+        let r = regs(index);
         let fired = r.gpio_int_raw().read().bits();
         // Mask the fired pins (a fresh wait re-enables) + clear the edge latch.
         r.gpio_int_en().modify(|v, w| unsafe { w.bits(v.bits() & !fired) });
         unsafe { r.gpio_int_eoi().write(|w| w.bits(fired)) };
-        GPIO_SIGNAL[bank as usize].signal();
-        interrupt::clear_pending(bank_irq(bank as usize));
+        GPIO_SIGNAL[index as usize].signal();
+        interrupt::clear_pending(bank_irq(bank));
     }
 
     // Named device.x handlers: hisi-riscv-rt's direct-mode `__rt_irq_dispatch`
@@ -629,15 +655,15 @@ mod asynch_impl {
     // PROVIDE; only present with `async`.
     #[unsafe(no_mangle)]
     extern "C" fn GPIO_INT0() {
-        on_interrupt(0);
+        on_interrupt(GpioBank::Bank0);
     }
     #[unsafe(no_mangle)]
     extern "C" fn GPIO_INT1() {
-        on_interrupt(1);
+        on_interrupt(GpioBank::Bank1);
     }
     #[unsafe(no_mangle)]
     extern "C" fn GPIO_INT2() {
-        on_interrupt(2);
+        on_interrupt(GpioBank::Bank2);
     }
 
     async fn arm_and_wait(input: &mut Input<'_>, trig: InterruptTrigger) {
@@ -647,7 +673,8 @@ mod asynch_impl {
         GPIO_SIGNAL[bank].reset();
         input.enable_interrupt();
         // SAFETY: enabling a known, fixed WS63 GPIO IRQ line.
-        unsafe { interrupt::enable(bank_irq(bank)) };
+        let gpio_bank = GpioBank::from_index(bank as u8).expect("GPIO pin bank must be 0..=2");
+        unsafe { interrupt::enable(bank_irq(gpio_bank)) };
         GpioWaitFuture { bank }.await;
     }
 
@@ -701,7 +728,7 @@ mod asynch_impl {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "chip-ws63", feature = "async", feature = "unstable"))]
 pub use asynch_impl::on_interrupt;
 
 // ── Tests ──────────────────────────────────────────────────────
@@ -765,22 +792,17 @@ mod tests {
 
     #[test]
     fn output_config_defaults_are_false() {
-        // `new()` and `Default` agree: push-pull, starts low.
+        // `new()` and `Default` agree: starts low.
         let a = OutputConfig::new();
         let b = OutputConfig::default();
-        assert!(!a.open_drain && !a.initial_high);
-        assert!(!b.open_drain && !b.initial_high);
+        assert!(!a.initial_high);
+        assert!(!b.initial_high);
     }
 
     #[test]
-    fn output_config_builders_set_independent_fields() {
-        // Each builder mutates exactly its own field, leaving the other intact.
-        let c = OutputConfig::new().with_open_drain(true);
-        assert!(c.open_drain && !c.initial_high);
+    fn output_config_builder_sets_initial_level() {
         let c = OutputConfig::new().with_initial(true);
-        assert!(!c.open_drain && c.initial_high);
-        let c = OutputConfig::new().with_open_drain(true).with_initial(true);
-        assert!(c.open_drain && c.initial_high);
+        assert!(c.initial_high);
     }
 
     // `set_interrupt_trigger` maps each trigger to `(edge, high)` and writes

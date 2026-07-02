@@ -100,6 +100,11 @@ fn wait_until(mut ready: impl FnMut() -> bool) -> Result<(), I2cError> {
     Ok(())
 }
 
+#[inline]
+fn validate_7bit_addr(addr: u8) -> Result<u32, I2cError> {
+    if addr <= 0x7f { Ok(addr as u32) } else { Err(I2cError::InvalidAddress) }
+}
+
 impl<T> I2c<'_, T> {
     #[allow(dead_code)]
     fn wait_not_busy(&self) -> Result<(), I2cError> {
@@ -160,10 +165,11 @@ impl<T> I2c<'_, T> {
 
     /// Write `data` to the 7-bit `addr` (START, address+W, bytes, STOP).
     pub fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), I2cError> {
+        let addr = validate_7bit_addr(addr)?;
         let r = i2c_regs(self.idx);
 
         // Start + address (R/W=0)
-        self.send_start((addr as u32) << 1, false)?;
+        self.send_start(addr << 1, false)?;
 
         // Write data bytes
         for &byte in data {
@@ -185,10 +191,11 @@ impl<T> I2c<'_, T> {
     /// Read `buf.len()` bytes from the 7-bit `addr` (START, address+R, bytes with
     /// NACK on the last, STOP).
     pub fn read(&mut self, addr: u8, buf: &mut [u8]) -> Result<(), I2cError> {
+        let addr = validate_7bit_addr(addr)?;
         let r = i2c_regs(self.idx);
 
         // Start + address (R/W=1)
-        self.send_start(((addr as u32) << 1) | 1, true)?;
+        self.send_start((addr << 1) | 1, true)?;
 
         // Read bytes
         let buf_len = buf.len();
@@ -217,11 +224,12 @@ impl<T> I2c<'_, T> {
     /// Combined write-then-read with repeated START (Sr) between operations,
     /// matching the I2C specification for register-based device access.
     pub fn write_read(&mut self, addr: u8, wr_buf: &[u8], rd_buf: &mut [u8]) -> Result<(), I2cError> {
+        let addr = validate_7bit_addr(addr)?;
         let r = i2c_regs(self.idx);
 
         if !wr_buf.is_empty() {
             // Start + address (R/W=0)
-            self.send_start((addr as u32) << 1, false)?;
+            self.send_start(addr << 1, false)?;
 
             // Write register address / data bytes
             for &byte in wr_buf {
@@ -235,7 +243,7 @@ impl<T> I2c<'_, T> {
 
         if !rd_buf.is_empty() {
             // Repeated START + address (R/W=1)
-            self.send_start(((addr as u32) << 1) | 1, true)?;
+            self.send_start((addr << 1) | 1, true)?;
 
             let buf_len = rd_buf.len();
             for (i, byte) in rd_buf.iter_mut().enumerate() {
@@ -269,8 +277,9 @@ impl<T> I2c<'_, T> {
         operations: &mut [embedded_hal::i2c::Operation<'_>],
     ) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
-        let addr_w = (address as u32) << 1; // R/W=0 for write
-        let addr_r = ((address as u32) << 1) | 1; // R/W=1 for read
+        let address = validate_7bit_addr(address)?;
+        let addr_w = address << 1; // R/W=0 for write
+        let addr_r = (address << 1) | 1; // R/W=1 for read
 
         for op in operations.iter_mut() {
             match op {
@@ -327,6 +336,8 @@ pub enum I2cError {
     BusError,
     /// A status bit never asserted within the bounded wait (stuck/absent slave).
     Timeout,
+    /// The supplied 7-bit address was outside `0x00..=0x7f`.
+    InvalidAddress,
 }
 
 impl embedded_hal::i2c::Error for I2cError {
@@ -336,7 +347,7 @@ impl embedded_hal::i2c::Error for I2cError {
                 embedded_hal::i2c::ErrorKind::NoAcknowledge(embedded_hal::i2c::NoAcknowledgeSource::Unknown)
             }
             I2cError::BusError => embedded_hal::i2c::ErrorKind::Bus,
-            I2cError::Timeout => embedded_hal::i2c::ErrorKind::Other,
+            I2cError::Timeout | I2cError::InvalidAddress => embedded_hal::i2c::ErrorKind::Other,
         }
     }
 }

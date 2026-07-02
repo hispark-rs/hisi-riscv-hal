@@ -82,6 +82,7 @@ impl System<'_> {
     /// Sets the chip-reset enable bit (bit 2) of `GLB_CTL_M + 0x110`, the same
     /// register `reboot_port_reboot_chip` uses. The CPU is reset before the
     /// following spin loop completes.
+    #[instability::unstable]
     pub fn software_reset(&self) -> ! {
         unsafe {
             let v = core::ptr::read_volatile(CHIP_RESET_REG);
@@ -96,6 +97,7 @@ impl System<'_> {
     ///
     /// WS63's porting layer exposes only a whole-chip reset, so this is an alias
     /// of [`software_reset`](Self::software_reset).
+    #[instability::unstable]
     pub fn software_reset_cpu(&self) -> ! {
         self.software_reset()
     }
