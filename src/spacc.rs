@@ -18,35 +18,50 @@ pub struct SpaccDriver<'d> {
 /// Cipher algorithm selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CipherAlg {
+    /// AES with a 128-bit key.
     Aes128,
+    /// AES with a 192-bit key.
     Aes192,
+    /// AES with a 256-bit key.
     Aes256,
+    /// SM4 block cipher (Chinese national standard).
     Sm4,
+    /// LEA (Lightweight Encryption Algorithm).
     Lea,
+    /// Triple DES (TDES).
     Tdes,
 }
 
 /// Cipher operation mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CipherMode {
+    /// Electronic Codebook (ECB) mode.
     Ecb,
+    /// Cipher Block Chaining (CBC) mode.
     Cbc,
+    /// Counter (CTR) mode.
     Ctr,
+    /// Counter with CBC-MAC (CCM) authenticated mode.
     Ccm,
+    /// Galois/Counter Mode (GCM) authenticated mode.
     Gcm,
 }
 
 /// Cipher direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CipherDir {
+    /// Encrypt the input data.
     Encrypt,
+    /// Decrypt the input data.
     Decrypt,
 }
 
 /// Hash algorithm selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlg {
+    /// SHA-256 hash algorithm.
     Sha256,
+    /// SM3 hash algorithm (Chinese national standard).
     Sm3,
 }
 

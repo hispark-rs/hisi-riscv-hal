@@ -19,6 +19,8 @@ const PDM_FIFO_DATA: usize = PDM_BASE + 0x80; // 32-bit PCM sample window
 const UP_FIFO_EMPTY: u32 = 1 << 2;
 const POLL_LIMIT: u32 = 1_000_000;
 
+/// PDM-microphone audio front-end driver (BS2X IP v150): decimates the DMIC PDM
+/// bitstream into PCM words drained from the UP FIFO.
 pub struct Pdm<'d> {
     _p: PhantomData<PdmPeriph<'d>>,
 }

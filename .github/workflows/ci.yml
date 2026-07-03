@@ -27,14 +27,14 @@ jobs:
 
   # NB: chip-ws63 and chip-bs21 are mutually exclusive (a compile_error in lib.rs),
   # so `--all-features` cannot be used. Test each chip with its supported feature
-  # set instead. async/embassy are only wired for chip-ws63 today (bs2x-pac lacks
-  # the async TIMER interrupts), so chip-bs21 is checked at its M1 feature level.
+  # set instead. BS2X is experimental/no-silicon-HIL, so chip-bs21 always opts into
+  # `unstable`; async/embassy are only wired for chip-ws63 today.
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["chip-ws63,rt,async,embassy", "chip-bs21,rt"]
+        features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt,unstable"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -47,12 +47,25 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["chip-ws63,rt,async,embassy", "chip-bs21,rt"]
+        features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt,unstable"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --no-default-features --features "${{ matrix.features }}"
       - run: cargo check --no-default-features --features "${{ matrix.features }}" --release
+
+  bs2x-gate:
+    name: BS2X requires unstable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          if cargo check --no-default-features --features chip-bs21,rt 2>bs2x-stable.log; then
+            printf 'chip-bs21 built without unstable\n'
+            exit 1
+          fi
+          grep -q 'BS2X support is experimental' bs2x-stable.log
 
   doc:
     name: Docs
@@ -60,6 +73,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo doc --no-deps --document-private-items
+      # The HAL has no default chip (esp-hal style) — docs must select one, matching
+      # the [package.metadata.docs.rs] feature set.
+      - run: cargo doc --no-deps --document-private-items --no-default-features --features "chip-ws63,rt,async,embassy"
         env:
           RUSTDOCFLAGS: -D warnings
+
+  # Catch accidental SemVer-incompatible API changes: compares this crate's public
+  # API against the last release on crates.io and fails if the change level (patch
+  # / minor / major) is not reflected in the version bump. A breaking change with
+  # no bump turns the PR red — exactly when an API tightening (e.g. a `configure`
+  # signature change) needs a 0.x-minor bump. Runs on the host (the lib compiles
+  # for x86_64 — same as the unit tests); the action installs cargo-semver-checks
+  # and the nightly rustdoc it needs. The HAL has NO default chip (esp-hal style)
+  # and its `default` pulls `rt` (whose startup asm does not assemble for the host),
+  # so we check ONLY the explicitly-listed `chip-ws63` feature — not the default
+  # group (which would fire the no-chip `compile_error!`) and not `--all-features`
+  # (chip-ws63/chip-bs21 are mutually exclusive). chip-ws63 is the core host-buildable
+  # surface; async/embassy/rt are riscv-target-only and out of the host semver scope.
+  semver:
+    name: SemVer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo-semver-checks (vs last crates.io release)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          feature-group: only-explicit-features
+          features: chip-ws63

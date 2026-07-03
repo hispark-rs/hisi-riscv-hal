@@ -269,7 +269,7 @@ pub fn probe_clocks() -> SystemClocks {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::*;
 
@@ -285,5 +285,142 @@ mod tests {
         assert_eq!(c.cpu_clk, 240_000_000);
         assert_eq!(c.pclk, 240_000_000);
         assert!(c.pll_locked);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::{SYSTEM_CLOCK_HZ, TcxoFreq};
+    use proptest::prelude::*;
+
+    /// Re-derive the busy-wait cycle count from `wait_pll_lock`:
+    /// `cycles = tcxo_hz * delay_us / 1_000_000`, then the loop runs `cycles / 3`
+    /// iterations. All arithmetic is done in u64 exactly as the driver does it.
+    fn pll_wait_cycles(tcxo_hz: u32, delay_us: u32) -> u64 {
+        let cycles = tcxo_hz as u64 * delay_us as u64 / 1_000_000;
+        cycles / 3
+    }
+
+    /// Re-derive the 1µs delay-loop count from `init_clocks` step 1:
+    /// `tcxo_hz / 1_000_000 / 3`.
+    fn flash_delay_iters(tcxo_hz: u32) -> u32 {
+        tcxo_hz / 1_000_000 / 3
+    }
+
+    /// Re-derive the `cpu_clk`/`pclk` selection from `init_clocks`/`probe_clocks`:
+    /// PLL output when locked, else the TCXO frequency.
+    fn resolved_clk(pll_locked: bool, tcxo: TcxoFreq) -> u32 {
+        if pll_locked { SYSTEM_CLOCK_HZ } else { tcxo.hz() }
+    }
+
+    /// Re-derive the CLDO_CRG_CLK_SEL word that `init_clocks` produces by OR-ing in
+    /// the flash (18), UART0/1/2 (1,2,3), and SPI (6) source-select bits onto the
+    /// pre-existing register value `init`.
+    fn clk_sel_word(init: u32) -> u32 {
+        let mut sel = init;
+        sel |= 1 << 18; // step 1: flash → PLL
+        sel |= (1 << 1) | (1 << 2) | (1 << 3); // step 2: UART0/1/2 → PLL
+        sel |= 1 << 6; // step 3: SPI → PLL
+        sel
+    }
+
+    /// Re-derive the CLDO_SUB_CRG_CKEN_CTL1 gate word after `init_clocks` step 2,
+    /// which clears bits 18/19/20 then sets them back — net: those bits end up set,
+    /// every other bit preserved from `init`.
+    fn gate_word_final(init: u32) -> u32 {
+        let mut gate = init;
+        gate &= !((1 << 18) | (1 << 19) | (1 << 20)); // disable
+        gate |= (1 << 18) | (1 << 19) | (1 << 20); // re-enable
+        gate
+    }
+
+    proptest! {
+        /// Fuzz: the PLL-wait cycle formula never panics for any tcxo/delay inputs.
+        #[test]
+        fn pll_wait_cycles_never_panics(tcxo in any::<u32>(), delay in any::<u32>()) {
+            let _ = pll_wait_cycles(tcxo, delay);
+        }
+
+        /// Fuzz: the PLL-wait cycle count is monotonic in the delay (longer delay,
+        /// never fewer spin cycles) at fixed TCXO.
+        #[test]
+        fn pll_wait_cycles_monotonic_in_delay(tcxo in any::<u32>(), a in any::<u32>(), b in any::<u32>()) {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            prop_assert!(pll_wait_cycles(tcxo, hi) >= pll_wait_cycles(tcxo, lo));
+        }
+
+        /// Fuzz: at the two real TCXO frequencies the 1ms (1000µs) delay matches the
+        /// hand-computed cycle counts — 24MHz→8000, 40MHz→13333 (after /3).
+        #[test]
+        fn pll_wait_cycles_known_boundaries(_dummy in any::<u8>()) {
+            prop_assert_eq!(pll_wait_cycles(TcxoFreq::MHz24.hz(), 1000), 24_000_000u64 * 1000 / 1_000_000 / 3);
+            prop_assert_eq!(pll_wait_cycles(TcxoFreq::MHz40.hz(), 1000), 40_000_000u64 * 1000 / 1_000_000 / 3);
+            prop_assert_eq!(pll_wait_cycles(TcxoFreq::MHz24.hz(), 1000), 8000);
+            prop_assert_eq!(pll_wait_cycles(TcxoFreq::MHz40.hz(), 1000), 13333);
+        }
+
+        /// Fuzz: the flash 1µs delay-loop count never panics and stays well within
+        /// u32 for any TCXO value.
+        #[test]
+        fn flash_delay_iters_never_panics(tcxo in any::<u32>()) {
+            let _ = flash_delay_iters(tcxo);
+        }
+
+        /// Fuzz: at the real TCXO frequencies the flash delay-loop count is exact.
+        #[test]
+        fn flash_delay_iters_known(_dummy in any::<u8>()) {
+            prop_assert_eq!(flash_delay_iters(TcxoFreq::MHz24.hz()), 8); // 24/3
+            prop_assert_eq!(flash_delay_iters(TcxoFreq::MHz40.hz()), 13); // 40/3 truncated
+        }
+
+        /// Fuzz: the resolved CPU/peripheral clock is exactly PLL-when-locked and
+        /// the (24M or 40M) TCXO frequency otherwise — never any other value.
+        #[test]
+        fn resolved_clk_is_pll_or_tcxo(locked in any::<bool>(), use40 in any::<bool>()) {
+            let tcxo = if use40 { TcxoFreq::MHz40 } else { TcxoFreq::MHz24 };
+            let r = resolved_clk(locked, tcxo);
+            if locked {
+                prop_assert_eq!(r, SYSTEM_CLOCK_HZ);
+            } else {
+                prop_assert_eq!(r, tcxo.hz());
+                prop_assert!(r == 24_000_000 || r == 40_000_000);
+            }
+        }
+
+        /// Fuzz: the CLK_SEL encoder sets exactly the documented source-select bits
+        /// (1,2,3,6,18) and never disturbs any other bit of the prior value.
+        #[test]
+        fn clk_sel_sets_only_documented_bits(init in any::<u32>()) {
+            const SET: u32 = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 6) | (1 << 18);
+            let out = clk_sel_word(init);
+            // all documented bits are set
+            prop_assert_eq!(out & SET, SET);
+            // every bit outside the SET mask is unchanged from `init`
+            prop_assert_eq!(out & !SET, init & !SET);
+            // the encoder is purely additive (OR): it never clears a bit
+            prop_assert_eq!(out & init, init);
+        }
+
+        /// Fuzz: the gate word ends with bits 18/19/20 SET regardless of their prior
+        /// state, and all other bits are preserved (the clear-then-set round-trips).
+        #[test]
+        fn gate_word_round_trips_other_bits(init in any::<u32>()) {
+            const GATE: u32 = (1 << 18) | (1 << 19) | (1 << 20);
+            let out = gate_word_final(init);
+            prop_assert_eq!(out & GATE, GATE); // re-enabled
+            prop_assert_eq!(out & !GATE, init & !GATE); // others untouched
+        }
+
+        /// Fuzz: TcxoFreq::hz() only ever yields one of the two valid crystal
+        /// frequencies, and the enum discriminant equals that frequency.
+        #[test]
+        fn tcxo_hz_is_valid(use40 in any::<bool>()) {
+            let f = if use40 { TcxoFreq::MHz40 } else { TcxoFreq::MHz24 };
+            let hz = f.hz();
+            prop_assert!(hz == 24_000_000 || hz == 40_000_000);
+            prop_assert_eq!(hz, f as u32); // discriminant == frequency
+        }
     }
 }

@@ -76,6 +76,7 @@ impl PeripheralIndex {
         PeripheralIndex(idx)
     }
 
+    /// Returns the wrapped peripheral index as a `usize`.
     pub const fn get(&self) -> usize {
         self.0 as usize
     }
@@ -93,6 +94,7 @@ impl TryFrom<usize> for PeripheralIndex {
 pub struct GpioPinIndex(#[allow(dead_code)] u8);
 
 impl GpioPinIndex {
+    /// Constructs a valid pin index, returning `None` if `pin` >= `GPIO_COUNT`.
     pub const fn new(pin: u8) -> Option<Self> {
         if pin < crate::soc::chip::GPIO_COUNT as u8 { Some(GpioPinIndex(pin)) } else { None }
     }
@@ -100,7 +102,7 @@ impl GpioPinIndex {
 
 // ── Tests ────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::*;
 
@@ -158,5 +160,78 @@ mod tests {
             assert!(ch < crate::soc::chip::DMA_CHANNEL_COUNT as u8);
         }
         assert!(4u8 >= crate::soc::chip::DMA_CHANNEL_COUNT as u8);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::{GpioPinIndex, PeripheralIndex};
+    use crate::clock::PERIPHERAL_COUNT;
+    use proptest::prelude::*;
+
+    // Mirror the driver's max-safe-µs derivation exactly (TIMER_CLOCK_HZ is a
+    // whole number of MHz, so ticks_per_us divides evenly — see const_assert!).
+    const TICKS_PER_US: u64 = crate::soc::chip::TIMER_CLOCK_HZ as u64 / 1_000_000;
+    const MAX_SAFE_TIMER_US: u64 = u32::MAX as u64 / TICKS_PER_US;
+
+    proptest! {
+        /// Fuzz: `PeripheralIndex::try_from` never panics for any usize input.
+        #[test]
+        fn periph_index_never_panics(idx in any::<usize>()) {
+            let _ = PeripheralIndex::try_from(idx);
+        }
+
+        /// Fuzz: try_from accepts EXACTLY the in-range indices (0..PERIPHERAL_COUNT)
+        /// and rejects everything else — the bound is the only gate.
+        #[test]
+        fn periph_index_bound_is_exact(idx in any::<usize>()) {
+            prop_assert_eq!(PeripheralIndex::try_from(idx).is_ok(), idx < PERIPHERAL_COUNT);
+        }
+
+        /// Fuzz: when accepted, `get()` round-trips the index losslessly. The
+        /// constructor stores `idx as u8`; since idx < 17 the narrowing cast can
+        /// never truncate/wrap (the cast-before-clamp bug class). If the bound
+        /// ever exceeded 256, this would catch the lost high bits.
+        #[test]
+        fn periph_index_get_roundtrips(idx in 0usize..PERIPHERAL_COUNT) {
+            let pi = PeripheralIndex::try_from(idx).unwrap();
+            prop_assert_eq!(pi.get(), idx);
+            // And the stored value always fits the documented 0..17 range.
+            prop_assert!(pi.get() < PERIPHERAL_COUNT);
+        }
+
+        /// Fuzz: out-of-range indices are always rejected (never silently
+        /// truncated into the valid window by the u8 cast).
+        #[test]
+        fn periph_index_rejects_out_of_range(idx in PERIPHERAL_COUNT..=usize::MAX) {
+            prop_assert!(PeripheralIndex::try_from(idx).is_err());
+        }
+
+        /// Fuzz: `GpioPinIndex::new` accepts EXACTLY pins < GPIO_COUNT and never
+        /// panics, for any u8 (covers the full 0..=255 range incl. the boundary).
+        #[test]
+        fn gpio_pin_bound_is_exact(pin in any::<u8>()) {
+            let valid = (pin as usize) < crate::soc::chip::GPIO_COUNT;
+            prop_assert_eq!(GpioPinIndex::new(pin).is_some(), valid);
+        }
+
+        /// Fuzz: the timer max-safe-µs window is self-consistent — every µs at or
+        /// below MAX_SAFE_TIMER_US converts to ticks without exceeding u32::MAX
+        /// (no overflow inside the documented safe range).
+        #[test]
+        fn timer_safe_us_never_overflows(us in 0u64..=MAX_SAFE_TIMER_US) {
+            let ticks = crate::soc::chip::TIMER_CLOCK_HZ as u64 * us / 1_000_000;
+            prop_assert!(ticks <= u32::MAX as u64, "safe us={} -> ticks={}", us, ticks);
+        }
+
+        /// Fuzz: just past the safe window, the same conversion always overflows
+        /// u32 — proving MAX_SAFE_TIMER_US is the true (not a conservative) bound.
+        #[test]
+        fn timer_just_over_safe_us_overflows(us in (MAX_SAFE_TIMER_US + 1)..=(MAX_SAFE_TIMER_US * 2 + 1)) {
+            let ticks = crate::soc::chip::TIMER_CLOCK_HZ as u64 * us / 1_000_000;
+            prop_assert!(ticks > u32::MAX as u64);
+        }
     }
 }

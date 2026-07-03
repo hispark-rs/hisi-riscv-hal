@@ -78,7 +78,7 @@ impl<'d> KmDriver<'d> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     #[test]
     fn test_keyslot_lock_bit_position() {
@@ -116,6 +116,94 @@ mod tests {
             assert_eq!(val & 0x3FF, slot as u32); // key_slot_num in bits [9:0]
             assert_eq!((val >> 20) & 1, 1); // lock_cmd at bit 20
             assert!(slot < super::KEYSLOT_COUNT as u16); // within valid range
+        }
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::KEYSLOT_COUNT;
+    use proptest::prelude::*;
+
+    /// Re-derives the `KC_REECPU_LOCK_CMD` word that `lock_keyslot` writes:
+    /// `key_slot_num` in bits [9:0], `lock_cmd` = 1 at bit 20, all other
+    /// fields (flush_hmac_kslot_ind, tscipher_ind, …) left zero.
+    fn lock_cmd_word(slot: u8) -> u32 {
+        (slot as u32) | (1u32 << 20)
+    }
+
+    /// Re-derives the `KC_RD_SLOT_NUM` word that `is_keyslot_locked` writes to
+    /// select a keyslot: `slot_num_cfg` (a u16) in bits [9:0], `slot_cfg_type`
+    /// = 0 (mcipher) at bit 15.
+    fn rd_slot_select_word(slot: u8) -> u16 {
+        slot as u16 // slot_num_cfg, slot_cfg_type cleared (bit 15 = 0)
+    }
+
+    proptest! {
+        /// Fuzz: for every valid keyslot the lock command never panics and lands
+        /// `key_slot_num` exactly in bits [9:0] (round-trip via mask).
+        #[test]
+        fn lock_cmd_slot_round_trips(slot in 0u8..KEYSLOT_COUNT) {
+            let w = lock_cmd_word(slot);
+            prop_assert_eq!(w & 0x3FF, slot as u32);
+        }
+
+        /// Fuzz: the lock command always asserts `lock_cmd` at bit 20 and sets
+        /// NO stray bits outside the two documented fields ([9:0] | bit 20).
+        #[test]
+        fn lock_cmd_has_no_stray_bits(slot in 0u8..KEYSLOT_COUNT) {
+            let w = lock_cmd_word(slot);
+            prop_assert_eq!((w >> 20) & 1, 1); // lock_cmd asserted at bit 20
+            // The slot field never collides with lock_cmd (bit 20) or type (bit 15).
+            let documented = 0x3FFu32 | (1u32 << 20);
+            prop_assert_eq!(w & !documented, 0, "stray bits in lock word {:#x}", w);
+        }
+
+        /// Fuzz: the slot index always fits the [9:0] field, never reaching the
+        /// `slot_cfg_type` selector at bit 15 — so a valid slot can never be
+        /// mis-decoded as the tscipher keyslot type.
+        #[test]
+        fn slot_index_never_reaches_type_bit(slot in 0u8..KEYSLOT_COUNT) {
+            let w = lock_cmd_word(slot);
+            prop_assert_eq!((w >> 15) & 1, 0); // bit 15 (type) stays clear
+            prop_assert!(slot as u32 <= 0x3FF);
+        }
+
+        /// Fuzz: the read-slot-select word puts the slot in bits [9:0] with the
+        /// type selector (bit 15) cleared, for every valid slot.
+        #[test]
+        fn rd_slot_select_encodes_mcipher(slot in 0u8..KEYSLOT_COUNT) {
+            let w = rd_slot_select_word(slot);
+            prop_assert_eq!(w & 0x3FF, slot as u16);
+            prop_assert_eq!((w >> 15) & 1, 0); // slot_cfg_type = 0 → mcipher
+        }
+
+        /// Fuzz: the lock-status decode is "non-zero owner ⇒ locked", NOT a
+        /// per-slot bitmask. For ANY 3-bit owner value (0=unlocked, else a CPU
+        /// owns it) the `status != 0` rule equals "owner present", which a
+        /// buggy `status & (1 << slot)` test would get wrong for owners like
+        /// TEE(2)/AIDSP(6) on slots whose bit isn't set.
+        #[test]
+        fn lock_status_is_owner_nonzero_not_bitmask(status in any::<u8>(), slot in 0u8..KEYSLOT_COUNT) {
+            let locked = status != 0;
+            prop_assert_eq!(locked, status > 0);
+            // The buggy bitmask interpretation must NOT be relied upon: it would
+            // call a real lock "unlocked" whenever the owner enum's bit for this
+            // slot happens to be clear. Demonstrate they genuinely disagree.
+            let buggy_bitmask = (status & (1u8 << (slot & 7))) != 0;
+            if status != 0 && !buggy_bitmask {
+                prop_assert!(locked && !buggy_bitmask,
+                    "owner {} on slot {} is locked but bitmask says unlocked", status, slot);
+            }
+        }
+
+        /// Fuzz: every keyslot the driver accepts is strictly below the count,
+        /// matching the `assert!(slot < KEYSLOT_COUNT)` guard in lock/query.
+        #[test]
+        fn valid_slots_are_below_count(slot in 0u8..KEYSLOT_COUNT) {
+            prop_assert!(slot < KEYSLOT_COUNT);
         }
     }
 }

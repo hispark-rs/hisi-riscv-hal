@@ -1,26 +1,66 @@
 //! Utility macros for the WS63 HAL.
 
-/// Declare a driver as unstable (only available with the `unstable` feature).
-/// When the feature is not enabled, the module is `pub(crate)`.
-#[macro_export]
+// ── Stable/unstable gating (crate-local, esp-hal pattern) ───────────────────
+// `#[instability::unstable]` cannot be applied to inline `pub mod foo;` declarations
+// (rust-lang/rust#54727 — only the semicolon/external-file form is affected; inline
+// mods WITH bodies work). These macros wrap a `pub mod foo;` declaration so the
+// module is `pub` when `unstable` is on, `pub(crate)` when off (soft-gate) — keeping
+// the module compiling in-crate (so a missed stable→unstable reference stays valid)
+// while hiding it from external consumers without the feature. NO `#[macro_export]`
+// — these are crate-internal helpers (esp-hal's are crate-private too, brought into
+// scope via `pub(crate) use` and invoked as `crate::unstable_module!`). The
+// `$(#[$meta])*` forwarding (incl. `#[path = "..."]`) is emitted on BOTH cfg branches
+// so a `#[path]`-aliased module resolves on whichever copy survives.
+
+/// Soft-gate a `pub mod foo;` declaration behind the `unstable` feature:
+/// `pub mod foo;` when on, `pub(crate) mod foo;` when off. Use for modules the
+/// crate's own stable code may reference (so the reference stays compiling as
+/// `pub(crate)`). Both branches get `#[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]`
+/// so docs.rs marks the module "requires unstable".
+#[doc(hidden)]
+#[allow(unused_macros)]
 macro_rules! unstable_module {
-    ($($tokens:tt)*) => {
-        #[cfg(feature = "unstable")]
-        $($tokens)*
-        #[cfg(not(feature = "unstable"))]
-        pub(crate) $($tokens)*
+    ($(
+        $(#[$meta:meta])*
+        pub mod $module:ident;
+    )*) => {
+        $(
+            $(#[$meta])*
+            #[cfg(feature = "unstable")]
+            #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+            pub mod $module;
+
+            $(#[$meta])*
+            #[cfg(not(feature = "unstable"))]
+            #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+            #[allow(unused)]
+            pub(crate) mod $module;
+        )*
     };
 }
 
-/// Declare a driver that requires the `unstable` feature.
-/// Without it, the driver is not compiled at all.
-#[macro_export]
+/// Hard-gate a `pub mod foo;` declaration behind the `unstable` feature: the module
+/// is `pub` when on, **absent** when off (no `pub(crate)` fallback — the module is
+/// not compiled at all). Use for standalone drivers that nothing stable depends on
+/// (saves flash + guarantees no stable code reaches them).
+#[doc(hidden)]
+#[allow(unused_macros)]
 macro_rules! unstable_driver {
-    ($($tokens:tt)*) => {
-        #[cfg(feature = "unstable")]
-        $($tokens)*
+    ($(
+        $(#[$meta:meta])*
+        pub mod $module:ident;
+    )*) => {
+        $(
+            $(#[$meta])*
+            #[cfg(feature = "unstable")]
+            #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+            pub mod $module;
+        )*
     };
 }
+
+// The macros are made crate-visible by `#[macro_use]` on `mod macros;` in lib.rs —
+// invoke them by bare name (`unstable_module! { ... }`) from any submodule.
 
 /// Create a type-erased enum for a peripheral type.
 /// Example:

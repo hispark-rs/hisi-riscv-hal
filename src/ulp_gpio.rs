@@ -12,6 +12,7 @@ use core::marker::PhantomData;
 
 /// ULP GPIO pin mode marker types.
 pub struct Input;
+/// Marker type for a ULP GPIO pin configured in output mode.
 pub struct Output;
 
 /// ULP GPIO pin driver.
@@ -152,4 +153,107 @@ pub fn create_output_pin(pin: u8) -> UlpGpioPin<'static, Output> {
     assert!(bit < 8, "ULP GPIO pin must be 107-114");
     regs().gpio_sw_oen().modify(|r, w| unsafe { w.bits(r.bits() & !(1 << bit)) });
     UlpGpioPin { bit, _mode: PhantomData }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    // The ULP block exposes 8 pins (GPIO107..=GPIO114) mapped to bit indices
+    // 0..=7. These tests cover the pure pin<->bit arithmetic only; no register
+    // access (`regs()` dereferences MMIO 0x5703_0000 and would segfault on host).
+
+    /// The first pin (107) maps to bit 0.
+    const BASE_PIN: u8 = 107;
+    /// 8 usable ULP pins → bit indices 0..=7.
+    const PIN_COUNT: u8 = 8;
+
+    /// Mirror of `UlpGpioPin::number()`: bit index → pin number.
+    fn pin_number(bit: u8) -> u8 {
+        BASE_PIN + bit
+    }
+
+    /// Mirror of the `create_*_pin` mapping: pin number → bit index.
+    fn pin_to_bit(pin: u8) -> u8 {
+        pin - BASE_PIN
+    }
+
+    #[test]
+    fn number_of_first_pin() {
+        // bit 0 is GPIO107 (the block's base pin).
+        assert_eq!(pin_number(0), 107);
+    }
+
+    #[test]
+    fn number_of_last_pin() {
+        // bit 7 is GPIO114, the last ULP pin.
+        assert_eq!(pin_number(PIN_COUNT - 1), 114);
+    }
+
+    #[test]
+    fn pin_to_bit_round_trips() {
+        // pin_to_bit and pin_number are exact inverses across the whole block.
+        for bit in 0..PIN_COUNT {
+            let pin = pin_number(bit);
+            assert_eq!(pin_to_bit(pin), bit);
+        }
+    }
+
+    #[test]
+    fn valid_pins_pass_bit_bound() {
+        // Every pin 107..=114 derives a bit < 8 (the `assert!(bit < 8)` guard).
+        for pin in 107..=114u8 {
+            assert!(pin_to_bit(pin) < PIN_COUNT, "pin {pin} should be valid");
+        }
+    }
+
+    #[test]
+    fn first_out_of_range_pin_fails_bit_bound() {
+        // GPIO115 derives bit 8, which the constructor's `assert!(bit < 8)` rejects.
+        assert_eq!(pin_to_bit(115), PIN_COUNT);
+        assert!(!(pin_to_bit(115) < PIN_COUNT));
+    }
+
+    #[test]
+    fn bit_mask_is_single_bit() {
+        // The drivers select a pin with `1 << bit`; each mask has exactly one set bit
+        // and they are mutually exclusive across the 8 pins.
+        let mut seen: u32 = 0;
+        for bit in 0..PIN_COUNT {
+            let mask = 1u32 << bit;
+            assert_eq!(mask.count_ones(), 1);
+            assert_eq!(seen & mask, 0, "bit {bit} mask overlaps a previous pin");
+            seen |= mask;
+        }
+        // All 8 pins together occupy the low byte.
+        assert_eq!(seen, 0xFF);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use proptest::prelude::*;
+
+    const BASE_PIN: u8 = 107;
+    const PIN_COUNT: u8 = 8;
+
+    proptest! {
+        /// Fuzz: across the valid range, pin → bit → pin is a lossless round-trip.
+        #[test]
+        fn pin_bit_round_trip(pin in 107u8..=114) {
+            let bit = pin - BASE_PIN;
+            prop_assert!(bit < PIN_COUNT);
+            prop_assert_eq!(BASE_PIN + bit, pin);
+        }
+
+        /// Fuzz: the `1 << bit` selection mask always has exactly one bit set,
+        /// for every in-range pin index.
+        #[test]
+        fn single_bit_mask(bit in 0u8..PIN_COUNT) {
+            let mask = 1u32 << bit;
+            prop_assert_eq!(mask.count_ones(), 1);
+        }
+    }
 }

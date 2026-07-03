@@ -8,6 +8,31 @@
 use crate::peripherals::{I2c0, I2c1};
 use core::marker::PhantomData;
 
+/// I2C bus speed. A finite set of standard-defined modes — so a frequency the SCL
+/// divider can't actually realise is unrepresentable (the old `freq: u32` could
+/// divide to a 0 / overflowed SCL count). Matches the BS2X `i2c_v151::Speed`
+/// surface, so `hal::i2c::Speed` reads the same on both chips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Speed {
+    /// Standard mode (100 kHz).
+    Standard,
+    /// Fast mode (400 kHz).
+    Fast,
+}
+
+impl Speed {
+    /// The SCL frequency in Hz.
+    pub const fn hz(self) -> u32 {
+        match self {
+            Speed::Standard => 100_000,
+            Speed::Fast => 400_000,
+        }
+    }
+}
+
+/// I2C master driver bound to instance `T` (`I2c0`/`I2c1`).
 pub struct I2c<'d, T> {
     idx: u8,
     _peripheral: PhantomData<&'d T>,
@@ -24,15 +49,18 @@ fn i2c_regs(idx: u8) -> &'static crate::soc::pac::i2c0::RegisterBlock {
 }
 
 impl<'d> I2c<'d, I2c0<'d>> {
-    pub fn new_i2c0(_i2c: I2c0<'d>, freq: u32) -> Self {
-        configure_i2c(0, freq);
+    /// Create and configure the I2C0 master at the given bus [`Speed`].
+    pub fn new_i2c0(_i2c: I2c0<'d>, speed: Speed) -> Self {
+        configure_i2c(0, speed.hz());
         Self { idx: 0, _peripheral: PhantomData }
     }
 }
 
 impl<'d> I2c<'d, I2c1<'d>> {
-    pub fn new_i2c1(_i2c: I2c1<'d>, freq: u32) -> Self {
-        configure_i2c(1, freq);
+    /// Create and configure the I2C1 master at the given bus [`Speed`].
+    #[instability::unstable]
+    pub fn new_i2c1(_i2c: I2c1<'d>, speed: Speed) -> Self {
+        configure_i2c(1, speed.hz());
         Self { idx: 1, _peripheral: PhantomData }
     }
 }
@@ -71,6 +99,11 @@ fn wait_until(mut ready: impl FnMut() -> bool) -> Result<(), I2cError> {
         }
     }
     Ok(())
+}
+
+#[inline]
+fn validate_7bit_addr(addr: u8) -> Result<u32, I2cError> {
+    if addr <= 0x7f { Ok(addr as u32) } else { Err(I2cError::InvalidAddress) }
 }
 
 impl<T> I2c<'_, T> {
@@ -131,11 +164,13 @@ impl<T> I2c<'_, T> {
         self.wait_tx_ack()
     }
 
+    /// Write `data` to the 7-bit `addr` (START, address+W, bytes, STOP).
     pub fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), I2cError> {
+        let addr = validate_7bit_addr(addr)?;
         let r = i2c_regs(self.idx);
 
         // Start + address (R/W=0)
-        self.send_start((addr as u32) << 1, false)?;
+        self.send_start(addr << 1, false)?;
 
         // Write data bytes
         for &byte in data {
@@ -154,11 +189,14 @@ impl<T> I2c<'_, T> {
         Ok(())
     }
 
+    /// Read `buf.len()` bytes from the 7-bit `addr` (START, address+R, bytes with
+    /// NACK on the last, STOP).
     pub fn read(&mut self, addr: u8, buf: &mut [u8]) -> Result<(), I2cError> {
+        let addr = validate_7bit_addr(addr)?;
         let r = i2c_regs(self.idx);
 
         // Start + address (R/W=1)
-        self.send_start(((addr as u32) << 1) | 1, true)?;
+        self.send_start((addr << 1) | 1, true)?;
 
         // Read bytes
         let buf_len = buf.len();
@@ -187,11 +225,12 @@ impl<T> I2c<'_, T> {
     /// Combined write-then-read with repeated START (Sr) between operations,
     /// matching the I2C specification for register-based device access.
     pub fn write_read(&mut self, addr: u8, wr_buf: &[u8], rd_buf: &mut [u8]) -> Result<(), I2cError> {
+        let addr = validate_7bit_addr(addr)?;
         let r = i2c_regs(self.idx);
 
         if !wr_buf.is_empty() {
             // Start + address (R/W=0)
-            self.send_start((addr as u32) << 1, false)?;
+            self.send_start(addr << 1, false)?;
 
             // Write register address / data bytes
             for &byte in wr_buf {
@@ -205,7 +244,7 @@ impl<T> I2c<'_, T> {
 
         if !rd_buf.is_empty() {
             // Repeated START + address (R/W=1)
-            self.send_start(((addr as u32) << 1) | 1, true)?;
+            self.send_start((addr << 1) | 1, true)?;
 
             let buf_len = rd_buf.len();
             for (i, byte) in rd_buf.iter_mut().enumerate() {
@@ -239,8 +278,9 @@ impl<T> I2c<'_, T> {
         operations: &mut [embedded_hal::i2c::Operation<'_>],
     ) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
-        let addr_w = (address as u32) << 1; // R/W=0 for write
-        let addr_r = ((address as u32) << 1) | 1; // R/W=1 for read
+        let address = validate_7bit_addr(address)?;
+        let addr_w = address << 1; // R/W=0 for write
+        let addr_r = (address << 1) | 1; // R/W=1 for read
 
         for op in operations.iter_mut() {
             match op {
@@ -286,11 +326,19 @@ impl<T> I2c<'_, T> {
     }
 }
 
+/// WS63 I2C master transaction error.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum I2cError {
+    /// The addressed device did not acknowledge (NACK on address or data).
     Ack,
+    /// Bus-level fault (e.g. arbitration loss / SCL stuck).
     BusError,
+    /// A status bit never asserted within the bounded wait (stuck/absent slave).
     Timeout,
+    /// The supplied 7-bit address was outside `0x00..=0x7f`.
+    InvalidAddress,
 }
 
 impl embedded_hal::i2c::Error for I2cError {
@@ -300,7 +348,7 @@ impl embedded_hal::i2c::Error for I2cError {
                 embedded_hal::i2c::ErrorKind::NoAcknowledge(embedded_hal::i2c::NoAcknowledgeSource::Unknown)
             }
             I2cError::BusError => embedded_hal::i2c::ErrorKind::Bus,
-            I2cError::Timeout => embedded_hal::i2c::ErrorKind::Other,
+            I2cError::Timeout | I2cError::InvalidAddress => embedded_hal::i2c::ErrorKind::Other,
         }
     }
 }
@@ -337,8 +385,15 @@ impl embedded_hal::i2c::I2c for I2c<'_, I2c1<'_>> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
+    #[test]
+    fn speed_hz_values() {
+        use super::Speed;
+        assert_eq!(Speed::Standard.hz(), 100_000);
+        assert_eq!(Speed::Fast.hz(), 400_000);
+    }
+
     #[test]
     fn test_i2c_address_write_encoding() {
         // I2C write address = addr << 1 (R/W=0)
@@ -367,6 +422,90 @@ mod tests {
         let addr: u32 = 0x78;
         let addr_w = addr << 1;
         assert_eq!(addr_w, 0xF0); // Address fits in 7 bits
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use crate::soc::chip::I2C_CLOCK_HZ;
+    use proptest::prelude::*;
+
+    // Re-derivation of the SCL-divider math in `configure_i2c` (same u32 types,
+    // same rounding, same zero-guard) WITHOUT touching any MMIO register:
+    //   freq   = if freq == 0 { 1 } else { freq };
+    //   period = pclk / (2 * freq);
+    //   half   = period / 2;
+    // The `2 * freq` term is a u32 multiply, so the driver's math is only
+    // well-defined for freq <= u32::MAX/2 (a value the divider would never be
+    // configured with — kHz..MHz bus speeds). We fuzz that defined regime here
+    // and exercise the zero-guard / overflow boundary in dedicated tests.
+    fn scl_half(freq: u32) -> u32 {
+        let pclk = I2C_CLOCK_HZ;
+        let freq = if freq == 0 { 1 } else { freq };
+        let period = pclk / (2 * freq);
+        period / 2
+    }
+
+    proptest! {
+        /// Fuzz: the divider never panics (no div-by-zero) across the full u32
+        /// frequency range — the `freq == 0` guard forces the divisor to >= 2.
+        #[test]
+        fn divider_never_div_by_zero(freq in any::<u32>()) {
+            // Mirror the guard, then the divisor `2 * freq` is computed in u64 to
+            // avoid the test itself overflowing; the property under test is that a
+            // non-zero divisor exists for every input (no div-by-zero panic).
+            let f = if freq == 0 { 1u64 } else { freq as u64 };
+            let divisor = 2 * f;
+            prop_assert!(divisor >= 2);
+            let _ = I2C_CLOCK_HZ as u64 / divisor;
+        }
+
+        /// Fuzz: across realistic bus frequencies (1 Hz ..= I2C_CLOCK_HZ) the
+        /// half-period field never exceeds the source clock — it is a fraction of
+        /// `pclk`, so it always fits whatever sane SCL_H/SCL_L width the HW has.
+        #[test]
+        fn half_period_within_clock(freq in 1u32..=I2C_CLOCK_HZ) {
+            prop_assert!(scl_half(freq) <= I2C_CLOCK_HZ);
+        }
+
+        /// Fuzz: the divider is monotonic — a higher requested SCL frequency never
+        /// yields a larger half-period (faster bus ⇒ shorter clock half-period).
+        #[test]
+        fn divider_is_monotonic(a in 1u32..=I2C_CLOCK_HZ, b in 1u32..=I2C_CLOCK_HZ) {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            // lo <= hi requested freq ⇒ half(lo) >= half(hi)
+            prop_assert!(scl_half(lo) >= scl_half(hi));
+        }
+
+        /// Fuzz: the `freq == 0` guard means a 0 request is treated identically to
+        /// a 1 Hz request (no panic, deterministic value), never a div-by-zero.
+        #[test]
+        fn zero_freq_guard_matches_one(_seed in 0u32..4) {
+            prop_assert_eq!(scl_half(0), scl_half(1));
+        }
+
+        /// Fuzz: the 7-bit write-address encoding (`addr << 1`, R/W = 0) keeps the
+        /// LSB clear and round-trips back to the original address.
+        #[test]
+        fn write_addr_encoding_roundtrips(addr in 0u8..=0x7F) {
+            let addr_w = (addr as u32) << 1;
+            prop_assert_eq!(addr_w & 0x01, 0, "write R/W bit must be clear");
+            prop_assert_eq!(addr_w >> 1, addr as u32, "address must round-trip");
+            prop_assert!(addr_w <= 0xFE, "7-bit write byte stays in a u8");
+        }
+
+        /// Fuzz: the read-address encoding (`(addr << 1) | 1`, R/W = 1) sets the
+        /// LSB, round-trips, and differs from the write byte in exactly bit 0.
+        #[test]
+        fn read_addr_encoding_roundtrips(addr in 0u8..=0x7F) {
+            let addr_w = (addr as u32) << 1;
+            let addr_r = ((addr as u32) << 1) | 1;
+            prop_assert_eq!(addr_r & 0x01, 1, "read R/W bit must be set");
+            prop_assert_eq!(addr_r >> 1, addr as u32, "address must round-trip");
+            prop_assert_eq!(addr_w ^ addr_r, 1, "write/read bytes differ only in bit 0");
+        }
     }
 }
 

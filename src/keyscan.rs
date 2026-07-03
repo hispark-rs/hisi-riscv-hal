@@ -13,7 +13,9 @@ use core::marker::PhantomData;
 /// One decoded key event from the scan FIFO.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyEvent {
+    /// Matrix row index of the key (decoded from `key_value[7:3]`).
     pub row: u8,
+    /// Matrix column index of the key (decoded from `key_value[2:0]`).
     pub col: u8,
     /// `true` = press, `false` = release.
     pub pressed: bool,
@@ -23,6 +25,7 @@ pub struct KeyEvent {
 const FIFO_EMPTY: u16 = 0x0FF;
 const POLL_LIMIT: u32 = 1_000_000;
 
+/// Blocking driver for the BS2X KEYSCAN key-matrix scanner (IP v150).
 pub struct Keyscan<'d> {
     _k: PhantomData<KeyscanPeriph<'d>>,
 }

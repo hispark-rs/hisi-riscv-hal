@@ -7,27 +7,101 @@
 use crate::peripherals::{Spi0, Spi1};
 use core::marker::PhantomData;
 
+/// SPI clock polarity/phase mode (CTRA.scpol bit 3 / scph bit 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpiMode {
+    /// CPOL=0, CPHA=0: idle-low clock, sample on leading edge.
     Mode0,
+    /// CPOL=0, CPHA=1: idle-low clock, sample on trailing edge.
     Mode1,
+    /// CPOL=1, CPHA=0: idle-high clock, sample on leading edge.
     Mode2,
+    /// CPOL=1, CPHA=1: idle-high clock, sample on trailing edge.
     Mode3,
 }
 
+/// A validated SPI bus clock. The DesignWare SSI divides `SPI_CLOCK_HZ` (160 MHz)
+/// by an even SCKDV in `[2, 0xFFFE]`, so the achievable SCK is
+/// `[SPI_CLOCK_HZ/0xFFFE ≈ 2.4 kHz, SPI_CLOCK_HZ/2 = 80 MHz]`. `try_from_hz` rejects
+/// anything outside that band instead of silently clamping the divider (the old
+/// `frequency: u32` path clamped to 2× / ½× the requested SCK without telling you).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SpiHz(u32);
+
+impl SpiHz {
+    /// 1 MHz — the default SPI bus clock.
+    pub const ONE_MHZ: SpiHz = SpiHz(1_000_000);
+
+    /// Construct from a target SCK frequency. `None` if the resulting SCKDV
+    /// divider would fall outside `[2, 0xFFFE]` (frequency too high or too low).
+    pub const fn try_from_hz(hz: u32) -> Option<Self> {
+        if hz == 0 {
+            return None;
+        }
+        let div = crate::soc::chip::SPI_CLOCK_HZ / hz;
+        if div < 2 || div > 0xFFFE {
+            return None;
+        }
+        Some(SpiHz(hz))
+    }
+
+    /// The requested SCK frequency in Hz.
+    pub const fn hz(self) -> u32 {
+        self.0
+    }
+
+    /// The even SCKDV divider for this frequency (always in `[2, 0xFFFE]`).
+    const fn to_sckdv(self) -> u32 {
+        sckdv(crate::soc::chip::SPI_CLOCK_HZ, self.0)
+    }
+}
+
+/// SPI data frame size in bits, validated to the SSI DFS range `4..=16`.
+///
+/// (The 4-bit DFS field caps the documented range at 16; whether this silicon also
+/// supports the 32-bit DFS extension is an on-board open question — `4..=16` is the
+/// conservative, always-runnable choice. A value outside it is unrepresentable
+/// rather than silently masked into the register.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DataBits(u8);
+
+impl DataBits {
+    /// 8-bit frames (the common default).
+    pub const EIGHT: DataBits = DataBits(8);
+    /// 16-bit frames.
+    pub const SIXTEEN: DataBits = DataBits(16);
+
+    /// Construct from a frame size. `None` outside `4..=16`.
+    pub const fn new(bits: u8) -> Option<Self> {
+        if bits >= 4 && bits <= 16 { Some(DataBits(bits)) } else { None }
+    }
+
+    /// The frame size in bits (always `4..=16`).
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+}
+
+/// SPI master configuration: bus clock, clock mode, and frame size.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
-    pub frequency: u32,
+    /// Target SCK bus clock (validated; programs the SCKDV divider).
+    pub frequency: SpiHz,
+    /// Clock polarity/phase mode.
     pub mode: SpiMode,
-    pub data_bits: u8,
+    /// Data frame size in bits (DFS, `4..=16`).
+    pub data_bits: DataBits,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { frequency: 1_000_000, mode: SpiMode::Mode0, data_bits: 8 }
+        Self { frequency: SpiHz::ONE_MHZ, mode: SpiMode::Mode0, data_bits: DataBits::EIGHT }
     }
 }
 
+/// SPI master driver bound to instance `T` (`Spi0`/`Spi1`).
 pub struct Spi<'d, T> {
     idx: u8,
     _peripheral: PhantomData<&'d T>,
@@ -49,9 +123,13 @@ fn spi_regs(idx: u8) -> &'static crate::soc::pac::spi0::RegisterBlock {
 /// clamped to `SPI_MINUMUM_CLK_DIV` = 2). SCKDV bit 0 is read-only 0, so the
 /// value must be even. There is NO `/2` and NO `-1` (an earlier version of this
 /// driver had both, producing ~2x the requested SCK).
-fn sckdv(pclk: u32, freq: u32) -> u32 {
+const fn sckdv(pclk: u32, freq: u32) -> u32 {
     let freq = if freq == 0 { 1 } else { freq };
-    let div = (pclk / freq).clamp(2, 0xFFFF);
+    let div = match pclk / freq {
+        d if d < 2 => 2,
+        d if d > 0xFFFF => 0xFFFF,
+        d => d,
+    };
     div & !1 // SCKDV LSB is read-only 0 (must be even)
 }
 
@@ -73,12 +151,15 @@ fn wait_until(mut ready: impl FnMut() -> bool) -> Result<(), SpiError> {
 }
 
 impl<'d> Spi<'d, Spi0<'d>> {
+    /// Create and configure the SPI0 master from its peripheral token.
     pub fn new_spi0(_spi: Spi0<'d>, config: Config) -> Self {
         configure_spi(0, &config);
         Self { idx: 0, _peripheral: PhantomData }
     }
 }
 impl<'d> Spi<'d, Spi1<'d>> {
+    /// Create and configure the SPI1 master from its peripheral token.
+    #[instability::unstable]
     pub fn new_spi1(_spi: Spi1<'d>, config: Config) -> Self {
         configure_spi(1, &config);
         Self { idx: 1, _peripheral: PhantomData }
@@ -110,6 +191,9 @@ const SPI_PLL_ROOT_MHZ: u32 = 480; // FNPLL SPI/QSPI tap (2880 / 6)
 #[cfg(feature = "chip-ws63")]
 fn configure_spi_source_clock() {
     // CRG divider output = 480 MHz / div → div = 480 / SSI_CLK_MHz (e.g. 3 for 160 MHz).
+    // typed-config exemption: both inputs are compile-time constants (this fn takes
+    // no args), so the `.max`/`.clamp` guard the *constant* clock-tree math, not any
+    // user value — the user-facing SPI rate is the validated `SpiHz` newtype.
     let ssi_mhz = (crate::soc::chip::SPI_CLOCK_HZ / 1_000_000).max(1);
     let div = (SPI_PLL_ROOT_MHZ / ssi_mhz).clamp(1, 0x1F);
     // SAFETY: fixed CLDO_CRG MMIO registers (0x4400_11xx, within the SYS_CTL1
@@ -143,8 +227,7 @@ fn configure_spi(idx: u8, config: &Config) {
     configure_spi_source_clock();
     let r = spi_regs(idx);
     r.spi_er().write(|w| unsafe { w.bits(0) });
-    let pclk = crate::soc::chip::SPI_CLOCK_HZ;
-    r.spi_brs().write(|w| unsafe { w.bits(sckdv(pclk, config.frequency)) });
+    r.spi_brs().write(|w| unsafe { w.bits(config.frequency.to_sckdv()) });
 
     let mut ctra = 0u32;
     match config.mode {
@@ -153,7 +236,7 @@ fn configure_spi(idx: u8, config: &Config) {
         SpiMode::Mode2 => ctra |= 1 << 4,
         SpiMode::Mode3 => ctra |= (1 << 3) | (1 << 4),
     }
-    ctra |= ((config.data_bits.saturating_sub(1)) as u32) << 13;
+    ctra |= ((config.data_bits.bits() - 1) as u32) << 13;
     // CTRA.trsm (bits 18:19): 0b00 = transmit-and-receive (full duplex).
     // (0b11 is EEPROM-read, NOT TX+RX — leaving trsm = 0 is correct.)
     r.spi_ctra().write(|w| unsafe { w.bits(ctra) });
@@ -161,7 +244,9 @@ fn configure_spi(idx: u8, config: &Config) {
     r.spi_er().write(|w| unsafe { w.bits(0x1) });
 }
 
-impl<T> Spi<'_, T> {
+impl<'d, T> Spi<'d, T> {
+    /// Full-duplex transfer: write `write` while reading into `read`, byte-paced
+    /// through the TX/RX FIFOs (zero-padded TX / discarded RX for the shorter slice).
     pub fn transfer(&mut self, write: &[u8], read: &mut [u8]) -> Result<(), SpiError> {
         let r = spi_regs(self.idx);
         let len = write.len().max(read.len());
@@ -178,6 +263,7 @@ impl<T> Spi<'_, T> {
         Ok(())
     }
 
+    /// Write-only transfer: push `data` into the TX FIFO, discarding any RX bytes.
     pub fn write(&mut self, data: &[u8]) -> Result<(), SpiError> {
         let r = spi_regs(self.idx);
         for &byte in data {
@@ -187,7 +273,13 @@ impl<T> Spi<'_, T> {
         Ok(())
     }
 
-    pub fn register_block(&self) -> &'static crate::soc::pac::spi0::RegisterBlock {
+    /// Borrow the underlying PAC register block for this SPI instance.
+    ///
+    /// # Safety
+    /// This bypasses the typed SPI driver. The caller must uphold all PAC
+    /// aliasing, ordering, and peripheral-state invariants.
+    #[instability::unstable]
+    pub unsafe fn register_block(&self) -> &'static crate::soc::pac::spi0::RegisterBlock {
         spi_regs(self.idx)
     }
 
@@ -198,6 +290,292 @@ impl<T> Spi<'_, T> {
         wait_until(|| r.spi_wsr().read().txfe().bit_is_set())?;
         wait_until(|| !r.spi_wsr().read().busy().bit_is_set())?;
         Ok(())
+    }
+
+    /// Consume the blocking SPI driver + a DMA driver, returning a DMA-capable
+    /// [`SpiDma`]. The blocking `Spi` API is no longer accessible (esp-hal style —
+    /// blocking and DMA surfaces are mutually exclusive, a compile-time guarantee).
+    #[cfg(feature = "chip-ws63")]
+    #[instability::unstable]
+    pub fn with_dma(self, dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>) -> SpiDma<'d, T> {
+        SpiDma { idx: self.idx, dma, _p: PhantomData }
+    }
+}
+
+/// A DMA-capable SPI master. Built from [`Spi::with_dma`]; owns the [`DmaDriver`].
+/// The blocking `Spi` is consumed (blocking + DMA APIs are mutually exclusive).
+///
+/// The DMA transfer methods ([`write_dma`](Self::write_dma),
+/// [`transfer_dma`](Self::transfer_dma)) are **blocking**: they program the
+/// peripheral + channel, bounded-wait for completion, and return the buffer. The
+/// buffer is owned for the whole call (a use-after-free of an in-flight DMA region
+/// is unrepresentable in safe code). Async `.await` variants are behind the `async`
+/// feature (P4).
+#[cfg(feature = "chip-ws63")]
+#[instability::unstable]
+pub struct SpiDma<'d, T> {
+    idx: u8,
+    dma: crate::dma::DmaDriver<'d, crate::dma::Dma0>,
+    _p: PhantomData<&'d T>,
+}
+
+#[cfg(feature = "chip-ws63")]
+impl<'d, T> SpiDma<'d, T> {
+    /// The absolute address of this instance's `spi_dr` data register (the DMA
+    /// endpoint). `spi_dr` is at PAC offset 0x60 from the instance base.
+    fn dr_addr(&self) -> u32 {
+        let r = spi_regs(self.idx);
+        r.spi_dr() as *const _ as u32
+    }
+
+    /// The `DmaPeripheral` (handshake ID) for TX on this instance.
+    fn tx_peri(&self) -> crate::dma::DmaPeripheral {
+        match self.idx {
+            0 => crate::dma::DmaPeripheral::Spi0Tx,
+            1 => crate::dma::DmaPeripheral::Spi1Tx,
+            _ => unreachable!(),
+        }
+    }
+
+    /// The `DmaPeripheral` for RX on this instance.
+    fn rx_peri(&self) -> crate::dma::DmaPeripheral {
+        match self.idx {
+            0 => crate::dma::DmaPeripheral::Spi0Rx,
+            1 => crate::dma::DmaPeripheral::Spi1Rx,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Write `buf` to MOSI via DMA (mem→peripheral, TX-only). The SSI is
+    /// full-duplex, so the looped-back RX bytes are drained from the FIFO and
+    /// discarded (use [`transfer_dma`](Self::transfer_dma) to capture them).
+    /// `buf` is owned for the whole call and returned on success. `ch` is a claimed
+    /// [`DmaChannel`](crate::dma::DmaChannel) token (from
+    /// [`DmaDriver::split_channels`](crate::dma::DmaDriver::split_channels)).
+    #[instability::unstable]
+    pub fn write_dma<B: embedded_dma::ReadBuffer<Word = u8>>(
+        &mut self,
+        ch: crate::dma::DmaChannel,
+        buf: B,
+    ) -> Result<B, SpiError> {
+        use crate::dma::{DmaChannelConfig, DmaFrame, DmaTransferSize};
+        let r = spi_regs(self.idx);
+        let (ptr, beats) = unsafe { buf.read_buffer() };
+        if beats > 0xFFF {
+            return Err(SpiError::BufferTooLong);
+        }
+        let size = DmaTransferSize::from_beats(beats).ok_or(SpiError::BufferTooLong)?;
+        let bytes = beats;
+        let dr = self.dr_addr();
+        let _ = ();
+
+        // Vendor order (hal_spi_v151.c:634, spi.c:691-712): watermark (DMA-enable
+        // OFF) → clean source → start channel → set tdmae.
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+        unsafe { crate::cache::clean_range(ptr as usize, bytes) };
+        let cfg = DmaChannelConfig::default().mem_to_peripheral(self.tx_peri()).with_width(DmaFrame::Byte);
+        let chn = ch.logical();
+        self.dma.configure_channel_raw(chn, ptr as u32, dr, size, &cfg);
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit());
+
+        // Bounded wait for the channel to auto-clear its enable bit (single-block done).
+        let mut n = SPI_WAIT_LOOPS;
+        while self.dma.channel_enabled_raw(chn) {
+            n -= 1;
+            if n == 0 {
+                // Cancel-then-quiesce: stop the peripheral asserting requests first,
+                // then halt → drain active → disable, before the buffer is returned.
+                r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+                self.dma.halt_channel_raw(chn);
+                let mut m = SPI_WAIT_LOOPS;
+                while self.dma.channel_active_raw(chn) {
+                    m -= 1;
+                    if m == 0 {
+                        break;
+                    }
+                    core::hint::spin_loop();
+                }
+                self.dma.disable_channel_raw(chn);
+                return Err(SpiError::Timeout);
+            }
+            core::hint::spin_loop();
+        }
+        // Drain the looped-back RX FIFO (TX clocks the bus; RX fills) to avoid overrun.
+        while r.spi_wsr().read().rxfne().bit_is_set() {
+            let _ = r.spi_dr().read().bits();
+        }
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+        Ok(buf)
+    }
+
+    /// Async variant of [`write_dma`](Self::write_dma): parks on the DMA completion
+    /// IRQ (IRQ 59) via [`DmaDriver::wait_transfer_done`](crate::dma::DmaDriver::wait_transfer_done)
+    /// instead of bounded-spinning, so the core can `wfi` while the transfer runs.
+    /// Requires the `async` feature + global interrupts enabled
+    /// (`interrupt::enable_global`) at the call site. Silicon-verified (IRQ 59 fires
+    /// for peripheral-paced completion — see `spi_dma_irq59` HIL test).
+    #[cfg(all(feature = "async", feature = "unstable"))]
+    #[instability::unstable]
+    pub async fn write_dma_async<B: embedded_dma::ReadBuffer<Word = u8>>(
+        &mut self,
+        ch: crate::dma::DmaChannel,
+        buf: B,
+    ) -> Result<B, SpiError> {
+        use crate::dma::{DmaChannelConfig, DmaFrame, DmaTransferSize};
+        let r = spi_regs(self.idx);
+        let (ptr, beats) = unsafe { buf.read_buffer() };
+        if beats > 0xFFF {
+            return Err(SpiError::BufferTooLong);
+        }
+        let size = DmaTransferSize::from_beats(beats).ok_or(SpiError::BufferTooLong)?;
+        let bytes = beats;
+        let dr = self.dr_addr();
+
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+        unsafe { crate::cache::clean_range(ptr as usize, bytes) };
+        // transfer_int = true so the channel's done bit sets int_tc → IRQ 59.
+        let cfg = DmaChannelConfig::default()
+            .mem_to_peripheral(self.tx_peri())
+            .with_width(DmaFrame::Byte)
+            .with_transfer_int(true);
+        let chn = ch.logical();
+        self.dma.configure_channel_raw(chn, ptr as u32, dr, size, &cfg);
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit());
+
+        // Park on IRQ 59 (per-channel demux) until this channel completes.
+        self.dma.wait_transfer_done(&ch).await;
+
+        // Drain the looped-back RX FIFO, then quiesce the peripheral.
+        while r.spi_wsr().read().rxfne().bit_is_set() {
+            let _ = r.spi_dr().read().bits();
+        }
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+        Ok(buf)
+    }
+
+    /// Full-duplex DMA: `write` → MOSI via `tx_ch` while MISO → `read` via `rx_ch`,
+    /// concurrently. With a MOSI→MISO jumper `read` ends up equal to `write`. Both
+    /// buffers are owned for the whole call and returned on success.
+    #[instability::unstable]
+    pub fn transfer_dma<RB: embedded_dma::WriteBuffer<Word = u8>, TB: embedded_dma::ReadBuffer<Word = u8>>(
+        &mut self,
+        tx_ch: crate::dma::DmaChannel,
+        rx_ch: crate::dma::DmaChannel,
+        mut read: RB,
+        write: TB,
+    ) -> Result<(RB, TB), SpiError> {
+        use crate::dma::{DmaChannelConfig, DmaFrame, DmaTransferSize};
+        let r = spi_regs(self.idx);
+        let (tx_ptr, tx_beats) = unsafe { write.read_buffer() };
+        let (rx_ptr, rx_beats) = unsafe { read.write_buffer() };
+        let beats = tx_beats.min(rx_beats);
+        if tx_beats > 0xFFF || rx_beats > 0xFFF {
+            return Err(SpiError::BufferTooLong);
+        }
+        let size = DmaTransferSize::from_beats(beats).ok_or(SpiError::BufferTooLong)?;
+        let bytes = beats;
+        let dr = self.dr_addr();
+
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+        // Clean TX source; RX destination is invalidated AFTER completion.
+        unsafe { crate::cache::clean_range(tx_ptr as usize, bytes) };
+
+        let tx_cfg = DmaChannelConfig::default().mem_to_peripheral(self.tx_peri()).with_width(DmaFrame::Byte);
+        let rx_cfg = DmaChannelConfig::default().peripheral_to_mem(self.rx_peri()).with_width(DmaFrame::Byte);
+        let tx_chn = tx_ch.logical();
+        let rx_chn = rx_ch.logical();
+        self.dma.configure_channel_raw(tx_chn, tx_ptr as u32, dr, size, &tx_cfg);
+        self.dma.configure_channel_raw(rx_chn, dr, rx_ptr as u32, size, &rx_cfg);
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit().rdmae().set_bit());
+
+        let mut n = SPI_WAIT_LOOPS;
+        while self.dma.channel_enabled_raw(tx_chn) || self.dma.channel_enabled_raw(rx_chn) {
+            n -= 1;
+            if n == 0 {
+                r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+                return Err(SpiError::Timeout);
+            }
+            core::hint::spin_loop();
+        }
+        // Invalidate the RX destination so the CPU re-reads what DMA wrote.
+        unsafe { crate::cache::invalidate_range(rx_ptr as usize, bytes) };
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        Ok((read, write))
+    }
+
+    /// Async variant of [`transfer_dma`](Self::transfer_dma): arms both channels
+    /// (transfer_int = true), sets tdmae+rdmae, and awaits each channel's
+    /// completion on IRQ 59 in turn (the per-channel demux means awaiting the second
+    /// doesn't false-wake on the first). Requires `async` + global interrupts.
+    #[instability::unstable]
+    #[cfg(all(feature = "async", feature = "unstable"))]
+    pub async fn transfer_dma_async<
+        RB: embedded_dma::WriteBuffer<Word = u8>,
+        TB: embedded_dma::ReadBuffer<Word = u8>,
+    >(
+        &mut self,
+        tx_ch: crate::dma::DmaChannel,
+        rx_ch: crate::dma::DmaChannel,
+        mut read: RB,
+        write: TB,
+    ) -> Result<(RB, TB), SpiError> {
+        use crate::dma::{DmaChannelConfig, DmaFrame, DmaTransferSize};
+        let r = spi_regs(self.idx);
+        let (tx_ptr, tx_beats) = unsafe { write.read_buffer() };
+        let (rx_ptr, rx_beats) = unsafe { read.write_buffer() };
+        let beats = tx_beats.min(rx_beats);
+        if tx_beats > 0xFFF || rx_beats > 0xFFF {
+            return Err(SpiError::BufferTooLong);
+        }
+        let size = DmaTransferSize::from_beats(beats).ok_or(SpiError::BufferTooLong)?;
+        let bytes = beats;
+        let dr = self.dr_addr();
+
+        unsafe {
+            r.spi_dtdl().write(|w| w.bits(4));
+            r.spi_drdl().write(|w| w.bits(0));
+        }
+        unsafe { crate::cache::clean_range(tx_ptr as usize, bytes) };
+
+        let tx_cfg = DmaChannelConfig::default()
+            .mem_to_peripheral(self.tx_peri())
+            .with_width(DmaFrame::Byte)
+            .with_transfer_int(true);
+        let rx_cfg = DmaChannelConfig::default()
+            .peripheral_to_mem(self.rx_peri())
+            .with_width(DmaFrame::Byte)
+            .with_transfer_int(true);
+        let tx_chn = tx_ch.logical();
+        let rx_chn = rx_ch.logical();
+        self.dma.configure_channel_raw(tx_chn, tx_ptr as u32, dr, size, &tx_cfg);
+        self.dma.configure_channel_raw(rx_chn, dr, rx_ptr as u32, size, &rx_cfg);
+        r.spi_dcr().modify(|_, w| w.tdmae().set_bit().rdmae().set_bit());
+
+        // Await each channel's completion (per-channel demux — no false-wake cross-talk).
+        self.dma.wait_transfer_done(&tx_ch).await;
+        self.dma.wait_transfer_done(&rx_ch).await;
+
+        unsafe { crate::cache::invalidate_range(rx_ptr as usize, bytes) };
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        Ok((read, write))
+    }
+
+    /// Reclaim the blocking `Spi` and the `DmaDriver`. Clears any peripheral
+    /// DMA-enable the DMA paths may have set.
+    #[instability::unstable]
+    pub fn release(self) -> (Spi<'d, T>, crate::dma::DmaDriver<'d, crate::dma::Dma0>) {
+        let r = spi_regs(self.idx);
+        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        (Spi { idx: self.idx, _peripheral: PhantomData }, self.dma)
     }
 }
 
@@ -213,15 +591,26 @@ fn transfer_in_place_on(idx: u8, buf: &mut [u8]) -> Result<(), SpiError> {
     Ok(())
 }
 
+/// Errors returned by the SPI driver.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum SpiError {
+    /// FIFO overrun (maps to [`embedded_hal::spi::ErrorKind::Overrun`]).
     Overflow,
+    /// A status bit never asserted within the bounded wait (no slave, stuck CS, wrong mode),
+    /// or a DMA channel never completed within the bounded poll.
     Timeout,
+    /// A DMA buffer exceeded the 12-bit `trans_size` field (4095 beats per single block).
+    BufferTooLong,
 }
 
 impl embedded_hal::spi::Error for SpiError {
     fn kind(&self) -> embedded_hal::spi::ErrorKind {
-        embedded_hal::spi::ErrorKind::Other
+        match self {
+            SpiError::Overflow => embedded_hal::spi::ErrorKind::Overrun,
+            _ => embedded_hal::spi::ErrorKind::Other,
+        }
     }
 }
 impl embedded_hal::spi::ErrorType for Spi<'_, Spi0<'_>> {
@@ -269,7 +658,7 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Spi1<'_>> {
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::sckdv;
     use crate::soc::chip::SPI_CLOCK_HZ;
@@ -299,11 +688,38 @@ mod tests {
     fn test_sckdv_clamps_at_max() {
         assert_eq!(sckdv(SPI_CLOCK_HZ, 1000), 0xFFFE);
     }
+
+    #[test]
+    fn spi_hz_rejects_out_of_range() {
+        use super::SpiHz;
+        // 0 and frequencies whose divider leaves [2, 0xFFFE] are rejected.
+        assert!(SpiHz::try_from_hz(0).is_none());
+        // Too high: > SPI_CLOCK_HZ/2 (=80 MHz) → div < 2.
+        assert!(SpiHz::try_from_hz(SPI_CLOCK_HZ / 2 + 1).is_none());
+        assert!(SpiHz::try_from_hz(SPI_CLOCK_HZ).is_none());
+        // Too low: div > 0xFFFE (1 Hz → 160 000 000 div).
+        assert!(SpiHz::try_from_hz(1).is_none());
+        // In range: 1 MHz → div 160; the default const agrees.
+        assert_eq!(SpiHz::try_from_hz(1_000_000).unwrap().hz(), 1_000_000);
+        assert_eq!(SpiHz::ONE_MHZ.to_sckdv(), 160);
+        // Exactly the edges resolve to the min/max even divider.
+        assert_eq!(SpiHz::try_from_hz(SPI_CLOCK_HZ / 2).unwrap().to_sckdv(), 2);
+    }
+
+    #[test]
+    fn data_bits_validates_4_to_16() {
+        use super::DataBits;
+        assert!(DataBits::new(3).is_none());
+        assert!(DataBits::new(17).is_none());
+        assert_eq!(DataBits::new(4).unwrap().bits(), 4);
+        assert_eq!(DataBits::new(16).unwrap().bits(), 16);
+        assert_eq!(DataBits::EIGHT.bits(), 8);
+    }
 }
 
 // ── Property-based fuzz tests ──────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod proptests {
     use super::sckdv;
     use proptest::prelude::*;

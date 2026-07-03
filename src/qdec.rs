@@ -9,6 +9,7 @@
 use crate::peripherals::Qdec as QdecPeriph;
 use core::marker::PhantomData;
 
+/// BS2X quadrature decoder driver: samples the A/B gray code and accumulates signed motion into ACC.
 pub struct Qdec<'d> {
     _q: PhantomData<QdecPeriph<'d>>,
 }

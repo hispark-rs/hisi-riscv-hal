@@ -6,6 +6,364 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **HIL default driver suite expanded to 25 self-contained WS63 tests, all passing
+  on silicon** via `probe-rs run` + `embedded-test`. New coverage: UART boot-clock
+  divider and TX flush, I2C invalid 7-bit address rejection, PWM `SetDutyCycle`
+  out-of-range error, TCXO 64-bit counter, TRNG byte fill path, and WDT counter/feed
+  liveness.
+
+### Changed
+
+- **BS2X target marked experimental**: `chip-bs21` now requires the `unstable`
+  feature. This hard gate covers the whole BS2X chip target, not just BS2X-only
+  drivers, because no BS2X silicon HIL has run yet.
+
+## [0.6.0] - 2026-07-01
+
+### Changed (BREAKING)
+
+- **Stable/unstable API gating** (esp-hal `instability` pattern): a new `unstable`
+  cargo feature (OFF by default) gates every surface that has **no on-silicon HIL
+  test**. Without `unstable`, the default build exposes only the HIL-proven stable
+  API; experimental surfaces require `features = ["unstable"]`. This is a breaking
+  change — previously-`pub` items are now `pub(crate)` (soft-gate) or absent when
+  `unstable` is off.
+  - Adopted the `instability = "0.3.12"` proc-macro crate (`#[instability::unstable]`
+    → `pub` when on, `pub(crate)` + `#[allow(dead_code)]` when off). MSRV 1.85 → 1.88
+    (instability requires 1.88).
+  - The old broken `unstable_module!`/`unstable_driver!` macros (`src/macros.rs`)
+    were rewritten in esp-hal crate-local form (NO `#[macro_export]`, `#[doc(hidden)]`,
+    `$(#[$meta])*` forwarding incl. `#[path]`, `#[allow(unused)]` on the `pub(crate)`
+    copy). `mod macros` is now private + `#[macro_use]`.
+  - docs.rs: `features += "unstable"` + `rustdoc-args=["--cfg","docsrs"]`; crate-level
+    `#![cfg_attr(docsrs, feature(doc_cfg, custom_inner_attributes, proc_macro_hygiene))]`
+    + `allow(invalid_doc_attributes)` + `doc(auto_cfg = false)` for "requires unstable"
+    markers (docs.rs-only nightly, esp-hal-exact).
+
+### UNSTABLE surfaces (now gated — add `unstable` to restore)
+
+- **Public `dma` module as a whole**: `Dma0`/`Sdma0`, `DmaDriver`, typed channel
+  tokens, mem-to-mem `Transfer`, `DmaTransferSize`/`DmaSyncMask`, peripheral-paced
+  `SpiDma`/`UartDma`, `PeripheralTransfer`, `DmaFrame`/`PeriKind`/`PeriDmaCtl`, and
+  all DMA async hooks. This is conservative: individual HIL tests exist, but safe
+  DMA still has open cache-line ownership/alignment, timeout quiescence, async
+  cancellation, and SPI1/UART DMA evidence gaps.
+- **Interrupt/waker async helpers**: `asynch::block_on`, `IrqSignal`, GPIO `Wait`,
+  timer `AsyncDelay`, UART async I/O, LSADC async. SPI/I2C blocking-backed async
+  trait impls still build with `async` alone.
+- **`embassy`** — no end-to-end HIL (the module is now `unstable`-gated; the
+  `embassy` feature still exists but the module requires `all(embassy, unstable)`).
+- **Other scoped knobs**: `EfuseDriver::set_clock_period`/`read_buffer`/`write_byte`,
+  `System::software_reset*`, `Instant::now`/`elapsed`, interrupt priority/threshold
+  getters/setters, SFC pad config, broad I2S data/FIFO/IRQ methods, broad LSADC and
+  TSENSOR config/data-path methods, TRNG manual clock/divider/status controls.
+- **WS63 untested drivers**: `clock_init`, `km`, `pke`, `safety`, `sfc`, `spacc`,
+  `ulp_gpio`, `rtc`-WS63 (the `hil-rtc` test is opt-in + this board lacks the crystal,
+  so it never ran on connected silicon), `delay` (no HIL).
+- **Entire BS2X target**: `chip-bs21` requires `unstable`, covering shared drivers
+  and BS2X-only modules such as `gadc`, `keyscan`, `pdm`, `qdec`, `usb`, `i2c`-v151,
+  `rtc`-v150, and `trng`-v1 (no BS2X silicon board — QEMU only per ROADMAP).
+- **`prelude`**: `Delay`, `Dma0`/`DmaDriver`/`Sdma0`, `RtcDriver`, `SfcDriver`, and
+  `UlpGpioPin` re-exports are now `unstable`-gated.
+
+### Changed (BREAKING typed config / operational validation)
+
+- **UART**: `Config::clock_hz: Option<u32>` was replaced with typed
+  `Config::clock: UartClock` (`Pll` or `Boot`). Boot-console firmware now writes
+  `Config { clock: UartClock::Boot, .. }` instead of passing a raw clock override.
+- **GPIO**: removed `OutputConfig::open_drain` and `with_open_drain`; the field was a
+  no-op and is not kept as a misleading stable knob.
+- **I2C**: blocking and async operations reject `addr > 0x7f` with
+  `I2cError::InvalidAddress` instead of programming an invalid 7-bit address.
+- **PWM**: `SetDutyCycle` now returns `PwmError::DutyOutOfRange` for duty values above
+  `max_duty_cycle()` instead of claiming `Infallible`.
+
+### Fixed
+
+- `dma_mem_to_mem` HIL test: was NOT chip-gated but calls `hal::cache`
+  (chip-ws63-only) → failed to compile on `chip-bs21`. Now `#[cfg(feature="chip-ws63")]`.
+- `uart.rs` UartDma doc comment: the FALSE "write_dma is silicon-verified" claim
+  (it timed out on silicon per `hisi-riscv-hal#5`; no UartDma HIL test exists)
+  was corrected to "UNSTABLE, blocked by #5".
+
+## [0.5.1] - 2026-06-30
+
+### Added
+
+- **Peripheral-paced DMA (SPI)** — the deferred Area C (hisi-riscv-hal#6) lands for
+  SPI, silicon-validated on real WS63:
+  - `DmaDriver::start_mem_to_peripheral` / `start_peripheral_to_mem` + the
+    `PeripheralTransfer<'d, BUF>` guard (owns driver + channel + the single memory
+    buffer; `wait()` returns `Result` — a wedged channel is `Err(Timeout)`, not
+    silently "done"). `Drop` runs cancel-then-quiesce (clear the peripheral
+    DMA-enable first, then halt → drain `active` → disable).
+  - `DmaChannel` / `DmaChannels` typed tokens + `DmaDriver::split_channels()` — a
+    runtime-claimed channel-ownership bitmask (no-atomics-safe). At most one
+    in-flight transfer per channel.
+  - `DmaFrame` (Byte/HalfWord) + `PeriKind`/`PeriDmaCtl` (a POD teardown handle that
+    clears the peripheral DMA-enable, so the guard needn't be generic over the driver).
+  - `Spi::with_dma(self, DmaDriver) -> SpiDma` (consumes the blocking `Spi` — blocking
+    + DMA APIs are mutually exclusive, esp-hal style). `SpiDma::write_dma` (TX-only,
+    drains looped-back RX) and `SpiDma::transfer_dma` (full-duplex, two channels);
+    both blocking, bounded-wait, with the vendor handshake order
+    (watermark → clean → start → set `spi_dcr.tdmae`). `SpiDma::release`.
+  - `SpiError::BufferTooLong` for the >4095-beat `trans_size` cap (no silent truncation).
+  - HIL `spi_dma_tx_loopback` + `spi_dma_fullduplex_loopback` — both PASS on silicon.
+- **`UartDma`** (`Uart::with_dma`/`write_dma`/`read_dma`/`release`) — the UART DMA
+  ergonomic API (P3). The register sequence compiles and is correct, but loopback
+  data-correctness is **blocked by hisi-riscv-hal#5** (UART1 TX shift register
+  doesn't advance on this board); silicon round-trip deferred to a #5-fixed board.
+
+### Changed
+
+- **`DmaDriver`: `Transfer::wait` (mem-to-mem) now quiesces on timeout** (halt → drain
+  `active` → disable) before returning the buffers — was handing back a live channel
+  (a latent UAF on a wedged transfer). `Transfer::drop` gains the same `active`-bit
+  settle (clearing `ch_enable` mid-burst could let an outstanding bus write land after
+  the buffer is freed). Both backported from the peripheral-DMA design review.
+
+### Notes
+
+- The SPI1 handshake (QSPI0_2CS 9/10 vs the legacy SPI_MS1 13/14) is **silicon-
+  unverified** and intentionally NOT changed in 0.5.1 — `DmaPeripheral::Spi1Tx/Rx`
+  remain 13/14. The correct `Qspi02csTx/Rx` variant is deferred to when SPI1 DMA is
+  wired and silicon-verified (adding it now would be a breaking enum change for an
+  unverified claim).
+- Pure SPI RX-only `read_dma` is descoped to 0.5.2 (can't loopback-test on a
+  single-SPI0 board with no external master).
+- Async `.await` DMA variants (P4) are not in 0.5.1 — deferred to 0.5.2.
+
+## [0.5.0] - 2026-06-16
+
+### Changed
+
+- **pwm** (BREAKING): `PwmChannel::configure` now takes a validated
+  `PwmPeriod` + `Duty` instead of `(freq: u32, duty_percent: u8)`, so a config the
+  hardware cannot run is **unrepresentable** rather than silently wrong:
+  - `Duty::from_percent` rejects `> 100 %`; `PwmPeriod::from_count`/`try_from_hz`
+    reject a 0 period and (because WS63 silicon does **not** latch the `pwm_freq_h`
+    high half — measured, even with the full clock tree up) a period that exceeds
+    16 bits. `PwmPeriod` is a `u16` accordingly. New `PWM_CLOCK_HZ`
+    (`SYSTEM_CLOCK_HZ / 6`, the vendor high-freq ÷6 divider).
+  - `configure` now **brings up the PWM clock tree itself** (CLK_SEL + CKEN_CTL0
+    `[10:2]` + DIV_CTL3 divider, per vendor `pwm_port_clock_enable`) — the
+    precondition the old API silently assumed, without which the registers don't
+    latch. WS63-gated; a no-op on BS2X (different clock tree — follow-up).
+  - The `embedded_hal::pwm::SetDutyCycle` impl is unchanged in shape (the
+    operational layer stays standard `u16` + `Result`); `max_duty_cycle()` now
+    reflects the configured period instead of `u16::MAX`.
+  - **Silicon-validated**: the HIL `pwm_configure_and_enable` test programs a
+    24 000-tick / 50 % waveform and confirms `pwm_freq_l0` = 24 000, `pwm_freq_h0`
+    = 0, duty = 12 000.
+- **Typed config across all drivers** (BREAKING) — the "if it compiles, it runs on
+  silicon" pass: every writable config value is now one the hardware can actually
+  run (no silent clamp / truncate / unclocked path). Per driver:
+  - **spi**: `Config.frequency: SpiHz` (rejects an SCK outside
+    `[SPI_CLOCK_HZ/0xFFFE, /2]`) and `data_bits: DataBits` (validated `4..=16`),
+    replacing the old `u32`/`u8` that silently clamped the SCKDV divider.
+  - **i2c**: `new_i2c0/1(speed: Speed)` (`Standard`/`Fast` = 100/400 kHz, aligned
+    with the BS2X v151 core) instead of a raw frequency that could overflow the SCL
+    counter.
+  - **uart**: `Config.baudrate: BaudRate` — `BaudRate::try_new` rejects a baud whose
+    16-bit divider would under/overflow against the 160 MHz base, removing the
+    silent low-clamp inside `configure_uart`.
+  - **i2s** (rewrite): role is now type-state — `I2sDriver::new_master(&MasterConfig)`
+    / `new_slave(&SlaveConfig)` (fusing the old `new()+configure()`). A master derives
+    its BCLK/FS dividers from `(data_width, channels)` exactly as the vendor
+    `sio_porting` does, so a **zero-divider master is unrepresentable** and every
+    divider provably fits its field. Register bits (`mode`/`i2s_crg`/`data_width_set`)
+    and the `DataWidth` (16/18/20/24/32) + `ChannelCount` (2/4/8/16) enums are
+    re-tabled to the authoritative vendor `hal_sio_v151_regs_def.h` (the ws63-pac SVD
+    layout was fabricated). `new_master` self-enables the I2S clock tree (CMU + CKEN
+    bus/clk).
+  - **wdt**: `configure` takes a validated `WdtTimeout` (`from_ms` rejects 0 /
+    `> MAX_MS`) and returns `Result<(), WdtError>`; `counter_value` → `Result`. The
+    old silent saturation to `WDT_MAX_LOAD` is gone, and the counter-latch poll is
+    now bounded (`WdtError::Busy`).
+  - **timer**: `start_micros`/`start_millis` return `Result<(), TimerError>` and
+    reject `TicksOverflow` instead of clamping a too-long duration to `u32::MAX`
+    (≈178 s). The blocking `DelayNs` impl keeps saturating semantics (the trait has
+    no error channel).
+  - **gadc**: `read` → `Result<i32, GadcError>` with a **bounded** conversion-done
+    poll (`ConversionTimeout`) instead of a `while {}` that hangs on an unpowered
+    AFE; `new` documents the analog preconditions.
+  - **lsadc**: the silently-`& mask`-truncated `sample_cnt` / `cast_cnt` /
+    `rxintsize` fields are now validated `SampleCount` / `CastCount` /
+    `FifoWaterline` newtypes.
+  - **rtc**: the 32.768 kHz-crystal board precondition is documented (both the WS63
+    v100 and BS2X v150 modules); reads use a bounded latch poll.
+  - **sfc**: `command_with_data` rejects a `> 64`-byte write with
+    `SfcError::BufferTooLong` instead of silently truncating it.
+- **Drop-to-disable** (BREAKING semantics) — hazardous peripherals return to a safe
+  state when their handle drops, touching only the peripheral's own enable bit:
+  `Watchdog` stops, `PwmChannel` clears its `pwm_enN`, `Output` reverts to input /
+  high-Z. Escape hatches keep them live: `Watchdog::into_armed()`/`leak()`,
+  `PwmChannel::into_running()`, `Output::into_latched()`/`into_flex()` (each → a
+  zero-sized marker). `Timer` is deliberately exempt.
+- **chip-feature de-default** (BREAKING): the HAL no longer defaults to `chip-ws63`
+  (esp-hal style). `default = ["rt", "dep:critical-section"]`; building the HAL
+  standalone now requires an explicit `chip-ws63` *or* `chip-bs21` (a `compile_error!`
+  guides you otherwise). `cargo build`/`cargo check --workspace` still work via
+  feature unification from the default-member ws63 examples. `[package.metadata.docs.rs]`
+  pins the riscv target + chip-ws63.
+- **API cleanup** (BREAKING): removed the legacy type-state `GpioPin<MODE>` (and
+  `create_input_pin`/`create_output_pin`, `InputMode`/`OutputMode`) — use
+  `AnyPin::init_input`/`init_output`/`init_flex`. All `*Error` enums are
+  `#[non_exhaustive]` + `defmt::Format`-derivable; `SpiError::Overflow` maps to
+  `ErrorKind::Overrun`; the BS2X `i2c_v151::I2cError` implements
+  `embedded_hal::i2c::Error`. `io_config::get_gpio_mux` → `gpio_mux` (C-GETTER).
+  Added a safe `Peripheral::reborrow(&mut self)`. New optional `defmt` feature.
+- **docs**: `#![warn(missing_docs)]` enabled and every public item documented (flips
+  to `deny` once green).
+- **interrupt routing → device.x named handlers** (BREAKING; requires
+  `hisi-riscv-rt 0.4`): with the `async` feature, each driver now exports the
+  rt-named handler symbol its IRQ vectors to (`TIMER_INT0..2`, `UART0..2_INT`,
+  `GPIO_INT0..2`, `DMA_INT`, `LSADC_INTR`), and that handler calls the driver's
+  static `on_interrupt`. rt 0.4 runs `mtvec` in **direct mode** and dispatches a
+  custom IRQ through its `__INTERRUPTS` table to these named symbols — so an enabled
+  IRQ is delivered to the right driver with no app-side `mcause` trap shim. Bumps the
+  `hisi-riscv-rt` dev-dep `0.3 → 0.4`. (Area D / #7; silicon-validated by the HIL
+  `timer_irq_direct_mode_dispatch` + `gpio_int0_named_routing` tests.)
+- **interrupt::enable** now also raises the IRQ's `LOCIPRI` priority above the
+  `PRITHD` threshold (both reset to 0 on the WS63 Nuclei ECLIC), so a custom IRQ
+  (≥ 26) is actually **deliverable** after `enable()` alone — previously delivery
+  silently required a separate `interrupt::init()`.
+- **embassy**: the `embassy` feature exports a named `TIMER_INT0` handler that drives
+  the alarm callback through rt's direct-mode dispatch (no app `#[interrupt]` shim);
+  it is `cfg`-exclusive with the `async` timer's own `TIMER_INT0` to avoid a
+  duplicate symbol.
+
+### Added
+
+- **HIL suite**: five more on-target tests (`tests/hil.rs`), all passing on real
+  WS63 silicon — `i2c0_scl_config` (I2C SCL divider off the 24 MHz TCXO),
+  `pwm_configure_and_enable` (CKEN gate + 16-bit period latch),
+  `wdt_configure_saturates_load` (validates the WDT load u64-saturation fix:
+  300 s clamps to `WDT_MAX_LOAD`), `i2s_version_live` (I2S block clocked +
+  register-map liveness, silicon version 0x13), and `lsadc_scan_config`
+  (validates the LSADC register-map fix). The default silicon suite is now
+  **17/17**. Plus an opt-in `gadc_register_liveness` (gated `chip-bs21` — GADC is
+  BS2X-only; WS63 uses the LSADC) and an opt-in `rtc_counter_advances` behind a
+  new **`hil-rtc`** feature (the common WS63 EVB does not populate the RTC's
+  32.768 kHz crystal, so touching the RTC stalls the bus / drops the debug link;
+  enable only on a board that has the crystal).
+
+### Fixed
+
+- **uart**: `read_byte` now gates on the `rx_fifo_cnt` register (offset 0x4c, the
+  field the vendor `hal_uart_v151` polls) instead of the `rx_fifo_empty` status bit,
+  which on real silicon does **not** track a single-byte pop — the old check could
+  return a stale byte or miss a fresh one. The async `on_interrupt` RX path uses the
+  same count.
+
+## [0.4.0] - 2026-06-15
+
+This is the first silicon-validated HAL release: every driver below was brought
+up and verified on real WS63 hardware (12 HIL driver tests + a jumper loopback
+group, all passing). It requires `ws63-pac` 0.2 for the SPI/TIMER register fixes,
+so it is a minor (0.x-breaking) bump.
+
+### Fixed
+
+- **timer**: `current_value()` now performs the TIMER_V150 `cnt_req`/`cnt_lock`
+  snapshot handshake before reading `current_value0` (a latched register, not a
+  live counter). Without it both reads returned the same stale latch — the timer
+  appeared frozen on silicon (QEMU exposes a live counter, hiding the bug).
+  **Silicon-validated**: `timer_counter_advances` now passes (hisi-riscv-rs#10).
+- **wdt**: `configure()` saturates the load field in `u64` before narrowing to
+  `u32`. The old `((cycles >> RESEV) as u32).min(MAX)` truncated (wrapped) a
+  multi-hour timeout to a bogus small load instead of clamping. Caught by a new
+  property test.
+- **sfc**: `configure_timing()` masks `tshsl` to the 4-bit field *before* applying
+  the `MIN_TSHSL` floor. The old order (floor then mask) let a value whose low
+  nibble was below the floor (e.g. 16/32/48) be masked back to 0, defeating the
+  minimum. Caught by a new property test.
+- **dma**: `configure_channel()` now actually **starts** the transfer by setting
+  the channel's bit in the global `dmac_en_chns` register (the DesignWare ChEnReg)
+  — on silicon the per-channel CFG `ch_enable` bit alone does not kick the engine
+  (it does in QEMU). Completion is the hardware auto-clearing that bit, matching
+  the vendor `hal_dma_v151_is_enabled`. **Silicon-validated end-to-end**: the HIL
+  `dma_mem_to_mem` mem→mem test now passes (was `#[ignore]`'d). QEMU's divergent
+  start/complete path is tracked as hisi-riscv-qemu#5 (QEMU is not the reference).
+- **spi**: SPI transfers no longer time out on silicon. Root cause was a `ws63-pac`
+  `SPI_WSR` bit-layout bug (the v151 silicon places `txfnf` at bit 11, not bit 1),
+  so the driver's `txfnf` poll watched a reserved always-0 bit. Fixed in the PAC;
+  the HAL polls the same `txfnf`/`rxfne`/`txfe`/`busy` field names unchanged.
+  **Silicon-validated**: the HIL `spi0_loopback_mosi_to_miso` MOSI→MISO test now
+  round-trips a 4-byte buffer (was `Err(Timeout)`).
+- **gpio**: `init_input()` now explicitly asserts the pad input-enable (IE, bit 11)
+  via `apply_pull` instead of relying on the boot reset default. On WS63 the ROM
+  leaves IE = 1 (measured: `pad_gpio_03_ctrl` = 0x800 at entry) and the vendor
+  pinctrl never writes it (`CONFIG_PINCTRL_SUPPORT_IE` undefined), so reads already
+  worked — but a pad whose IE was cleared by an earlier mux would have read a dead
+  buffer. Setting IE is the same hardware state the vendor relies on, just
+  self-contained. **Silicon-validated**: the HIL `gpio_loopback_0_to_3` GPIO0→GPIO3
+  test reads the driven input high and low through the plain HAL path.
+
+### Added
+
+- **uart**: `Config::clock: UartClock` (a typed baud-base selection)
+  plus `soc::chip::uart_boot_clock_hz()` and `UART_BOOT_CLOCK_{24M,40M}_HZ`.
+  Examples that skip the (XIP-unsafe) `clock_init` run on flashboot's raw-TCXO
+  console clock, not the 160 MHz PLL — **confirmed 40 MHz on silicon** (HW_CTL
+  TCXO strap; `div_fra = 44` ⟺ 40 MHz), resolving the boot-baud root cause of
+  #15/#10. `UartClock::Pll` keeps the 160 MHz post-`clock_init` behaviour.
+- **`cache`** module (WS63): `clean_range` / `invalidate_range` / `flush_range`
+  D-cache maintenance via the HiSilicon custom CSRs (`DCINCVA`/`DCMAINT`). The
+  RV32 core's D-cache is non-coherent with the DMA master, so a mem→mem transfer
+  must clean the source and invalidate the destination — now done by the HIL DMA
+  test (no-ops on the host build).
+
+### Changed
+
+- **deps**: bump the `ws63-pac` dependency requirement to `0.2` (was `0.1`). The
+  SPI_WSR and TIMER register-layout fixes the silicon bring-up relies on ship in
+  ws63-pac 0.2.0; pairing this HAL with the older 0.1.x PAC would reintroduce the
+  SPI-timeout / frozen-timer bugs.
+- **dma**: `enable_controller()` bypasses the controller's auto clock-gate when it
+  has one (the WS63 M_DMA `DMA_CLK_AUTO_CTRL_REG` bit, via the new
+  `DmaInstance::CLK_AUTO_CTRL`), so the clock stays on across a transfer. Mirrors
+  the vendor `dma_porting`.
+- **timer**: `current_value()` uses the now-named `cnt_req`/`cnt_lock` fields
+  (added to `ws63-pac`'s `TIMER%s_CONTROL`) instead of raw bit pokes.
+
+### Internal
+
+- Greatly expanded host coverage: new unit + property (`proptest`) tests across
+  previously-untested driver modules (gpio, interrupt, io_config, pwm, i2s, uart,
+  sfc, wdt, tsensor, rtc, gadc, dma, i2c, clock, tcxo, …) — **305 host tests**
+  total, all green. The wdt + sfc fixes above were both found by these new property
+  tests; the gpio IE hardening added 3 (`apply_pull` always enables the input
+  buffer / keeps unrelated bits). No API change from the test work.
+- HIL suite: added `efuse_read_byte0_ok`, `trng_produces_entropy`, and
+  `tsensor_reads_in_range` (on-die temperature) — all silicon-validated;
+  **12 driver tests, all passing on real WS63 silicon**. Plus an opt-in
+  (`hil-loopback` feature) jumper-wired loopback group — `gpio_loopback_0_to_3`
+  (GPIO0→GPIO3), `spi0_loopback_mosi_to_miso` (GPIO9→GPIO11),
+  `uart1_loopback_tx_to_rx` (GPIO15→GPIO16) — all three passing on silicon.
+- Code-review follow-up: the `tcxo` status-register bit values are now named
+  consts (`TCXO_EN_BIT`/`TCXO_CLEAR_BIT`/`TCXO_REFRESH_BIT`/`TCXO_VALID_BIT`) that
+  both the driver and its property tests use; 4 tautological status-bit unit tests
+  (which asserted literals against themselves) were removed.
+
+## [0.3.2] - 2026-06-14
+
+### Fixed
+
+- **uart**: compute the fractional baud divider `div_fra`
+  (`(UART_CLK * 4 / baud) & 0x3F`) instead of hardcoding 0 — a real on-wire baud
+  error at low clocks. On real WS63 silicon flashboot itself programs
+  `div_fra = 44`. Fixes #15.
+
+### Internal
+
+- Add an on-target `embedded-test` integration suite (`tests/hil.rs`, run via
+  `cargo test --test hil` + the patched probe-rs fork over semihosting) covering
+  the HAL drivers on real WS63 silicon (7 passing, 2 ignored bring-up TODOs).
+  Dev-deps + a build.rs linker-script step only; no change to the published API.
+
 ## [0.3.1] - 2026-06-12
 
 ### Added

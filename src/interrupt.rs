@@ -24,6 +24,7 @@
 // surrounding `unsafe` blocks empty — silence the resulting lints there.
 #![cfg_attr(not(target_arch = "riscv32"), allow(unused_unsafe, unused_variables, unused_mut))]
 
+/// Chip-specific interrupt-source enumeration (IRQ numbers) for this SoC.
 pub use crate::soc::chip::Interrupt;
 
 // --- model constants (fbb_ws63 vectors.h / riscv_interrupt.h) ---------------
@@ -211,12 +212,19 @@ fn locipri_read(idx: u16) -> u32 {
 pub struct Priority(u8);
 
 impl Priority {
+    /// Priority level 1 (lowest deliverable).
     pub const P1: Self = Priority(1);
+    /// Priority level 2.
     pub const P2: Self = Priority(2);
+    /// Priority level 3.
     pub const P3: Self = Priority(3);
+    /// Priority level 4.
     pub const P4: Self = Priority(4);
+    /// Priority level 5.
     pub const P5: Self = Priority(5);
+    /// Priority level 6.
     pub const P6: Self = Priority(6);
+    /// Priority level 7 (highest).
     pub const P7: Self = Priority(7);
 
     /// Lowest deliverable priority (1).
@@ -224,19 +232,56 @@ impl Priority {
     /// Highest priority (7).
     pub const HIGHEST: Self = Priority(7);
 
-    /// Create a priority, clamping `level` into the valid `1..=7` range.
-    pub const fn new(level: u8) -> Self {
-        let l = if level < 1 {
-            1
+    /// Build a priority level, rejecting values outside `1..=7`.
+    pub const fn from_level(level: u8) -> Option<Self> {
+        if level >= 1 && level <= 7 { Some(Priority(level)) } else { None }
+    }
+
+    const fn from_register(level: u8) -> Self {
+        if level < 1 {
+            Self::LOWEST
         } else if level > 7 {
-            7
+            Self::HIGHEST
         } else {
-            level
-        };
-        Priority(l)
+            Priority(level)
+        }
     }
 
     /// The numeric priority level (1..=7).
+    pub const fn level(self) -> u8 {
+        self.0
+    }
+}
+
+/// Global local-interrupt priority threshold (`PRITHD`). Valid range is `0..=7`.
+/// Only interrupts with priority strictly greater than this threshold are delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Threshold(u8);
+
+impl Threshold {
+    /// Threshold level 0: admit all deliverable priorities (`>= 1`).
+    pub const T0: Self = Threshold(0);
+    /// Threshold level 1.
+    pub const T1: Self = Threshold(1);
+    /// Threshold level 2.
+    pub const T2: Self = Threshold(2);
+    /// Threshold level 3.
+    pub const T3: Self = Threshold(3);
+    /// Threshold level 4.
+    pub const T4: Self = Threshold(4);
+    /// Threshold level 5.
+    pub const T5: Self = Threshold(5);
+    /// Threshold level 6.
+    pub const T6: Self = Threshold(6);
+    /// Threshold level 7: mask every priority representable by [`Priority`].
+    pub const T7: Self = Threshold(7);
+
+    /// Build a threshold, rejecting values outside `0..=7`.
+    pub const fn from_level(level: u8) -> Option<Self> {
+        if level <= 7 { Some(Threshold(level)) } else { None }
+    }
+
+    /// The numeric threshold level (0..=7).
     pub const fn level(self) -> u8 {
         self.0
     }
@@ -267,6 +312,16 @@ pub unsafe fn enable(irq: Interrupt) {
         let bit = (n - LOCAL_IRQ_VECTOR_CNT) % LOCIEN_IRQ_NUM;
         let reg = (n - LOCAL_IRQ_VECTOR_CNT) / LOCIEN_IRQ_NUM;
         unsafe { locien_write(reg, 1u32 << bit, true) };
+    }
+    // Nuclei ECLIC delivers an IRQ only when its `LOCIPRI` priority is strictly
+    // greater than the `PRITHD` threshold (both reset to 0, so a just-enabled IRQ is
+    // masked). Give the IRQ a non-zero priority here so enabling it is sufficient —
+    // callers no longer need a separate `interrupt::init()` for delivery. (`init`
+    // remains for setting every priority at once / a custom threshold.)
+    if (SYS_VECTOR_CNT..PRIORITY_IRQ_END).contains(&n) {
+        let reg = (n - SYS_VECTOR_CNT) / LOCIPRI_IRQ_NUM;
+        let shift = ((n - SYS_VECTOR_CNT) % LOCIPRI_IRQ_NUM) * LOCIPRI_IRQ_BITS;
+        locipri_set_field(reg, shift, 1);
     }
 }
 
@@ -307,6 +362,7 @@ pub fn is_enabled(irq: Interrupt) -> bool {
 
 /// Set a local interrupt's 4-bit priority (`LOCIPRI`). Applies to IRQ >= 26;
 /// a no-op for the system vectors below that.
+#[instability::unstable]
 pub fn set_priority(irq: Interrupt, priority: Priority) {
     let n = irq_num(irq);
     if (SYS_VECTOR_CNT..PRIORITY_IRQ_END).contains(&n) {
@@ -317,6 +373,7 @@ pub fn set_priority(irq: Interrupt, priority: Priority) {
 }
 
 /// Read back a local interrupt's configured priority (`LOCIPRI`).
+#[instability::unstable]
 pub fn priority(irq: Interrupt) -> Priority {
     let n = irq_num(irq);
     if (SYS_VECTOR_CNT..PRIORITY_IRQ_END).contains(&n) {
@@ -324,7 +381,7 @@ pub fn priority(irq: Interrupt) -> Priority {
         let reg = (n - SYS_VECTOR_CNT) / LOCIPRI_IRQ_NUM;
         let shift = order * LOCIPRI_IRQ_BITS;
         let field = (locipri_read(reg) >> shift) & LOCIPRI_FIELD_MASK;
-        Priority::new(field as u8)
+        Priority::from_register(field as u8)
     } else {
         Priority::LOWEST
     }
@@ -333,13 +390,15 @@ pub fn priority(irq: Interrupt) -> Priority {
 /// Set the global priority threshold (`PRITHD`, 0..=7). Only interrupts with a
 /// priority **strictly greater** than this are delivered; 0 admits all
 /// priorities >= 1.
-pub fn set_threshold(level: u8) {
-    unsafe { csr_write!("0xbfe", (level & 0x7) as u32) };
+#[instability::unstable]
+pub fn set_threshold(threshold: Threshold) {
+    unsafe { csr_write!("0xbfe", threshold.level() as u32) };
 }
 
 /// Read the current global priority threshold (`PRITHD`).
-pub fn threshold() -> u8 {
-    (unsafe { csr_read!("0xbfe") } & 0x7) as u8
+#[instability::unstable]
+pub fn threshold() -> Threshold {
+    Threshold((unsafe { csr_read!("0xbfe") } & 0x7) as u8)
 }
 
 // --- pending ----------------------------------------------------------------
@@ -412,7 +471,13 @@ pub unsafe fn enable_global() {
 }
 
 /// Clear the global machine-interrupt enable (`mstatus.MIE`).
-pub fn disable_global() {
+///
+/// # Safety
+/// After this call interrupts stay globally masked until code explicitly
+/// re-enables them. The caller must keep the masked region short and must not
+/// wait on hardware, run transfers, call callbacks, or enter async executors
+/// while interrupts are disabled.
+pub unsafe fn disable_global() {
     #[cfg(target_arch = "riscv32")]
     unsafe {
         core::arch::asm!("csrci mstatus, 0x8", options(nomem, nostack))
@@ -421,7 +486,13 @@ pub fn disable_global() {
 
 /// Run `f` with machine interrupts globally masked, restoring the previous
 /// `mstatus.MIE` afterwards (nesting-safe — only re-enables if it was enabled).
-pub fn free<F, R>(f: F) -> R
+///
+/// # Safety
+/// The closure runs with interrupts globally masked. It must be short,
+/// non-blocking, and limited to small Rust metadata updates; it must not touch
+/// long-running MMIO paths, transfers, delays, callbacks, or async executors.
+#[instability::unstable]
+pub unsafe fn free<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
@@ -437,4 +508,246 @@ where
         unsafe { core::arch::asm!("csrsi mstatus, 0x8", options(nomem, nostack)) };
     }
     r
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+// Host-only: pure logic only (priority/threshold typing + the IRQ→register/bit/field
+// arithmetic). NO CSR access — the csr_* macros are no-op stubs off riscv32, but
+// these tests never call the MMIO/CSR-touching driver functions regardless.
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn priority_from_level_rejects_low() {
+        assert_eq!(Priority::from_level(0), None);
+    }
+
+    #[test]
+    fn priority_from_level_rejects_high() {
+        assert_eq!(Priority::from_level(8), None);
+        assert_eq!(Priority::from_level(u8::MAX), None);
+    }
+
+    #[test]
+    fn priority_from_level_passes_through_in_range() {
+        // Every in-range level round-trips through from_level()/level() unchanged.
+        for l in 1u8..=7 {
+            assert_eq!(Priority::from_level(l).unwrap().level(), l);
+        }
+    }
+
+    #[test]
+    fn priority_constants_match_levels() {
+        // The named P1..P7 constants carry the matching numeric level.
+        assert_eq!(Priority::P1.level(), 1);
+        assert_eq!(Priority::P2.level(), 2);
+        assert_eq!(Priority::P3.level(), 3);
+        assert_eq!(Priority::P4.level(), 4);
+        assert_eq!(Priority::P5.level(), 5);
+        assert_eq!(Priority::P6.level(), 6);
+        assert_eq!(Priority::P7.level(), 7);
+        // LOWEST/HIGHEST alias P1/P7.
+        assert_eq!(Priority::LOWEST, Priority::P1);
+        assert_eq!(Priority::HIGHEST, Priority::P7);
+    }
+
+    #[test]
+    fn priority_ordering_is_monotonic() {
+        // Ord follows numeric level: higher priority compares greater.
+        assert!(Priority::P1 < Priority::P2);
+        assert!(Priority::LOWEST < Priority::HIGHEST);
+        assert!(Priority::P7 > Priority::P3);
+    }
+
+    #[test]
+    fn irq_num_matches_enum_discriminant() {
+        // irq_num is just the repr discriminant — TIMER_INT0 = 26, GPIO_INT0 = 33.
+        assert_eq!(irq_num(Interrupt::TIMER_INT0), 26);
+        assert_eq!(irq_num(Interrupt::GPIO_INT0), 33);
+        assert_eq!(irq_num(Interrupt::GPIO_INT1), 34);
+        assert_eq!(irq_num(Interrupt::GPIO_INT2), 35);
+    }
+
+    // Re-derive the tier classification used by enable/disable/is_enabled. This
+    // mirrors the in-method `contains` checks against the model constants without
+    // touching any CSR.
+    fn uses_mie(n: u16) -> bool {
+        (SYS_VECTOR_CNT..LOCAL_IRQ_VECTOR_CNT).contains(&n)
+    }
+    fn uses_locien(n: u16) -> bool {
+        n >= LOCAL_IRQ_VECTOR_CNT
+    }
+
+    #[test]
+    fn timer_int0_is_mie_tier() {
+        // IRQ 26 sits in the standard mie window [26, 32), not the custom LOCIEN tier.
+        let n = irq_num(Interrupt::TIMER_INT0);
+        assert!(uses_mie(n));
+        assert!(!uses_locien(n));
+    }
+
+    #[test]
+    fn gpio_ints_are_locien_tier() {
+        // GPIO IRQs 33..=35 are >= 32, so they use the custom LOCIEN CSRs.
+        for irq in [Interrupt::GPIO_INT0, Interrupt::GPIO_INT1, Interrupt::GPIO_INT2] {
+            let n = irq_num(irq);
+            assert!(uses_locien(n));
+            assert!(!uses_mie(n));
+        }
+    }
+
+    #[test]
+    fn vector_tier_boundary_is_exclusive_at_32() {
+        // 31 is the last mie-tier IRQ; 32 is the first LOCIEN-tier IRQ.
+        assert!(uses_mie(LOCAL_IRQ_VECTOR_CNT - 1));
+        assert!(!uses_locien(LOCAL_IRQ_VECTOR_CNT - 1));
+        assert!(!uses_mie(LOCAL_IRQ_VECTOR_CNT));
+        assert!(uses_locien(LOCAL_IRQ_VECTOR_CNT));
+        // System vectors below 26 are neither tier.
+        assert!(!uses_mie(SYS_VECTOR_CNT - 1));
+        assert!(!uses_locien(SYS_VECTOR_CNT - 1));
+    }
+
+    // Re-derive the LOCIEN register/bit split used by enable/disable/is_pending.
+    fn locien_reg_bit(n: u16) -> (u16, u16) {
+        let bit = (n - LOCAL_IRQ_VECTOR_CNT) % LOCIEN_IRQ_NUM;
+        let reg = (n - LOCAL_IRQ_VECTOR_CNT) / LOCIEN_IRQ_NUM;
+        (reg, bit)
+    }
+
+    #[test]
+    fn locien_split_for_gpio_ints() {
+        // GPIO_INT0=33 → LOCIEN0 bit 1; GPIO_INT2=35 → LOCIEN0 bit 3.
+        assert_eq!(locien_reg_bit(irq_num(Interrupt::GPIO_INT0)), (0, 1));
+        assert_eq!(locien_reg_bit(irq_num(Interrupt::GPIO_INT1)), (0, 2));
+        assert_eq!(locien_reg_bit(irq_num(Interrupt::GPIO_INT2)), (0, 3));
+    }
+
+    #[test]
+    fn locien_split_register_boundaries() {
+        // Base of the custom tier maps to reg 0 / bit 0; 32 IRQs later rolls to reg 1.
+        assert_eq!(locien_reg_bit(LOCAL_IRQ_VECTOR_CNT), (0, 0));
+        assert_eq!(locien_reg_bit(LOCAL_IRQ_VECTOR_CNT + LOCIEN_IRQ_NUM - 1), (0, 31));
+        assert_eq!(locien_reg_bit(LOCAL_IRQ_VECTOR_CNT + LOCIEN_IRQ_NUM), (1, 0));
+    }
+
+    // Re-derive the LOCIPRI register/field-shift split used by set_priority/priority.
+    fn locipri_reg_shift(n: u16) -> (u16, u16) {
+        let order = (n - SYS_VECTOR_CNT) % LOCIPRI_IRQ_NUM;
+        let reg = (n - SYS_VECTOR_CNT) / LOCIPRI_IRQ_NUM;
+        (reg, order * LOCIPRI_IRQ_BITS)
+    }
+
+    fn in_priority_range(n: u16) -> bool {
+        (SYS_VECTOR_CNT..PRIORITY_IRQ_END).contains(&n)
+    }
+
+    #[test]
+    fn locipri_split_for_known_irqs() {
+        // SYS_VECTOR_CNT (26) is the first priority-configurable IRQ: LOCIPRI0 field 0.
+        assert_eq!(locipri_reg_shift(SYS_VECTOR_CNT), (0, 0));
+        // TIMER_INT0 == SYS_VECTOR_CNT, so it shares that mapping.
+        assert_eq!(locipri_reg_shift(irq_num(Interrupt::TIMER_INT0)), (0, 0));
+        // GPIO_INT0=33 → order 7 in LOCIPRI0 → shift 28 (last nibble of reg 0).
+        assert_eq!(locipri_reg_shift(irq_num(Interrupt::GPIO_INT0)), (0, 28));
+        // GPIO_INT1=34 → first field of LOCIPRI1.
+        assert_eq!(locipri_reg_shift(irq_num(Interrupt::GPIO_INT1)), (1, 0));
+    }
+
+    #[test]
+    fn locipri_shift_stays_within_a_word() {
+        // The largest field shift is the last nibble (order 7 → shift 28); the
+        // 4-bit field then occupies bits 28..=31 of a 32-bit register.
+        let max_shift = (LOCIPRI_IRQ_NUM - 1) * LOCIPRI_IRQ_BITS;
+        assert_eq!(max_shift, 28);
+        assert!(u32::from(max_shift) + u32::from(LOCIPRI_IRQ_BITS) <= 32);
+    }
+
+    #[test]
+    fn priority_range_end_matches_register_count() {
+        // 16 LOCIPRI registers × 8 IRQs each cover IRQs SYS_VECTOR_CNT..PRIORITY_IRQ_END.
+        assert_eq!(PRIORITY_IRQ_END, SYS_VECTOR_CNT + 16 * LOCIPRI_IRQ_NUM);
+        // System vectors below 26 are not priority-configurable.
+        assert!(!in_priority_range(SYS_VECTOR_CNT - 1));
+        assert!(in_priority_range(SYS_VECTOR_CNT));
+        // PRIORITY_IRQ_END is exclusive: the last configurable IRQ is one below it.
+        assert!(in_priority_range(PRIORITY_IRQ_END - 1));
+        assert!(!in_priority_range(PRIORITY_IRQ_END));
+    }
+
+    #[test]
+    fn locipri_default_val_is_all_priority_one() {
+        // LOCIPRI_DEFAULT_VAL must set every 4-bit field in the word to priority 1.
+        for order in 0..LOCIPRI_IRQ_NUM {
+            let shift = order * LOCIPRI_IRQ_BITS;
+            let field = (LOCIPRI_DEFAULT_VAL >> shift) & LOCIPRI_FIELD_MASK;
+            assert_eq!(field, 1, "field at order {order} should be priority 1");
+        }
+        // And no bits live above the eight 4-bit fields (32 bits exactly used).
+        assert_eq!(LOCIPRI_DEFAULT_VAL, 0x1111_1111);
+    }
+
+    #[test]
+    fn threshold_from_level_accepts_only_three_bit_values() {
+        for level in 0u8..=7 {
+            assert_eq!(Threshold::from_level(level).unwrap().level(), level);
+        }
+        assert_eq!(Threshold::from_level(8), None);
+        assert_eq!(Threshold::from_level(u8::MAX), None);
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Fuzz: Priority::from_level accepts exactly 1..=7.
+        #[test]
+        fn priority_from_level_acceptance_matches_range(level in any::<u8>()) {
+            let p = Priority::from_level(level);
+            prop_assert_eq!(p.is_some(), (1..=7).contains(&level));
+        }
+
+        /// Fuzz: in-range priority levels round-trip exactly.
+        #[test]
+        fn priority_from_level_roundtrips_when_valid(level in 1u8..=7) {
+            prop_assert_eq!(Priority::from_level(level).unwrap().level(), level);
+        }
+
+        /// Fuzz: Threshold::from_level accepts exactly 0..=7.
+        #[test]
+        fn threshold_from_level_acceptance_matches_range(level in any::<u8>()) {
+            let threshold = Threshold::from_level(level);
+            prop_assert_eq!(threshold.is_some(), level <= 7);
+            if let Some(threshold) = threshold {
+                prop_assert_eq!(threshold.level(), level);
+            }
+        }
+
+        /// Fuzz: for any custom-tier IRQ, the LOCIEN bit index is always < 32 and the
+        /// (reg, bit) split reconstructs the original IRQ number.
+        #[test]
+        fn locien_split_reconstructs(n in LOCAL_IRQ_VECTOR_CNT..=127u16) {
+            let bit = (n - LOCAL_IRQ_VECTOR_CNT) % LOCIEN_IRQ_NUM;
+            let reg = (n - LOCAL_IRQ_VECTOR_CNT) / LOCIEN_IRQ_NUM;
+            prop_assert!(bit < LOCIEN_IRQ_NUM);
+            prop_assert_eq!(reg * LOCIEN_IRQ_NUM + bit + LOCAL_IRQ_VECTOR_CNT, n);
+        }
+
+        /// Fuzz: for any priority-configurable IRQ, the LOCIPRI field shift never lets a
+        /// 4-bit field spill past the 32-bit register boundary.
+        #[test]
+        fn locipri_field_fits_in_word(n in SYS_VECTOR_CNT..PRIORITY_IRQ_END) {
+            let order = (n - SYS_VECTOR_CNT) % LOCIPRI_IRQ_NUM;
+            let shift = order * LOCIPRI_IRQ_BITS;
+            prop_assert!(u32::from(shift) + u32::from(LOCIPRI_IRQ_BITS) <= 32);
+        }
+
+    }
 }

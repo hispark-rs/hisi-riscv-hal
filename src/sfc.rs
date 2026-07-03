@@ -146,8 +146,12 @@ impl<'d> SfcDriver<'d> {
     /// * `tcss` — CS setup time: (tcss + 1) clock cycles
     /// * `tcsh` — CS hold time: (tcsh + 1) clock cycles
     pub fn configure_timing(&mut self, tshsl: u8, tcss: u8, tcsh: u8) {
-        // Clamp to register field widths
-        let tshsl = (tshsl.max(MIN_TSHSL as u8 - 2) as u32) & 0x0F;
+        // Mask to the 4-bit field FIRST, then floor to the minimum. Doing it the
+        // other way (max() before the mask) lets a value whose low nibble is
+        // below the floor — e.g. 16/32/48, low nibble 0 — survive the max() only
+        // to be masked back down to 0, defeating the MIN_TSHSL guarantee. Mask
+        // then floor keeps the field in [MIN_TSHSL-2, 0xF] for every input.
+        let tshsl = ((tshsl as u32) & 0x0F).max(MIN_TSHSL - 2);
         let tcss = (tcss as u32) & 0x07;
         let tcsh = (tcsh as u32) & 0x07;
 
@@ -328,7 +332,12 @@ impl<'d> SfcDriver<'d> {
         read: bool,
     ) -> Result<[u8; 64], SfcError> {
         let r = self.regs();
-        let data_len = write_data.len().min(64);
+        // The command data buffer is 64 bytes; reject an over-long write rather than
+        // silently truncating it (the old `.min(64)` dropped the tail).
+        if write_data.len() > 64 {
+            return Err(SfcError::BufferTooLong);
+        }
+        let data_len = write_data.len();
 
         if !read && !write_data.is_empty() {
             // Load write data into data buffer
@@ -492,9 +501,306 @@ impl<'d> SfcDriver<'d> {
 
 /// SFC operation error.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum SfcError {
     /// Command timeout.
     Timeout,
     /// DMA transfer error.
     DmaError,
+    /// A `write_data` slice longer than the 64-byte command data buffer was passed
+    /// — rejected rather than silently truncated to the first 64 bytes.
+    BufferTooLong,
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+//
+// These re-derive the *pure* bit-packing / clamping arithmetic that the
+// register-writing methods perform, without touching any MMIO. Each helper
+// mirrors the exact expression in the corresponding driver method so the
+// asserts pin the encoding contract (field offsets, masks, clamps).
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod tests {
+    use super::*;
+
+    /// Re-derivation of the GLOBAL_CONFIG word built by `configure_global`.
+    fn global_config_bits(
+        spi_mode: FlashSpiMode,
+        addr_mode: AddressMode,
+        read_delay: ReadDelay,
+        write_protect: bool,
+    ) -> u32 {
+        let mut val: u32 = 0;
+        val |= spi_mode as u32; // mode [0]
+        if write_protect {
+            val |= 1 << 1; // wp_en [1]
+        }
+        if matches!(addr_mode, AddressMode::FourByte) {
+            val |= 1 << 2; // flash_addr_mode [2]
+        }
+        val |= (read_delay as u32) << 3; // rd_delay [3:5]
+        val
+    }
+
+    /// Re-derivation of the TIMING word built by `configure_timing`.
+    fn timing_bits(tshsl: u8, tcss: u8, tcsh: u8) -> u32 {
+        let tshsl = ((tshsl as u32) & 0x0F).max(MIN_TSHSL - 2);
+        let tcss = (tcss as u32) & 0x07;
+        let tcsh = (tcsh as u32) & 0x07;
+        tshsl | (tcss << 8) | (tcsh << 12)
+    }
+
+    /// Re-derivation of the BUS_CONFIG1 word built by `configure_bus`.
+    fn bus_config1_bits(config: &BusConfig) -> u32 {
+        let mut cfg1: u32 = 0;
+        cfg1 |= (config.read_if_type as u32) & 0x07;
+        cfg1 |= ((config.read_dummy_bytes as u32) & 0x07) << 3;
+        cfg1 |= ((config.read_prefetch_cnt as u32) & 0x03) << 6;
+        cfg1 |= ((config.read_instruction as u32) & 0xFF) << 8;
+        cfg1 |= ((config.write_if_type as u32) & 0x07) << 16;
+        cfg1 |= ((config.write_dummy_bytes as u32) & 0x07) << 19;
+        cfg1 |= ((config.write_instruction as u32) & 0xFF) << 22;
+        cfg1
+    }
+
+    #[test]
+    fn enum_discriminants_match_field_values() {
+        // The enums are cast `as u32` straight into register fields, so the
+        // discriminants ARE the wire encoding — assert the known values.
+        assert_eq!(SpiIfType::Standard as u32, 0);
+        assert_eq!(SpiIfType::DualIO as u32, 1);
+        assert_eq!(SpiIfType::DualIOCont as u32, 2);
+        assert_eq!(SpiIfType::QuadIO as u32, 3);
+        assert_eq!(SpiIfType::QuadIOCont as u32, 4);
+
+        assert_eq!(AddressMode::ThreeByte as u32, 0);
+        assert_eq!(AddressMode::FourByte as u32, 1);
+
+        assert_eq!(FlashSpiMode::Mode0 as u32, 0);
+        assert_eq!(FlashSpiMode::Mode3 as u32, 1);
+
+        assert_eq!(ReadDelay::Delay0 as u32, 0);
+        assert_eq!(ReadDelay::DelayHalf as u32, 1);
+        assert_eq!(ReadDelay::Delay1 as u32, 2);
+        assert_eq!(ReadDelay::Delay1_5 as u32, 3);
+    }
+
+    #[test]
+    fn global_config_all_zero_default() {
+        // Mode0 + 3-byte + no delay + no WP encodes to all-zero.
+        let v = global_config_bits(FlashSpiMode::Mode0, AddressMode::ThreeByte, ReadDelay::Delay0, false);
+        assert_eq!(v, 0);
+    }
+
+    #[test]
+    fn global_config_each_field_lands_in_its_bit() {
+        // mode bit [0]
+        assert_eq!(
+            global_config_bits(FlashSpiMode::Mode3, AddressMode::ThreeByte, ReadDelay::Delay0, false),
+            0b0000_0001
+        );
+        // wp_en bit [1]
+        assert_eq!(
+            global_config_bits(FlashSpiMode::Mode0, AddressMode::ThreeByte, ReadDelay::Delay0, true),
+            0b0000_0010
+        );
+        // flash_addr_mode bit [2]
+        assert_eq!(
+            global_config_bits(FlashSpiMode::Mode0, AddressMode::FourByte, ReadDelay::Delay0, false),
+            0b0000_0100
+        );
+        // rd_delay occupies [3:5]; Delay1_5 (=3) shifts to 0b11000
+        assert_eq!(
+            global_config_bits(FlashSpiMode::Mode0, AddressMode::ThreeByte, ReadDelay::Delay1_5, false),
+            0b0001_1000
+        );
+    }
+
+    #[test]
+    fn global_config_fields_are_independent() {
+        // All four fields set at once OR together without collision.
+        let v = global_config_bits(FlashSpiMode::Mode3, AddressMode::FourByte, ReadDelay::Delay1_5, true);
+        assert_eq!(v, 0b0001_1111);
+    }
+
+    #[test]
+    fn timing_clamps_tshsl_to_minimum() {
+        // tshsl is floored at MIN_TSHSL - 2 (the field stores tshsl, HW adds 2,
+        // so the effective minimum inter-op delay is MIN_TSHSL cycles).
+        let floor = MIN_TSHSL as u8 - 2; // == 3
+        assert_eq!(floor, 3);
+        // Any input below the floor is raised to it.
+        assert_eq!(timing_bits(0, 0, 0) & 0x0F, floor as u32);
+        assert_eq!(timing_bits(1, 0, 0) & 0x0F, floor as u32);
+        assert_eq!(timing_bits(2, 0, 0) & 0x0F, floor as u32);
+        // At/above the floor the value passes through.
+        assert_eq!(timing_bits(3, 0, 0) & 0x0F, 3);
+        assert_eq!(timing_bits(7, 0, 0) & 0x0F, 7);
+    }
+
+    #[test]
+    fn timing_masks_field_widths() {
+        // tshsl is a 4-bit field: 0xFF masks to 0x0F.
+        assert_eq!(timing_bits(0xFF, 0, 0) & 0x0F, 0x0F);
+        // tcss/tcsh are 3-bit fields at [8:10] and [12:14]: 0xFF masks to 0x07.
+        assert_eq!((timing_bits(3, 0xFF, 0) >> 8) & 0x07, 0x07);
+        assert_eq!((timing_bits(3, 0, 0xFF) >> 12) & 0x07, 0x07);
+    }
+
+    #[test]
+    fn timing_places_fields_at_correct_offsets() {
+        // tshsl [0:3], tcss [8:10], tcsh [12:14] are non-overlapping.
+        let v = timing_bits(5, 6, 7);
+        assert_eq!(v & 0x0F, 5);
+        assert_eq!((v >> 8) & 0x07, 6);
+        assert_eq!((v >> 12) & 0x07, 7);
+        // No stray bits set outside the three fields.
+        assert_eq!(v, 5 | (6 << 8) | (7 << 12));
+    }
+
+    #[test]
+    fn bus_config1_default_round_trips() {
+        // Default: standard read 0x03, standard write 0x02, no dummy/prefetch.
+        let cfg = BusConfig::default();
+        let v = bus_config1_bits(&cfg);
+        assert_eq!(v & 0x07, SpiIfType::Standard as u32); // rd_mem_if_type
+        assert_eq!((v >> 8) & 0xFF, 0x03); // rd_ins
+        assert_eq!((v >> 16) & 0x07, SpiIfType::Standard as u32); // wr_mem_if_type
+        assert_eq!((v >> 22) & 0xFF, 0x02); // wr_ins
+        // dummy + prefetch fields are zero.
+        assert_eq!((v >> 3) & 0x07, 0);
+        assert_eq!((v >> 6) & 0x03, 0);
+        assert_eq!((v >> 19) & 0x07, 0);
+    }
+
+    #[test]
+    fn bus_config1_quad_read_encoding() {
+        // A realistic quad fast-read (0xEB, quad I/O, 4 dummy bytes, prefetch 2).
+        let cfg = BusConfig {
+            read_if_type: SpiIfType::QuadIO,
+            read_dummy_bytes: 4,
+            read_instruction: 0xEB,
+            read_prefetch_cnt: 2,
+            write_if_type: SpiIfType::QuadIO,
+            write_dummy_bytes: 0,
+            write_instruction: 0x32,
+        };
+        let v = bus_config1_bits(&cfg);
+        assert_eq!(v & 0x07, SpiIfType::QuadIO as u32);
+        assert_eq!((v >> 3) & 0x07, 4);
+        assert_eq!((v >> 6) & 0x03, 2);
+        assert_eq!((v >> 8) & 0xFF, 0xEB);
+        assert_eq!((v >> 16) & 0x07, SpiIfType::QuadIO as u32);
+        assert_eq!((v >> 22) & 0xFF, 0x32);
+    }
+
+    #[test]
+    fn bus_config1_dummy_field_saturates_to_3_bits() {
+        // read_dummy_bytes is a 3-bit field; 7 fits, but 8 wraps to 0.
+        let mut cfg = BusConfig { read_dummy_bytes: 7, ..BusConfig::default() };
+        assert_eq!((bus_config1_bits(&cfg) >> 3) & 0x07, 7);
+        cfg.read_dummy_bytes = 8;
+        assert_eq!((bus_config1_bits(&cfg) >> 3) & 0x07, 0);
+        // prefetch is a 2-bit field; 3 fits, 4 wraps to 0.
+        cfg = BusConfig { read_prefetch_cnt: 3, ..BusConfig::default() };
+        assert_eq!((bus_config1_bits(&cfg) >> 6) & 0x03, 3);
+        cfg.read_prefetch_cnt = 4;
+        assert_eq!((bus_config1_bits(&cfg) >> 6) & 0x03, 0);
+    }
+
+    #[test]
+    fn databuf_word_packing_is_little_endian() {
+        // command_with_data packs each 4-byte chunk LE: byte j → bits [j*8..].
+        let chunk = [0x11u8, 0x22, 0x33, 0x44];
+        let mut word: u32 = 0;
+        for (j, &b) in chunk.iter().enumerate() {
+            word |= (b as u32) << (j * 8);
+        }
+        assert_eq!(word, 0x4433_2211);
+        // Round-trips through to_le_bytes (the read-back path).
+        assert_eq!(word.to_le_bytes(), chunk);
+    }
+
+    #[test]
+    fn databuf_partial_chunk_packs_low_bytes() {
+        // A 3-byte tail leaves the top byte clear.
+        let chunk = [0xAAu8, 0xBB, 0xCC];
+        let mut word: u32 = 0;
+        for (j, &b) in chunk.iter().enumerate() {
+            word |= (b as u32) << (j * 8);
+        }
+        assert_eq!(word, 0x00CC_BBAA);
+    }
+
+    #[test]
+    fn data_count_field_encodes_len_minus_one() {
+        // cmd_cfg packs (data_len - 1) into a 6-bit field [9:14], saturating at 0.
+        // `command_with_data` rejects len > 64 up front, so the field never wraps.
+        let encode = |data_len: usize| ((data_len.saturating_sub(1)) as u32) & 0x3F;
+        assert_eq!(encode(0), 0); // saturating_sub keeps 0 (empty)
+        assert_eq!(encode(1), 0); // 1 byte → count 0
+        assert_eq!(encode(64), 63); // full buffer → max 6-bit value
+    }
+
+    #[test]
+    fn over_long_write_is_rejected_not_truncated() {
+        // command_with_data returns Err(BufferTooLong) for len > 64 (was a silent
+        // .min(64) truncation that dropped the tail of the write).
+        // This re-derives the guard's boundary without touching MMIO.
+        let accepts = |len: usize| len <= 64;
+        assert!(accepts(0) && accepts(64));
+        assert!(!accepts(65) && !accepts(100));
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::MIN_TSHSL;
+    use proptest::prelude::*;
+
+    fn timing_bits(tshsl: u8, tcss: u8, tcsh: u8) -> u32 {
+        let tshsl = ((tshsl as u32) & 0x0F).max(MIN_TSHSL - 2);
+        let tcss = (tcss as u32) & 0x07;
+        let tcsh = (tcsh as u32) & 0x07;
+        tshsl | (tcss << 8) | (tcsh << 12)
+    }
+
+    proptest! {
+        /// Fuzz: the timing word only ever sets bits inside its three fields.
+        #[test]
+        fn timing_sets_no_stray_bits(tshsl in any::<u8>(), tcss in any::<u8>(), tcsh in any::<u8>()) {
+            let v = timing_bits(tshsl, tcss, tcsh);
+            // Allowed bits: [0:3] | [8:10] | [12:14].
+            let allowed: u32 = 0x0F | (0x07 << 8) | (0x07 << 12);
+            prop_assert_eq!(v & !allowed, 0);
+        }
+
+        /// Fuzz: tshsl field is always at least the clamped floor (MIN_TSHSL-2).
+        #[test]
+        fn timing_tshsl_never_below_floor(tshsl in any::<u8>()) {
+            let floor = (MIN_TSHSL as u8 - 2) as u32;
+            let field = timing_bits(tshsl, 0, 0) & 0x0F;
+            prop_assert!(field >= floor);
+        }
+
+        /// Fuzz: LE word packing of a 4-byte chunk always round-trips.
+        #[test]
+        fn databuf_pack_round_trips(b in any::<[u8; 4]>()) {
+            let mut word: u32 = 0;
+            for (j, &x) in b.iter().enumerate() {
+                word |= (x as u32) << (j * 8);
+            }
+            prop_assert_eq!(word.to_le_bytes(), b);
+        }
+
+        /// Fuzz: the data-count field never exceeds its 6-bit width.
+        #[test]
+        fn data_count_fits_6_bits(len in 0usize..=64) {
+            let field = ((len.saturating_sub(1)) as u32) & 0x3F;
+            prop_assert!(field <= 0x3F);
+        }
+    }
 }

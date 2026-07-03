@@ -7,12 +7,16 @@ use crate::peripherals::{CldoCrg, GlbCtlM, SysCtl0};
 /// Holds the SYS_CTL0, GLB_CTL_M, and CLDO_CRG peripherals for clock and
 /// reset configuration.
 pub struct System<'d> {
+    /// SYS_CTL0 peripheral, controlling core system clock and reset settings.
     pub sys_ctl0: SysCtl0<'d>,
+    /// GLB_CTL_M peripheral, controlling global clock/reset and chip reset.
     pub glb_ctl_m: GlbCtlM<'d>,
+    /// CLDO_CRG peripheral (clock and reset generator) for peripheral gates.
     pub cldo_crg: CldoCrg<'d>,
 }
 
 impl<'d> System<'d> {
+    /// Create a `System` handle from the SYS_CTL0, GLB_CTL_M, and CLDO_CRG peripherals.
     pub fn new(sys_ctl0: SysCtl0<'d>, glb_ctl_m: GlbCtlM<'d>, cldo_crg: CldoCrg<'d>) -> Self {
         Self { sys_ctl0, glb_ctl_m, cldo_crg }
     }
@@ -78,6 +82,7 @@ impl System<'_> {
     /// Sets the chip-reset enable bit (bit 2) of `GLB_CTL_M + 0x110`, the same
     /// register `reboot_port_reboot_chip` uses. The CPU is reset before the
     /// following spin loop completes.
+    #[instability::unstable]
     pub fn software_reset(&self) -> ! {
         unsafe {
             let v = core::ptr::read_volatile(CHIP_RESET_REG);
@@ -92,6 +97,7 @@ impl System<'_> {
     ///
     /// WS63's porting layer exposes only a whole-chip reset, so this is an alias
     /// of [`software_reset`](Self::software_reset).
+    #[instability::unstable]
     pub fn software_reset_cpu(&self) -> ! {
         self.software_reset()
     }

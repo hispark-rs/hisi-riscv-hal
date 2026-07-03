@@ -61,7 +61,41 @@ pub const TIMER_CLOCK_HZ: u32 = TCXO_HZ;
 /// baud base to `UART_PLL_CLOCK = 160_000_000` (fbb_ws63 `clock_init.c`); ch2 of
 /// ws63-guide also lists UART = 160 MHz. The baud divisor is `clock / (16 * baud)`,
 /// so this — not the 240 MHz CPU clock — is the divisor base.
+///
+/// **On-silicon caveat (2026-06-14, see hisi-riscv-rs#10/#15):** examples that do
+/// NOT run the (XIP-unsafe) full `clock_init` inherit flashboot's UART clock, which
+/// is NOT this PLL base — so their baud is wrong on real hardware. The boot UART
+/// clock is the raw TCXO crystal (24 or 40 MHz), selected per board; use
+/// [`crate::uart::UartClock::Boot`] for those examples.
 pub const UART_CLOCK_HZ: u32 = 160_000_000;
+
+/// Boot (pre-`clock_init`) UART baud base for a 24 MHz-TCXO board.
+pub const UART_BOOT_CLOCK_24M_HZ: u32 = 24_000_000;
+/// Boot (pre-`clock_init`) UART baud base for a 40 MHz-TCXO board.
+pub const UART_BOOT_CLOCK_40M_HZ: u32 = 40_000_000;
+
+/// Live flashboot UART baud base (the raw TCXO crystal, 24 or 40 MHz) for use
+/// BEFORE `clock_init` runs.
+///
+/// flashboot's `boot_clock_adapt()` sets the console UART baud base to the raw
+/// TCXO — NOT the 160 MHz PLL — keyed on the `HW_CTL` TCXO-detect strap (fbb_ws63
+/// `soc_porting.c` `get_tcxo_freq`/`boot_clock_adapt`). This mirrors that read.
+/// **Confirmed on silicon (2026-06-14):** a 40 MHz board reads `HW_CTL = 0x2`
+/// (bit 0 clear), and at 115200 8N1 that yields the measured flashboot divider
+/// `div = 21, div_fra = 44` — the divider the HAL must reproduce for examples
+/// that skip `clock_init` (hisi-riscv-rs#10/#15).
+///
+/// [`crate::uart::UartClock::Boot`] uses this value so the divider is computed
+/// against the real base.
+pub fn uart_boot_clock_hz() -> u32 {
+    // HW_CTL TCXO-frequency-detect strap; bit 0: 1 = 24 MHz TCXO, 0 = 40 MHz
+    // (CLK24M_TCXO = 1, CLK40M_TCXO = 0 in the vendor `soc_porting.h`).
+    const HW_CTL: usize = 0x4000_0014;
+    const REFCLK_FREQ_STATUS_MASK: u32 = 0x1;
+    // SAFETY: HW_CTL is a fixed read-only MMIO strap, always readable on WS63.
+    let hw_ctl = unsafe { core::ptr::read_volatile(HW_CTL as *const u32) };
+    if hw_ctl & REFCLK_FREQ_STATUS_MASK == 1 { UART_BOOT_CLOCK_24M_HZ } else { UART_BOOT_CLOCK_40M_HZ }
+}
 
 /// SPI controller input clock / SSI_CLK (160 MHz, PLL-derived).
 ///

@@ -25,22 +25,39 @@
 /// Enumeration of all peripheral clocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Peripheral {
+    /// UART0 clock (`CKEN_CTL1` bit 18).
     Uart0,
+    /// UART1 clock (`CKEN_CTL1` bit 19).
     Uart1,
+    /// UART2 clock (`CKEN_CTL1` bit 20).
     Uart2,
+    /// I2C0 clock (not individually gated by the SDK; reset-default on).
     I2c0,
+    /// I2C1 clock (not individually gated by the SDK; reset-default on).
     I2c1,
+    /// SPI0 clock (`CKEN_CTL1` bit 25).
     Spi0,
+    /// SPI1 clock (not individually gated by the SDK; reset-default on).
     Spi1,
+    /// PWM clock (`CKEN_CTL0` bits 2..=10; base bit 2).
     Pwm,
+    /// Timer clock (not individually gated by the SDK; reset-default on).
     Timer,
+    /// LSADC clock (not individually gated by the SDK; reset-default on).
     Lsadc,
+    /// Temperature-sensor clock (not individually gated by the SDK; reset-default on).
     Tsensor,
+    /// I2S clock (`CKEN_CTL0` bit 12 clk; bit 11 bus).
     I2s,
+    /// DMA-controller clock (not individually gated by the SDK; reset-default on).
     Dma,
+    /// Secure-DMA clock (not individually gated by the SDK; reset-default on).
     Sdma,
+    /// SFC (serial flash controller) clock (not individually gated by the SDK; reset-default on).
     Sfc,
+    /// TRNG clock (not individually gated by the SDK; reset-default on).
     Trng,
+    /// Security-group clock (not individually gated by the SDK; reset-default on).
     SecurityGroup,
 }
 
@@ -86,7 +103,7 @@ pub const PERIPHERAL_COUNT: usize = 17;
 
 // ── Tests ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "riscv32")))]
 mod tests {
     use super::*;
     use crate::soc::chip::SYSTEM_CLOCK_HZ;
@@ -171,6 +188,79 @@ mod tests {
         for i in 0..variants.len() {
             for j in (i + 1)..variants.len() {
                 assert_ne!(variants[i], variants[j]);
+            }
+        }
+    }
+}
+
+// ── Property-based fuzz tests ──────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "riscv32")))]
+mod proptests {
+    use super::{PERIPHERAL_COUNT, Peripheral};
+    use proptest::prelude::*;
+
+    /// All [`Peripheral`] variants, in the canonical order. Kept in sync with the
+    /// enum / [`PERIPHERAL_COUNT`]; a fuzz index selects one without touching MMIO.
+    const ALL: [Peripheral; PERIPHERAL_COUNT] = [
+        Peripheral::Uart0,
+        Peripheral::Uart1,
+        Peripheral::Uart2,
+        Peripheral::I2c0,
+        Peripheral::I2c1,
+        Peripheral::Spi0,
+        Peripheral::Spi1,
+        Peripheral::Pwm,
+        Peripheral::Timer,
+        Peripheral::Lsadc,
+        Peripheral::Tsensor,
+        Peripheral::I2s,
+        Peripheral::Dma,
+        Peripheral::Sdma,
+        Peripheral::Sfc,
+        Peripheral::Trng,
+        Peripheral::SecurityGroup,
+    ];
+
+    proptest! {
+        /// Fuzz: `cken_info()` never panics for any variant and, when it returns a
+        /// gate, the (reg, bit) addresses a real CLDO_CRG clock-gate location —
+        /// reg ∈ {0,1} (CKEN_CTL0/CTL1) and bit < 32 (fits the 32-bit register
+        /// word). A bit >= 32 would make the `1 << bit` gate mask below overflow.
+        #[test]
+        fn cken_info_gate_is_always_in_a_register_word(idx in 0usize..PERIPHERAL_COUNT) {
+            let p = ALL[idx];
+            if let Some((reg, bit)) = p.cken_info() {
+                prop_assert!(reg <= 1, "{:?}: reg={} out of CKEN_CTL0/CTL1 range", p, reg);
+                prop_assert!(bit < 32, "{:?}: bit={} outside 32-bit register word", p, bit);
+                // The gate mask is `1 << bit`: re-derive it the way a gating write
+                // would, asserting it lands on exactly one in-word bit (no overflow,
+                // no stray bits). `checked_shl` catches an out-of-range shift without
+                // panicking the fuzz runner.
+                let mask = 1u32.checked_shl(bit as u32);
+                prop_assert!(mask.is_some(), "{:?}: 1 << {} overflows the word", p, bit);
+                prop_assert_eq!(mask.unwrap().count_ones(), 1, "{:?}: gate mask must set one bit", p);
+            }
+        }
+
+        /// Fuzz: the gated/ungated partition is total and stable — every variant is
+        /// classified exactly once (`Some` xor `None`), and the result is pure
+        /// (idempotent across repeated calls), so no index maps into a gap.
+        #[test]
+        fn cken_info_is_pure_and_total(idx in 0usize..PERIPHERAL_COUNT) {
+            let p = ALL[idx];
+            let first = p.cken_info();
+            prop_assert_eq!(first, p.cken_info(), "{:?}: cken_info must be deterministic", p);
+        }
+
+        /// Fuzz: distinct *gated* peripherals on the SAME register never collide on
+        /// the same bit — each gate owns a unique (reg, bit), so OR-ing one gate's
+        /// mask can never disturb another's. Quantified over all index pairs.
+        #[test]
+        fn distinct_gates_do_not_alias(i in 0usize..PERIPHERAL_COUNT, j in 0usize..PERIPHERAL_COUNT) {
+            prop_assume!(i != j);
+            if let (Some(a), Some(b)) = (ALL[i].cken_info(), ALL[j].cken_info()) {
+                prop_assert_ne!(a, b, "{:?} and {:?} share gate {:?}", ALL[i], ALL[j], a);
             }
         }
     }
