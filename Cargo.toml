@@ -111,7 +111,7 @@ default = ["rt", "dep:critical-section"]
 # absent, does NOT drag in the runtime when `chip-ws63` is enabled; only the
 # riscv test build sees these. Mirrors what tests-hil's chip features do.
 #   - chip-ws63: rt's chip-ws63 + boot-header (0x300 image header @ flash 0x230000,
-#     WS63-only) + bundled-memory-x (so ws63-link.x's `INCLUDE memory.x` resolves).
+#     WS63-only) + bundled-memory-x (so hisi-riscv-link.x's `INCLUDE memory.x` resolves).
 #   - chip-bs21: rt's chip-bs21 (BS21's app partition / header placement differs;
 #     a BS21 board would supply its own memory.x — out of scope here). The whole
 #     BS2X chip target is experimental and requires the `unstable` feature.
