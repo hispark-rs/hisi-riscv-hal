@@ -112,8 +112,8 @@ default = ["rt", "dep:critical-section"]
 # riscv test build sees these. Mirrors what tests-hil's chip features do.
 #   - chip-ws63: rt's chip-ws63 + boot-header (0x300 image header @ flash 0x230000,
 #     WS63-only) + bundled-memory-x (so hisi-riscv-link.x's `INCLUDE memory.x` resolves).
-#   - chip-bs21: rt's chip-bs21 (BS21's app partition / header placement differs;
-#     a BS21 board would supply its own memory.x — out of scope here). The whole
+#   - chip-bs21: rt's chip-bs21 adapter. hisi-riscv-rt has a BS21/BS2X default
+#     memory.x; BS20/custom examples still supply their own memory.x. The whole
 #     BS2X chip target is experimental and requires the `unstable` feature.
 chip-ws63 = [
     "dep:ws63-pac",
@@ -157,11 +157,12 @@ defmt = ["dep:defmt"]
 # DOES populate the crystal: `--features chip-ws63,hil-rtc,unstable`.
 hil-rtc = []
 # `unstable`: opt-in to not-yet-HIL-proven surfaces (peripheral-DMA unproven subset,
-# UartDma, embassy, untested WS63 drivers, and the entire BS2X chip target).
+# UartDma, embassy, untested WS63 drivers, and the entire BS2X chip target). This
+# also forwards to hisi-riscv-rt's unstable adapter gate for BS2X runtime builds.
 # `#[instability::unstable]` items are `pub` when this is on, `pub(crate)` when off
 # (soft-gate, esp-hal pattern). OFF by default — enabling is consent to breakage in
 # a minor release. Add to your Cargo.toml: `features = ["unstable"]`.
-unstable = []
+unstable = ["hisi-riscv-rt/unstable"]
 
 # On-target (semihosting) HIL integration test (RISC-V only; flashed to a real
 # WS63 board by `probe-rs run`). embedded-test IS the harness — the default
