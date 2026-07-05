@@ -109,6 +109,9 @@ mod i2c;
 #[path = "hil/i2s.rs"]
 mod i2s;
 #[cfg(all(test, target_arch = "riscv32"))]
+#[path = "hil/io_config_tests.rs"]
+mod io_config_tests;
+#[cfg(all(test, target_arch = "riscv32"))]
 #[path = "hil/irq.rs"]
 mod irq;
 #[cfg(all(test, target_arch = "riscv32"))]
@@ -309,6 +312,24 @@ mod tests {
     #[test]
     fn i2s_version_live() {
         crate::i2s::i2s_version_live();
+    }
+
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn i2s_master_config_registers() {
+        crate::i2s::i2s_master_config_registers();
+    }
+
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn io_config_mux_roundtrip() {
+        crate::io_config_tests::io_config_mux_roundtrip();
+    }
+
+    #[cfg(feature = "chip-ws63")]
+    #[test]
+    fn io_config_pad_readback() {
+        crate::io_config_tests::io_config_pad_readback();
     }
 
     #[cfg(feature = "chip-ws63")]

@@ -10,12 +10,12 @@
 //!
 //! Two linker scripts must be on the link line for an embedded-test ELF:
 //!
-//!   * `ws63-link.x` — hisi-riscv-rt's entry script (startup placement, memory
+//!   * `hisi-riscv-link.x` — hisi-riscv-rt's entry script (startup placement, memory
 //!     map, device vectors, and — under WS63's `boot-header` feature, turned on
 //!     by this crate's chip-ws63 feature — the 0x300 HiSilicon image header so
-//!     the bare ELF is bootable). The entry-script *name* is `ws63-link.x` for
-//!     BOTH chips: hisi-riscv-rt's build.rs always writes `ws63-link.x` (it only
-//!     varies what it `INCLUDE`s), so this single chip-agnostic `-Tws63-link.x`
+//!     the bare ELF is bootable). The entry-script *name* is `hisi-riscv-link.x` for
+//!     BOTH chips: hisi-riscv-rt's build.rs always writes `hisi-riscv-link.x` (it only
+//!     varies what it `INCLUDE`s), so this single chip-agnostic `-Thisi-riscv-link.x`
 //!     flag is emitted for any riscv build. A library dependency's
 //!     `rustc-link-arg` does NOT propagate to a downstream binary/test, so the
 //!     test binary must request the `-T` itself; hisi-riscv-rt exports its
@@ -27,7 +27,7 @@
 //!     crate (a riscv-only dev-dep). Used for both chips.
 //!
 //! These flags are harmless for the library/example link of a downstream riscv
-//! crate too (those crates supply their own `-Tws63-link.x` already and a
+//! crate too (those crates supply their own `-Thisi-riscv-link.x` already and a
 //! repeated `-T` of the same on-search-path script is idempotent), but to be
 //! safe they are scoped to this crate's own build only by the cargo build-script
 //! contract (rustc-link-arg applies to THIS package's artifacts).
@@ -37,9 +37,9 @@ fn main() {
     // paths only exist in the riscv graph, where the dev-deps are present).
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     if target_arch == "riscv32" {
-        // Entry script name is the same (`ws63-link.x`) for WS63 and BS21 — rt
+        // Entry script name is the same (`hisi-riscv-link.x`) for WS63 and BS21 — rt
         // only varies the INCLUDEd fragments, not the entry-script name.
-        println!("cargo:rustc-link-arg=-Tws63-link.x");
+        println!("cargo:rustc-link-arg=-Thisi-riscv-link.x");
         println!("cargo:rustc-link-arg=-Tembedded-test.x");
     }
     println!("cargo:rerun-if-changed=build.rs");
