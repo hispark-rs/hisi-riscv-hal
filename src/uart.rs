@@ -241,7 +241,26 @@ impl<'d> Uart<'d, Uart2<'d>> {
     }
 }
 
+
+fn uart_clk_crg() -> &'static crate::soc::pac::cldo_crg::RegisterBlock {
+    // SAFETY: CLDO_CRG at 0x4400_1100 is always accessible on WS63.
+    unsafe { &*crate::soc::pac::CldoCrg::PTR }
+}
+
 fn configure_uart(port: UartPort, config: &Config) {
+    // When UartClock::Pll is requested, verify the UART clock source has been
+    // switched to PLL (CLDO_CRG_CLK_SEL bit 1). If not, flashboot left the UART
+    // running on the raw TCXO crystal (24/40 MHz), so the 160 MHz divider would
+    // produce garbage — panic with a clear message instead of silent corruption.
+    if matches!(config.clock, UartClock::Pll) {
+        let crg = uart_clk_crg();
+        if crg.clk_sel().read().bits() & (1 << 1) == 0 {
+            panic!(
+                "UartClock::Pll selected but UART clock source is still TCXO.                  Call clock_init first, or use UartClock::Boot for pre-clock_init operation."
+            );
+        }
+    }
+
     let r = uart_regs(port);
 
     // Enable divider access
