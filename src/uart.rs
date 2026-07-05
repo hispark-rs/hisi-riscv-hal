@@ -260,7 +260,21 @@ fn check_uart_clock(config: &Config) {
     // SAFETY: CLDO_CRG at 0x4400_1100 is always readable on WS63.
     let crg = unsafe { &*crate::soc::pac::CldoCrg::PTR };
     if crg.clk_sel().read().bits() & (1 << 1) == 0 {
-        panic!("UartClock::Pll selected but UART clock source is still TCXO. Call clock_init first, or use UartClock::Boot.");
+        // UART clock source still TCXO, but Pll requested. Write a visible
+        // panic message through the still-working flashboot UART, then halt.
+        // DATA register is at offset 0x04 (16C550: 0x00 is RBR/THR/DLL).
+        const MSG: &[u8] = b"\r\n[HAL PANIC] UartClock::Pll selected but UART clock source is still TCXO.\r\nCall clock_init first, or use UartClock::Boot for pre-clock_init operation.\r\n";
+        unsafe {
+            const DATA: *mut u16 = 0x4401_0004 as *mut u16;
+            const ST: *const u16 = 0x4401_0044 as *const u16;
+            for &b in MSG {
+                while core::ptr::read_volatile(ST) & 0x01 != 0 { core::hint::spin_loop(); }
+                core::ptr::write_volatile(DATA, b as u16);
+            }
+        }
+        // Let the FIFO drain, then halt.
+        for _ in 0..10_000_000 { core::hint::spin_loop(); }
+        loop { core::hint::spin_loop(); }
     }
 }
 
