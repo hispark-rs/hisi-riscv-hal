@@ -245,7 +245,7 @@ fn configure_uart(port: UartPort, config: &Config) {
     let r = uart_regs(port);
 
     // Enable divider access
-    r.uart_ctl().modify(|_, w| unsafe { w.bits(0) });
+    r.uart_ctl().write(|w| unsafe { w.bits(0) });
     r.uart_ctl().write(|w| w.div_en().set_bit());
 
     // Set baud rate: div = UART_CLK / (16 * baudrate)
@@ -290,13 +290,23 @@ fn configure_uart(port: UartPort, config: &Config) {
     if matches!(config.stop_bits, StopBits::Two) {
         ctl |= 1 << 7;
     }
-    r.uart_ctl().write(|w| unsafe { w.bits(ctl | (1 << 0)) }); // div_en=1
+    r.uart_ctl().write(|w| unsafe { w.bits(ctl) }); // div_en=1
 
     // Enable FIFO
-    r.fifo_ctl().write(|w| unsafe { w.bits(0x01) });
+    r.fifo_ctl().write(|w| {
+            w.tx_empty_trig().empty();
+            w.rx_empty_trig().char1();
+            w.fifo_en().set_bit()
+        });
 
     // Clear FIFO
-    r.fifo_ctl().write(|w| unsafe { w.bits(0x07) });
+    r.fifo_ctl().write(|w| {
+            w.tx_empty_trig().empty();
+            w.rx_empty_trig().char1();
+            w.fifo_en().set_bit();
+            w.tx_fifo_rst().set_bit();
+            w.rx_fifo_rst().set_bit()
+        });
 }
 
 impl<T: UartInstance> Uart<'_, T> {
