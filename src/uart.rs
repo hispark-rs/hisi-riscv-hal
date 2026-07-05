@@ -219,6 +219,7 @@ fn uart_regs(port: UartPort) -> &'static crate::soc::pac::uart0::RegisterBlock {
 impl<'d> Uart<'d, Uart0<'d>> {
     /// Create and configure a UART0 driver from the peripheral token and config.
     pub fn new_uart0(_uart: Uart0<'d>, config: Config) -> Self {
+        check_uart_clock(&config);
         configure_uart(UartPort::Uart0, &config);
         Self { _peripheral: PhantomData }
     }
@@ -227,6 +228,7 @@ impl<'d> Uart<'d, Uart0<'d>> {
 impl<'d> Uart<'d, Uart1<'d>> {
     /// Create and configure a UART1 driver from the peripheral token and config.
     pub fn new_uart1(_uart: Uart1<'d>, config: Config) -> Self {
+        check_uart_clock(&config);
         configure_uart(UartPort::Uart1, &config);
         Self { _peripheral: PhantomData }
     }
@@ -236,6 +238,7 @@ impl<'d> Uart<'d, Uart2<'d>> {
     /// Create and configure a UART2 driver from the peripheral token and config.
     #[instability::unstable]
     pub fn new_uart2(_uart: Uart2<'d>, config: Config) -> Self {
+        check_uart_clock(&config);
         configure_uart(UartPort::Uart2, &config);
         Self { _peripheral: PhantomData }
     }
@@ -245,6 +248,20 @@ impl<'d> Uart<'d, Uart2<'d>> {
 fn uart_clk_crg() -> &'static crate::soc::pac::cldo_crg::RegisterBlock {
     // SAFETY: CLDO_CRG at 0x4400_1100 is always accessible on WS63.
     unsafe { &*crate::soc::pac::CldoCrg::PTR }
+}
+
+/// Verify that if UartClock::Pll is requested, the UART clock source has
+/// actually been switched from TCXO to PLL (CLDO_CRG_CLK_SEL bit 1).
+/// Called before configure_uart so the flashboot UART is untouched on error.
+fn check_uart_clock(config: &Config) {
+    if !matches!(config.clock, UartClock::Pll) {
+        return;
+    }
+    // SAFETY: CLDO_CRG at 0x4400_1100 is always readable on WS63.
+    let crg = unsafe { &*crate::soc::pac::CldoCrg::PTR };
+    if crg.clk_sel().read().bits() & (1 << 1) == 0 {
+        panic!("UartClock::Pll selected but UART clock source is still TCXO. Call clock_init first, or use UartClock::Boot.");
+    }
 }
 
 fn configure_uart(port: UartPort, config: &Config) {
