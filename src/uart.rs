@@ -607,10 +607,12 @@ impl embedded_io::Read for Uart<'_, Uart1<'_>> {
     }
 }
 
-// UART2 embedded-io traits
+// UART2 embedded-io traits (unstable: UART2 has no HIL)
+#[cfg(feature = "unstable")]
 impl embedded_io::ErrorType for Uart<'_, Uart2<'_>> {
     type Error = core::convert::Infallible;
 }
+#[cfg(feature = "unstable")]
 impl embedded_io::Write for Uart<'_, Uart2<'_>> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         for &b in buf {
@@ -623,6 +625,7 @@ impl embedded_io::Write for Uart<'_, Uart2<'_>> {
         Ok(())
     }
 }
+#[cfg(feature = "unstable")]
 impl embedded_io::Read for Uart<'_, Uart2<'_>> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut n = 0;
@@ -667,6 +670,7 @@ macro_rules! impl_nb_serial {
 
 impl_nb_serial!(Uart0<'_>);
 impl_nb_serial!(Uart1<'_>);
+#[cfg(feature = "unstable")]
 impl_nb_serial!(Uart2<'_>);
 
 // ── Async UART (embedded-io-async) ──────────────────────────────────────────
