@@ -29,24 +29,34 @@ pub(crate) fn i2s_master_config_registers() {
     let r = unsafe { &*pac::I2s::PTR };
 
     // fifo_threshold: write tx=12 (bits 7:0), rx=4 (bits 15:8) → 0x040C
-    unsafe { r.fifo_threshold().write(|w| w.bits(0x040C)); }
+    unsafe {
+        r.fifo_threshold().write(|w| w.bits(0x040C));
+    }
     let thresh = r.fifo_threshold().read().bits();
     assert_eq!(thresh, 0x040C, "I2S fifo_threshold write/readback: expected 0x040C, got 0x{:04X}", thresh);
 
     // signed_ext
-    unsafe { r.signed_ext().write(|w| w.bits(1)); }
+    unsafe {
+        r.signed_ext().write(|w| w.bits(1));
+    }
     assert_eq!(r.signed_ext().read().bits(), 1, "I2S signed_ext write/readback failed");
 
     // data_width_set: write 3 (=Bits24)
-    unsafe { r.data_width_set().write(|w| w.bits(3)); }
+    unsafe {
+        r.data_width_set().write(|w| w.bits(3));
+    }
     assert_eq!(r.data_width_set().read().bits(), 3, "I2S data_width write/readback failed");
 
     // mode: set master bit (bit0)
     let orig_mode = r.mode().read().bits();
-    unsafe { r.mode().write(|w| w.bits(orig_mode | 1)); }
+    unsafe {
+        r.mode().write(|w| w.bits(orig_mode | 1));
+    }
     assert_ne!(r.mode().read().bits() & 1, 0, "I2S mode master bit not set");
 
     // i2s_crg: bclk_div_en (bit0) + crg_clken (bit1)
-    unsafe { r.i2s_crg().write(|w| w.bits(0b11)); }
+    unsafe {
+        r.i2s_crg().write(|w| w.bits(0b11));
+    }
     assert_eq!(r.i2s_crg().read().bits() & 0b11, 0b11, "I2S crg clock-enable bits not both set");
 }

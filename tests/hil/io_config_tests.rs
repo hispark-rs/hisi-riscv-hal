@@ -11,13 +11,17 @@ pub(crate) fn io_config_mux_roundtrip() {
     let orig = io.gpio_mux(GpioPad::Gpio01);
     io.set_gpio_mux(GpioPad::Gpio01, MuxFunction::F0);
     assert_eq!(
-        io.gpio_mux(GpioPad::Gpio01), MuxFunction::F0,
-        "GPIO1 mux readback after F0 set: got {:?}", io.gpio_mux(GpioPad::Gpio01)
+        io.gpio_mux(GpioPad::Gpio01),
+        MuxFunction::F0,
+        "GPIO1 mux readback after F0 set: got {:?}",
+        io.gpio_mux(GpioPad::Gpio01)
     );
     io.set_gpio_mux(GpioPad::Gpio01, MuxFunction::F1);
     assert_eq!(
-        io.gpio_mux(GpioPad::Gpio01), MuxFunction::F1,
-        "GPIO1 mux readback after F1 set: got {:?}", io.gpio_mux(GpioPad::Gpio01)
+        io.gpio_mux(GpioPad::Gpio01),
+        MuxFunction::F1,
+        "GPIO1 mux readback after F1 set: got {:?}",
+        io.gpio_mux(GpioPad::Gpio01)
     );
     io.set_gpio_mux(GpioPad::Gpio01, orig);
 }
@@ -38,5 +42,7 @@ pub(crate) fn io_config_pad_readback() {
 
     // Restore original pad configuration.
     let r = unsafe { &*pac::IoConfig::PTR };
-    unsafe { r.pad_gpio_01_ctrl().write(|w| w.bits(saved)); }
+    unsafe {
+        r.pad_gpio_01_ctrl().write(|w| w.bits(saved));
+    }
 }
