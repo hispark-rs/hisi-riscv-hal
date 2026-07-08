@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0-alpha.1] - 2026-07-09
+
+Pre-release for the 0.6.0 stabilization cycle. This publishes the current
+stable/unstable gating, typed-config tightening, register-access cleanup, and
+expanded HIL evidence so downstream users can test the new shape before the
+final 0.6.0 release.
+
 ### Added
 
 - **HIL default driver suite expanded to 25 self-contained WS63 tests, all passing
