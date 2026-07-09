@@ -87,12 +87,14 @@ const fn try_ticks_for_ms(ms: u32) -> Result<u32, TimerError> {
 /// Saturating µs→ticks for the blocking `embedded_hal::delay::DelayNs` impl, whose
 /// trait contract has no error channel — a clamped (rather than rejected) delay is
 /// the accepted embedded-hal semantics for an out-of-range request.
+#[allow(dead_code)]
 const fn ticks_for_us_saturating(us: u32) -> u32 {
     let ticks = TIMER_CLOCK_HZ as u64 * us as u64 / 1_000_000;
     if ticks > u32::MAX as u64 { u32::MAX } else { ticks as u32 }
 }
 
 /// Saturating ms→ticks for the blocking `DelayNs` impl (see [`ticks_for_us_saturating`]).
+#[allow(dead_code)]
 const fn ticks_for_ms_saturating(ms: u32) -> u32 {
     let ticks = TIMER_CLOCK_HZ as u64 * ms as u64 / 1_000;
     if ticks > u32::MAX as u64 { u32::MAX } else { ticks as u32 }
