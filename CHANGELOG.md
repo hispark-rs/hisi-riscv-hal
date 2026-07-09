@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0-alpha.2] - 2026-07-09
+
+Second pre-release for the 0.6.0 stabilization cycle. This is a small cleanup
+release on top of `0.6.0-alpha.1`; it does not widen the stable API surface.
+
+### Fixed
+
+- Avoid a private intra-doc link in the GADC documentation so rustdoc/docs.rs can
+  render without a private-item link warning.
+- Silence dead-code warnings for the unstable timer `DelayNs` saturating helper
+  functions when building the default stable surface with `unstable` disabled.
+- Update package metadata comments to reflect the official nightly +
+  `-Zbuild-std=core,alloc` toolchain path instead of the retired custom
+  `hisi-riscv` tarball.
+
 ## [0.6.0-alpha.1] - 2026-07-09
 
 Pre-release for the 0.6.0 stabilization cycle. This publishes the current

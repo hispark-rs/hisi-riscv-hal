@@ -1,6 +1,6 @@
 [package]
 name = "hisi-riscv-hal"
-version = "0.6.0-alpha.1"
+version = "0.6.0-alpha.2"
 edition = "2024"
 description = "Hardware Abstraction Layer for HiSilicon WS63 (RISC-V RV32IMFC_Zicsr)"
 license = "MIT"
@@ -9,8 +9,9 @@ keywords = ["ws63", "hisilicon", "riscv", "embedded", "hal"]
 categories = ["embedded", "no-std", "hardware-support"]
 # MSRV: edition 2024 requires >= 1.85; `instability = "0.3.12"` (the stable/unstable
 # gating proc-macro, esp-hal's pattern) requires >= 1.88. The crate is built for the
-# pinned custom `hisi-riscv` toolchain (1.96.0) and host-tested on CI stable; the MSRV
-# may bump in a minor release, never a patch.
+# official pinned nightly + `-Zbuild-std=core,alloc` for the
+# `riscv32imfc-unknown-none-elf` target and host-tested on CI stable; the MSRV may
+# bump in a minor release, never a patch.
 rust-version = "1.88"
 
 # docs.rs: chip-ws63/chip-bs21 are mutually exclusive (a compile_error), so docs.rs
