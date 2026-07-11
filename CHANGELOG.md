@@ -20,6 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Make `chip-ws63` select the `critical-section` dependency needed by the eFuse
   implementation even when the HAL's `rt` feature is disabled, restoring the
   documented embedded-test build contract.
+- Read UART divisor aliases under `UART_CTL.div_en` in HIL and restore the line
+  control register afterwards, so the test observes the divisor latch rather
+  than the shared TX/RX data register.
 
 ## [0.6.0-alpha.2] - 2026-07-09
 

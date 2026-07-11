@@ -1,5 +1,18 @@
 use crate::{hal, pac};
 
+#[cfg(feature = "chip-ws63")]
+fn uart0_dividers() -> (u16, u16, u16) {
+    // DIV_L/DIV_H share the UART data-register addresses and are only visible
+    // while divisor-latch access is enabled. Preserve the configured line
+    // control value around the diagnostic readback.
+    let r = unsafe { &*pac::Uart0::PTR };
+    let ctl = r.uart_ctl().read().bits();
+    r.uart_ctl().write(|w| unsafe { w.bits(ctl) }.div_en().set_bit());
+    let dividers = (r.div_l().read().bits(), r.div_h().read().bits(), r.div_fra().read().bits());
+    r.uart_ctl().write(|w| unsafe { w.bits(ctl) });
+    dividers
+}
+
 /// UART divider register configuration (uart.rs), default 160 MHz PLL base.
 pub(crate) fn uart0_divider_config() {
     use hal::uart::{Config, Uart};
@@ -15,11 +28,10 @@ pub(crate) fn uart0_divider_config() {
     let exp_div_l = (div & 0xFF) as u16;
     let exp_div_h = ((div >> 8) & 0xFF) as u16;
 
-    // SAFETY: read-only MMIO loads of the UART0 divider registers.
-    let r = unsafe { &*pac::Uart0::PTR };
-    assert_eq!(r.div_l().read().bits(), exp_div_l, "UART0 div_l mismatch");
-    assert_eq!(r.div_h().read().bits(), exp_div_h, "UART0 div_h mismatch");
-    assert_eq!(r.div_fra().read().bits(), exp_div_fra, "UART0 div_fra mismatch");
+    let (div_l, div_h, div_fra) = uart0_dividers();
+    assert_eq!(div_l, exp_div_l, "UART0 div_l mismatch");
+    assert_eq!(div_h, exp_div_h, "UART0 div_h mismatch");
+    assert_eq!(div_fra, exp_div_fra, "UART0 div_fra mismatch");
 }
 
 /// UART boot-clock divider configuration (uart.rs).
@@ -42,11 +54,10 @@ pub(crate) fn uart0_boot_clock_divider_config() {
     let exp_div_l = (div & 0xFF) as u16;
     let exp_div_h = ((div >> 8) & 0xFF) as u16;
 
-    // SAFETY: read-only MMIO loads of the UART0 divider registers.
-    let r = unsafe { &*pac::Uart0::PTR };
-    assert_eq!(r.div_l().read().bits(), exp_div_l, "UART0 boot div_l mismatch");
-    assert_eq!(r.div_h().read().bits(), exp_div_h, "UART0 boot div_h mismatch");
-    assert_eq!(r.div_fra().read().bits(), exp_div_fra, "UART0 boot div_fra mismatch");
+    let (div_l, div_h, div_fra) = uart0_dividers();
+    assert_eq!(div_l, exp_div_l, "UART0 boot div_l mismatch");
+    assert_eq!(div_h, exp_div_h, "UART0 boot div_h mismatch");
+    assert_eq!(div_fra, exp_div_fra, "UART0 boot div_fra mismatch");
 }
 
 /// UART blocking write + flush liveness (uart.rs).
