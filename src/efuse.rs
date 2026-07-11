@@ -95,14 +95,14 @@ impl<'d> EfuseDriver<'d> {
         driver
     }
 
-    fn regs(&self) -> &'static crate::soc::pac::efuse::RegisterBlock {
+    fn regs() -> &'static crate::soc::pac::efuse::RegisterBlock {
         // SAFETY: PAC peripheral pointer is a static physical MMIO address, always valid.
         unsafe { &*Efuse::ptr() }
     }
 
     fn set_clock_period_raw(&mut self, period: u8) {
         unsafe {
-            self.regs().efuse_clk_period().write(|w| w.bits(period as u32));
+            Self::regs().efuse_clk_period().write(|w| w.bits(period as u32));
         }
     }
 
@@ -116,7 +116,7 @@ impl<'d> EfuseDriver<'d> {
     /// Read the boot-done status register.
     #[instability::unstable]
     pub fn status(&self) -> EfuseStatus {
-        let sts = self.regs().efuse_sts().read();
+        let sts = Self::regs().efuse_sts().read();
         EfuseStatus {
             man_status: sts.man_sts().bits(),
             boot0_done: sts.boot0_done().bit_is_set(),
@@ -131,12 +131,33 @@ impl<'d> EfuseDriver<'d> {
     /// window and extracts the requested byte. No delay is required for reads
     /// (matches `hal_efuse_read_byte`).
     pub fn read_byte(&mut self, byte_addr: EfuseByteAddress) -> u8 {
-        let byte_addr = byte_addr.byte();
-        unsafe {
-            self.regs().efuse_ctl_data().write(|w| w.bits(EFUSE_READ_MAGIC));
-        }
-        let word = self.regs().efuse_data(word_index(byte_addr)).read().bits();
-        extract_byte(word, byte_addr)
+        // SAFETY: `self` owns the unique eFuse token.
+        unsafe { Self::read_byte_unchecked(byte_addr) }
+    }
+
+    /// Read one byte while ownership of the eFuse token is enforced externally.
+    ///
+    /// This supports C-ABI adapters whose callback shape cannot carry a Rust
+    /// driver reference. Prefer [`read_byte`](Self::read_byte) in normal code.
+    /// The read-mode arm and data-window load are serialized in one short
+    /// critical section; no polling or delay occurs while interrupts are off.
+    ///
+    /// # Safety
+    ///
+    /// The caller must own the unique [`Efuse`] peripheral token for the entire
+    /// call and prevent any concurrent eFuse operation outside this function.
+    #[instability::unstable]
+    pub unsafe fn read_byte_unchecked(byte_addr: EfuseByteAddress) -> u8 {
+        critical_section::with(|_| {
+            let byte_addr = byte_addr.byte();
+            // SAFETY: the caller owns the eFuse token. This is a complete write
+            // to the modeled control register, followed by a PAC read.
+            unsafe {
+                Self::regs().efuse_ctl_data().write(|w| w.bits(EFUSE_READ_MAGIC));
+            }
+            let word = Self::regs().efuse_data(word_index(byte_addr)).read().bits();
+            extract_byte(word, byte_addr)
+        })
     }
 
     /// Read `buf.len()` consecutive eFuse bytes starting at `start_byte`.
@@ -166,13 +187,13 @@ impl<'d> EfuseDriver<'d> {
         let byte_addr = byte_addr.byte();
         let delay = crate::delay::Delay::new();
         unsafe {
-            self.regs().efuse_ctl_data().write(|w| w.bits(EFUSE_WRITE_MAGIC));
-            self.regs().efuse_avdd_ctl().write(|w| w.bits(1));
+            Self::regs().efuse_ctl_data().write(|w| w.bits(EFUSE_WRITE_MAGIC));
+            Self::regs().efuse_avdd_ctl().write(|w| w.bits(1));
         }
         delay.delay_micros(EFUSE_PROGRAM_DELAY_US);
         unsafe {
-            self.regs().efuse_data(word_index(byte_addr)).write(|w| w.bits(pack_byte(value, byte_addr)));
-            self.regs().efuse_avdd_ctl().write(|w| w.bits(0));
+            Self::regs().efuse_data(word_index(byte_addr)).write(|w| w.bits(pack_byte(value, byte_addr)));
+            Self::regs().efuse_avdd_ctl().write(|w| w.bits(0));
         }
         delay.delay_micros(EFUSE_PROGRAM_DELAY_US);
     }
