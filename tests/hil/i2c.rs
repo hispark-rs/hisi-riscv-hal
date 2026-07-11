@@ -34,3 +34,27 @@ pub(crate) fn i2c0_rejects_invalid_7bit_address() {
     let mut ops = [embedded_hal::i2c::Operation::Write(&[0x00])];
     assert!(matches!(i2c.transaction(0x80, &mut ops), Err(I2cError::InvalidAddress)));
 }
+
+/// I2C v150 completes an unacknowledged address command with DONE + ACK_ERR.
+///
+/// Address 0x7f is reserved and no slave is present on the HIL rig. Returning
+/// `Ack` proves the driver waited for DONE and then inspected ACK_ERR; polling
+/// TX/RX instead would time out on this silicon path.
+#[cfg(feature = "chip-ws63")]
+pub(crate) fn i2c0_nack_is_reported_after_done() {
+    use hal::i2c::{I2c, I2cError, Speed};
+    use hal::io_config::{IoConfigDriver, MuxFunction, UartPad};
+
+    // The vendor WS63 board route uses pads 15/16 in function 2 for I2C0.
+    // SAFETY: sequential single-hart run; IO_CONFIG singleton not otherwise held.
+    let mut io = IoConfigDriver::new(unsafe { hal::peripherals::IoConfig::steal() });
+    io.set_uart_mux(UartPad::Uart1Txd, MuxFunction::F2);
+    io.set_uart_mux(UartPad::Uart1Rxd, MuxFunction::F2);
+
+    // SAFETY: sequential single-hart run; I2C0 singleton not otherwise held.
+    let mut i2c = I2c::new_i2c0(unsafe { hal::peripherals::I2c0::steal() }, Speed::Standard);
+
+    let result = i2c.write(0x7f, &[]);
+    semihosting::println!("[i2c-done] reserved-address result={result:?}");
+    assert!(matches!(result, Err(I2cError::Ack)));
+}

@@ -166,6 +166,7 @@ mod tests {
         crate::pac::Peripherals::take().expect("PAC Peripherals::take() returned None on first call")
     }
 
+    #[cfg(feature = "chip-ws63")]
     #[test]
     fn read_tcxo_status_register(p: crate::pac::Peripherals) {
         crate::tcxo::read_tcxo_status_register(p);
@@ -270,6 +271,11 @@ mod tests {
     #[test]
     fn i2c0_rejects_invalid_7bit_address() {
         crate::i2c::i2c0_rejects_invalid_7bit_address();
+    }
+
+    #[test]
+    fn i2c0_nack_is_reported_after_done() {
+        crate::i2c::i2c0_nack_is_reported_after_done();
     }
 
     #[cfg(feature = "chip-ws63")]

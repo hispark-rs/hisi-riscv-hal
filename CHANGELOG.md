@@ -11,6 +11,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Add the unstable WS63 `SharedMemory` driver for the official default Wi-Fi
   packet-RAM/ITCM/DTCM bank configuration.
 
+### Fixed
+
+- Align WS63 I2C v150 polling with the vendor SDK: initialize non-FIFO polling
+  mode, expose all command status bits, wait for `int_done`, then inspect
+  `int_ack_err`, and clear the transfer status as one W1C group. A silicon HIL
+  test covers the reserved-address NACK completion path.
+- Make `chip-ws63` select the `critical-section` dependency needed by the eFuse
+  implementation even when the HAL's `rt` feature is disabled, restoring the
+  documented embedded-test build contract.
+
 ## [0.6.0-alpha.2] - 2026-07-09
 
 Second pre-release for the 0.6.0 stabilization cycle. This is a small cleanup

@@ -118,6 +118,7 @@ default = ["rt", "dep:critical-section"]
 #     BS2X chip target is experimental and requires the `unstable` feature.
 chip-ws63 = [
     "dep:ws63-pac",
+    "dep:critical-section",
     "hisi-riscv-rt/chip-ws63",
     "hisi-riscv-rt/boot-header",
     "hisi-riscv-rt/bundled-memory-x",

@@ -67,19 +67,65 @@ impl<'d> I2c<'d, I2c1<'d>> {
 
 fn configure_i2c(idx: u8, freq: u32) {
     let r = i2c_regs(idx);
+    r.i2c_icr().write(|w| {
+        w.clr_int_done()
+            .set_bit()
+            .clr_int_arb_loss()
+            .set_bit()
+            .clr_int_ack_err()
+            .set_bit()
+            .clr_int_rx()
+            .set_bit()
+            .clr_int_tx()
+            .set_bit()
+            .clr_int_stop()
+            .set_bit()
+            .clr_int_start()
+            .set_bit()
+            .clr_int_rxtide()
+            .set_bit()
+            .clr_int_txtide()
+            .set_bit()
+            .clr_int_txfifo_over()
+            .set_bit()
+    });
+    unsafe { r.i2c_com().write(|w| w.bits(0)) };
     let pclk = crate::soc::chip::I2C_CLOCK_HZ;
     let freq = if freq == 0 { 1 } else { freq };
     let period = pclk / (2 * freq);
     let half = period / 2;
     r.i2c_scl_h().write(|w| unsafe { w.bits(half) });
     r.i2c_scl_l().write(|w| unsafe { w.bits(half) });
-    // Enable I2C in FIFO mode with all interrupts unmasked
+    r.i2c_ftrper().write(|w| unsafe { w.bits(0x08) });
+    // The byte-at-a-time command path mirrors the vendor
+    // I2C_WORK_TYPE_POLL_NOFIFO mode. FIFO mode requires separate count/tide
+    // programming and must not be enabled for this driver implementation.
     r.i2c_ctrl().write(|w| unsafe {
         w.bits(0);
-        w.i2c_en().set_bit();
-        w.mode_ctrl().set_bit();
-        // Unmask ACK error interrupt so we can detect NACK
-        w.int_ack_err_mask().set_bit()
+        w.int_done_mask()
+            .set_bit()
+            .int_arb_loss_mask()
+            .set_bit()
+            .int_ack_err_mask()
+            .set_bit()
+            .int_rx_mask()
+            .set_bit()
+            .int_tx_mask()
+            .set_bit()
+            .int_stop_mask()
+            .set_bit()
+            .int_start_mask()
+            .set_bit()
+            .int_mask()
+            .set_bit()
+            .i2c_en()
+            .set_bit()
+            .int_rxtide_mask()
+            .set_bit()
+            .int_txtide_mask()
+            .set_bit()
+            .int_txfifo_over_mask()
+            .set_bit()
     });
 }
 
@@ -115,30 +161,68 @@ impl<T> I2c<'_, T> {
 
     fn clear_interrupts(&self) {
         let r = i2c_regs(self.idx);
-        // Write 1 to each bit to clear: done, arb_loss, ack_err, rx, tx, stop, start, rxtide, txtide
-        unsafe { r.i2c_icr().write(|w| w.bits(0x7FF)) };
+        r.i2c_icr().write(|w| {
+            w.clr_int_done()
+                .set_bit()
+                .clr_int_arb_loss()
+                .set_bit()
+                .clr_int_ack_err()
+                .set_bit()
+                .clr_int_rx()
+                .set_bit()
+                .clr_int_tx()
+                .set_bit()
+                .clr_int_stop()
+                .set_bit()
+                .clr_int_start()
+                .set_bit()
+                .clr_int_rxtide()
+                .set_bit()
+                .clr_int_txtide()
+                .set_bit()
+                .clr_int_txfifo_over()
+                .set_bit()
+        });
     }
 
-    /// Check for ACK error (NACK from slave). Reads I2C_SR bit[2] per fbb_ws63.
-    fn check_ack(&self) -> Result<(), I2cError> {
+    fn clear_transfer_interrupts(&self, started: bool) {
         let r = i2c_regs(self.idx);
+        r.i2c_icr().write(|w| {
+            w.clr_int_done().set_bit().clr_int_tx().set_bit().clr_int_rx().set_bit();
+            if started {
+                w.clr_int_start().set_bit();
+            }
+            w
+        });
+    }
+
+    fn clear_stop_interrupts(&self) {
+        let r = i2c_regs(self.idx);
+        r.i2c_icr().write(|w| w.clr_int_done().set_bit().clr_int_stop().set_bit());
+    }
+
+    /// Wait for command completion, then inspect the NACK status.
+    ///
+    /// WS63 v150 reports completion through `int_done` for START/WRITE, READ,
+    /// and STOP alike. The operation-specific TX/RX/STOP bits are event detail,
+    /// not the completion condition (`hal_i2c_v150_wait` in the vendor SDK).
+    fn wait_done(&self) -> Result<(), I2cError> {
+        let r = i2c_regs(self.idx);
+        if let Err(error) = wait_until(|| r.i2c_sr().read().int_done().bit_is_set()) {
+            self.clear_interrupts();
+            return Err(error);
+        }
+
         if r.i2c_sr().read().int_ack_err().bit_is_set() {
+            self.clear_interrupts();
             return Err(I2cError::Ack);
         }
         Ok(())
     }
 
-    /// Wait for TX ready and check for ACK error.
-    fn wait_tx_ack(&self) -> Result<(), I2cError> {
-        let r = i2c_regs(self.idx);
-        wait_until(|| r.i2c_sr().read().int_tx().bit_is_set())?;
-        // Check ACK after each TX (address and data bytes)
-        self.check_ack()
-    }
-
     /// Send START + address + R/W bit via I2C_COM register.
     /// Uses direct write (not RMW) to avoid restoring auto-cleared bits.
-    fn send_start(&self, addr_byte: u32, is_read: bool) -> Result<(), I2cError> {
+    fn send_start(&self, addr_byte: u32) -> Result<(), I2cError> {
         let r = i2c_regs(self.idx);
         self.clear_interrupts();
 
@@ -152,16 +236,13 @@ impl<T> I2c<'_, T> {
         let mut com: u32 = 0;
         com |= 1 << 3; // op_start
         com |= 1 << 1; // op_we (write address byte)
-        if is_read {
-            // For read, after START+WE sends address+R, we need START+RD
-            // The direction bit is encoded in addr_byte, so for address+R/W=1
-            // we just send START+WE; the read command comes separately
-        }
         unsafe {
             r.i2c_com().write(|w| w.bits(com));
         }
 
-        self.wait_tx_ack()
+        self.wait_done()?;
+        self.clear_transfer_interrupts(true);
+        Ok(())
     }
 
     /// Write `data` to the 7-bit `addr` (START, address+W, bytes, STOP).
@@ -170,21 +251,21 @@ impl<T> I2c<'_, T> {
         let r = i2c_regs(self.idx);
 
         // Start + address (R/W=0)
-        self.send_start(addr << 1, false)?;
+        self.send_start(addr << 1)?;
 
         // Write data bytes
         for &byte in data {
             r.i2c_txr().write(|w| unsafe { w.bits(byte as u32) });
             // Direct write to COM: op_we
             unsafe { r.i2c_com().write(|w| w.bits(1 << 1)) };
-            self.wait_tx_ack()?;
-            self.clear_interrupts();
+            self.wait_done()?;
+            self.clear_transfer_interrupts(false);
         }
 
         // Stop
         r.i2c_com().write(|w| w.op_stop().set_bit());
-        wait_until(|| r.i2c_sr().read().int_stop().bit_is_set())?;
-        self.clear_interrupts();
+        self.wait_done()?;
+        self.clear_stop_interrupts();
 
         Ok(())
     }
@@ -196,7 +277,7 @@ impl<T> I2c<'_, T> {
         let r = i2c_regs(self.idx);
 
         // Start + address (R/W=1)
-        self.send_start((addr << 1) | 1, true)?;
+        self.send_start((addr << 1) | 1)?;
 
         // Read bytes
         let buf_len = buf.len();
@@ -209,15 +290,15 @@ impl<T> I2c<'_, T> {
             }
             unsafe { r.i2c_com().write(|w| w.bits(com)) };
 
-            wait_until(|| r.i2c_sr().read().int_rx().bit_is_set())?;
+            self.wait_done()?;
             *byte = r.i2c_rxr().read().bits() as u8;
-            self.clear_interrupts();
+            self.clear_transfer_interrupts(false);
         }
 
         // Stop
         r.i2c_com().write(|w| w.op_stop().set_bit());
-        wait_until(|| r.i2c_sr().read().int_stop().bit_is_set())?;
-        self.clear_interrupts();
+        self.wait_done()?;
+        self.clear_stop_interrupts();
 
         Ok(())
     }
@@ -230,21 +311,21 @@ impl<T> I2c<'_, T> {
 
         if !wr_buf.is_empty() {
             // Start + address (R/W=0)
-            self.send_start(addr << 1, false)?;
+            self.send_start(addr << 1)?;
 
             // Write register address / data bytes
             for &byte in wr_buf {
                 r.i2c_txr().write(|w| unsafe { w.bits(byte as u32) });
                 unsafe { r.i2c_com().write(|w| w.bits(1 << 1)) }; // op_we
-                self.wait_tx_ack()?;
-                self.clear_interrupts();
+                self.wait_done()?;
+                self.clear_transfer_interrupts(false);
             }
             // NO STOP here — go directly to repeated START
         }
 
         if !rd_buf.is_empty() {
             // Repeated START + address (R/W=1)
-            self.send_start((addr << 1) | 1, true)?;
+            self.send_start((addr << 1) | 1)?;
 
             let buf_len = rd_buf.len();
             for (i, byte) in rd_buf.iter_mut().enumerate() {
@@ -254,16 +335,16 @@ impl<T> I2c<'_, T> {
                     com |= 1 << 4; // op_ack (NACK on last)
                 }
                 unsafe { r.i2c_com().write(|w| w.bits(com)) };
-                wait_until(|| r.i2c_sr().read().int_rx().bit_is_set())?;
+                self.wait_done()?;
                 *byte = r.i2c_rxr().read().bits() as u8;
-                self.clear_interrupts();
+                self.clear_transfer_interrupts(false);
             }
         }
 
         // Stop (at end of combined transaction)
         r.i2c_com().write(|w| w.op_stop().set_bit());
-        wait_until(|| r.i2c_sr().read().int_stop().bit_is_set())?;
-        self.clear_interrupts();
+        self.wait_done()?;
+        self.clear_stop_interrupts();
 
         Ok(())
     }
@@ -285,20 +366,18 @@ impl<T> I2c<'_, T> {
         for op in operations.iter_mut() {
             match op {
                 embedded_hal::i2c::Operation::Write(data) => {
-                    self.send_start(addr_w, false)?;
-                    self.clear_interrupts();
+                    self.send_start(addr_w)?;
 
                     for &byte in data.iter() {
                         r.i2c_txr().write(|w| unsafe { w.bits(byte as u32) });
                         unsafe { r.i2c_com().write(|w| w.bits(1 << 1)) }; // op_we
-                        self.wait_tx_ack()?;
-                        self.clear_interrupts();
+                        self.wait_done()?;
+                        self.clear_transfer_interrupts(false);
                     }
                     // NO STOP between operations — next START will be repeated START
                 }
                 embedded_hal::i2c::Operation::Read(buf) => {
-                    self.send_start(addr_r, true)?;
-                    self.clear_interrupts();
+                    self.send_start(addr_r)?;
 
                     let buf_len = buf.len();
                     for (i, byte) in buf.iter_mut().enumerate() {
@@ -308,9 +387,9 @@ impl<T> I2c<'_, T> {
                             com |= 1 << 4; // op_ack (host sends NACK on last byte)
                         }
                         unsafe { r.i2c_com().write(|w| w.bits(com)) };
-                        wait_until(|| r.i2c_sr().read().int_rx().bit_is_set())?;
+                        self.wait_done()?;
                         *byte = r.i2c_rxr().read().bits() as u8;
-                        self.clear_interrupts();
+                        self.clear_transfer_interrupts(false);
                     }
                     // NO STOP between operations — next START will be repeated START
                 }
@@ -319,8 +398,8 @@ impl<T> I2c<'_, T> {
 
         // STOP at end of all operations
         r.i2c_com().write(|w| w.op_stop().set_bit());
-        wait_until(|| r.i2c_sr().read().int_stop().bit_is_set())?;
-        self.clear_interrupts();
+        self.wait_done()?;
+        self.clear_stop_interrupts();
 
         Ok(())
     }
