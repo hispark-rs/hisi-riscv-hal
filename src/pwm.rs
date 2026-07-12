@@ -187,7 +187,7 @@ impl PwmChannelId {
 }
 
 /// A handle to one of the 8 PWM output channels. Disables its own output on
-/// `Drop` (unless consumed by [`into_running`](PwmChannel::into_running)).
+/// `Drop` (unless consumed by the unstable `PwmChannel::into_running`).
 pub struct PwmChannel<'d> {
     channel: PwmChannelId,
     _marker: PhantomData<&'d ()>,
@@ -382,7 +382,8 @@ pub struct PwmRunning(());
 impl Drop for PwmChannel<'_> {
     /// Scoped safety: a dropped channel stops driving its output (clears only this
     /// channel's `pwm_enN` enable bit — never a shared clock gate). Use
-    /// [`PwmChannel::into_running`] to keep it live past the handle's scope.
+    /// the unstable `PwmChannel::into_running` to keep it live past the handle's
+    /// scope.
     fn drop(&mut self) {
         self.disable();
     }

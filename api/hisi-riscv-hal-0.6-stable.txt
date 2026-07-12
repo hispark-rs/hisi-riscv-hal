@@ -1,0 +1,1454 @@
+pub mod hisi_riscv_hal
+pub mod hisi_riscv_hal::clock
+pub enum hisi_riscv_hal::clock::Peripheral
+pub hisi_riscv_hal::clock::Peripheral::Dma
+pub hisi_riscv_hal::clock::Peripheral::I2c0
+pub hisi_riscv_hal::clock::Peripheral::I2c1
+pub hisi_riscv_hal::clock::Peripheral::I2s
+pub hisi_riscv_hal::clock::Peripheral::Lsadc
+pub hisi_riscv_hal::clock::Peripheral::Pwm
+pub hisi_riscv_hal::clock::Peripheral::Sdma
+pub hisi_riscv_hal::clock::Peripheral::SecurityGroup
+pub hisi_riscv_hal::clock::Peripheral::Sfc
+pub hisi_riscv_hal::clock::Peripheral::Spi0
+pub hisi_riscv_hal::clock::Peripheral::Spi1
+pub hisi_riscv_hal::clock::Peripheral::Timer
+pub hisi_riscv_hal::clock::Peripheral::Trng
+pub hisi_riscv_hal::clock::Peripheral::Tsensor
+pub hisi_riscv_hal::clock::Peripheral::Uart0
+pub hisi_riscv_hal::clock::Peripheral::Uart1
+pub hisi_riscv_hal::clock::Peripheral::Uart2
+impl hisi_riscv_hal::clock::Peripheral
+pub fn hisi_riscv_hal::clock::Peripheral::cken_info(&self) -> core::option::Option<(u8, u8)>
+pub const hisi_riscv_hal::clock::PERIPHERAL_COUNT: usize
+pub mod hisi_riscv_hal::efuse
+#[non_exhaustive] pub enum hisi_riscv_hal::efuse::EfuseError
+pub hisi_riscv_hal::efuse::EfuseError::OutOfRange
+pub struct hisi_riscv_hal::efuse::EfuseByteAddress(_)
+impl hisi_riscv_hal::efuse::EfuseByteAddress
+pub const fn hisi_riscv_hal::efuse::EfuseByteAddress::byte(self) -> u16
+pub const fn hisi_riscv_hal::efuse::EfuseByteAddress::from_byte(u16) -> core::option::Option<Self>
+pub struct hisi_riscv_hal::efuse::EfuseDriver<'d>
+impl<'d> hisi_riscv_hal::efuse::EfuseDriver<'d>
+pub fn hisi_riscv_hal::efuse::EfuseDriver<'d>::new(hisi_riscv_hal::peripherals::Efuse<'d>) -> Self
+pub fn hisi_riscv_hal::efuse::EfuseDriver<'d>::read_byte(&mut self, hisi_riscv_hal::efuse::EfuseByteAddress) -> u8
+pub const hisi_riscv_hal::efuse::EFUSE_MAX_BYTES: u16
+pub mod hisi_riscv_hal::gpio
+pub enum hisi_riscv_hal::gpio::GpioBank
+pub hisi_riscv_hal::gpio::GpioBank::Bank0
+pub hisi_riscv_hal::gpio::GpioBank::Bank1
+pub hisi_riscv_hal::gpio::GpioBank::Bank2
+impl hisi_riscv_hal::gpio::GpioBank
+pub const fn hisi_riscv_hal::gpio::GpioBank::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::gpio::GpioBank::index(self) -> u8
+pub enum hisi_riscv_hal::gpio::Pull
+pub hisi_riscv_hal::gpio::Pull::Down
+pub hisi_riscv_hal::gpio::Pull::None
+pub hisi_riscv_hal::gpio::Pull::Up
+pub struct hisi_riscv_hal::gpio::AnyPin<'d>
+impl<'d> hisi_riscv_hal::gpio::AnyPin<'d>
+pub fn hisi_riscv_hal::gpio::AnyPin<'d>::init_flex(self, hisi_riscv_hal::gpio::OutputConfig) -> hisi_riscv_hal::gpio::Flex<'d>
+pub fn hisi_riscv_hal::gpio::AnyPin<'d>::init_input(self, hisi_riscv_hal::gpio::InputConfig) -> hisi_riscv_hal::gpio::Input<'d>
+pub fn hisi_riscv_hal::gpio::AnyPin<'d>::init_output(self, hisi_riscv_hal::gpio::OutputConfig) -> hisi_riscv_hal::gpio::Output<'d>
+pub fn hisi_riscv_hal::gpio::AnyPin<'d>::number(&self) -> u8
+pub unsafe fn hisi_riscv_hal::gpio::AnyPin<'d>::steal(u8) -> Self
+pub struct hisi_riscv_hal::gpio::Flex<'d>
+impl<'d> hisi_riscv_hal::gpio::Flex<'d>
+pub fn hisi_riscv_hal::gpio::Flex<'d>::degrade(self) -> hisi_riscv_hal::gpio::AnyPin<'d>
+pub fn hisi_riscv_hal::gpio::Flex<'d>::is_high(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Flex<'d>::is_low(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Flex<'d>::is_set_high(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Flex<'d>::number(&self) -> u8
+pub fn hisi_riscv_hal::gpio::Flex<'d>::set_as_input(&mut self)
+pub fn hisi_riscv_hal::gpio::Flex<'d>::set_as_output(&mut self)
+pub fn hisi_riscv_hal::gpio::Flex<'d>::set_high(&mut self)
+pub fn hisi_riscv_hal::gpio::Flex<'d>::set_low(&mut self)
+pub fn hisi_riscv_hal::gpio::Flex<'d>::toggle(&mut self)
+impl embedded_hal::digital::ErrorType for hisi_riscv_hal::gpio::Flex<'_>
+pub type hisi_riscv_hal::gpio::Flex<'_>::Error = core::convert::Infallible
+impl embedded_hal::digital::InputPin for hisi_riscv_hal::gpio::Flex<'_>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::is_high(&mut self) -> core::result::Result<bool, Self::Error>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::is_low(&mut self) -> core::result::Result<bool, Self::Error>
+impl embedded_hal::digital::OutputPin for hisi_riscv_hal::gpio::Flex<'_>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::set_high(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::set_low(&mut self) -> core::result::Result<(), Self::Error>
+impl embedded_hal::digital::StatefulOutputPin for hisi_riscv_hal::gpio::Flex<'_>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::is_set_high(&mut self) -> core::result::Result<bool, Self::Error>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::is_set_low(&mut self) -> core::result::Result<bool, Self::Error>
+pub struct hisi_riscv_hal::gpio::Input<'d>
+impl<'d> hisi_riscv_hal::gpio::Input<'d>
+pub fn hisi_riscv_hal::gpio::Input<'d>::degrade(self) -> hisi_riscv_hal::gpio::AnyPin<'d>
+pub fn hisi_riscv_hal::gpio::Input<'d>::is_high(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Input<'d>::is_low(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Input<'d>::number(&self) -> u8
+impl embedded_hal::digital::ErrorType for hisi_riscv_hal::gpio::Input<'_>
+pub type hisi_riscv_hal::gpio::Input<'_>::Error = core::convert::Infallible
+impl embedded_hal::digital::InputPin for hisi_riscv_hal::gpio::Input<'_>
+pub fn hisi_riscv_hal::gpio::Input<'_>::is_high(&mut self) -> core::result::Result<bool, Self::Error>
+pub fn hisi_riscv_hal::gpio::Input<'_>::is_low(&mut self) -> core::result::Result<bool, Self::Error>
+pub struct hisi_riscv_hal::gpio::InputConfig
+pub hisi_riscv_hal::gpio::InputConfig::pull: hisi_riscv_hal::gpio::Pull
+impl hisi_riscv_hal::gpio::InputConfig
+pub const fn hisi_riscv_hal::gpio::InputConfig::new() -> Self
+pub const fn hisi_riscv_hal::gpio::InputConfig::with_pull(self, hisi_riscv_hal::gpio::Pull) -> Self
+impl core::default::Default for hisi_riscv_hal::gpio::InputConfig
+pub fn hisi_riscv_hal::gpio::InputConfig::default() -> Self
+pub struct hisi_riscv_hal::gpio::InputSignal(_)
+pub struct hisi_riscv_hal::gpio::Io<'d>
+pub hisi_riscv_hal::gpio::Io::io_config: hisi_riscv_hal::peripherals::IoConfig<'d>
+impl<'d> hisi_riscv_hal::gpio::Io<'d>
+pub fn hisi_riscv_hal::gpio::Io<'d>::new(hisi_riscv_hal::peripherals::IoConfig<'d>) -> Self
+pub struct hisi_riscv_hal::gpio::Output<'d>
+impl<'d> hisi_riscv_hal::gpio::Output<'d>
+pub fn hisi_riscv_hal::gpio::Output<'d>::degrade(self) -> hisi_riscv_hal::gpio::AnyPin<'d>
+pub fn hisi_riscv_hal::gpio::Output<'d>::into_flex(self) -> hisi_riscv_hal::gpio::Flex<'d>
+pub fn hisi_riscv_hal::gpio::Output<'d>::into_latched(self) -> hisi_riscv_hal::gpio::OutputLatched
+pub fn hisi_riscv_hal::gpio::Output<'d>::is_set_high(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Output<'d>::number(&self) -> u8
+pub fn hisi_riscv_hal::gpio::Output<'d>::set_high(&mut self)
+pub fn hisi_riscv_hal::gpio::Output<'d>::set_low(&mut self)
+pub fn hisi_riscv_hal::gpio::Output<'d>::toggle(&mut self)
+impl core::ops::drop::Drop for hisi_riscv_hal::gpio::Output<'_>
+pub fn hisi_riscv_hal::gpio::Output<'_>::drop(&mut self)
+impl embedded_hal::digital::ErrorType for hisi_riscv_hal::gpio::Output<'_>
+pub type hisi_riscv_hal::gpio::Output<'_>::Error = core::convert::Infallible
+impl embedded_hal::digital::OutputPin for hisi_riscv_hal::gpio::Output<'_>
+pub fn hisi_riscv_hal::gpio::Output<'_>::set_high(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::gpio::Output<'_>::set_low(&mut self) -> core::result::Result<(), Self::Error>
+impl embedded_hal::digital::StatefulOutputPin for hisi_riscv_hal::gpio::Output<'_>
+pub fn hisi_riscv_hal::gpio::Output<'_>::is_set_high(&mut self) -> core::result::Result<bool, Self::Error>
+pub fn hisi_riscv_hal::gpio::Output<'_>::is_set_low(&mut self) -> core::result::Result<bool, Self::Error>
+pub struct hisi_riscv_hal::gpio::OutputConfig
+pub hisi_riscv_hal::gpio::OutputConfig::initial_high: bool
+impl hisi_riscv_hal::gpio::OutputConfig
+pub const fn hisi_riscv_hal::gpio::OutputConfig::new() -> Self
+pub const fn hisi_riscv_hal::gpio::OutputConfig::with_initial(self, bool) -> Self
+pub struct hisi_riscv_hal::gpio::OutputLatched(_)
+pub struct hisi_riscv_hal::gpio::OutputSignal(_)
+pub trait hisi_riscv_hal::gpio::PeripheralInput: hisi_riscv_hal::private::Sealed
+pub fn hisi_riscv_hal::gpio::PeripheralInput::input_signal(&self) -> hisi_riscv_hal::gpio::InputSignal
+pub trait hisi_riscv_hal::gpio::PeripheralOutput: hisi_riscv_hal::private::Sealed
+pub fn hisi_riscv_hal::gpio::PeripheralOutput::output_signal(&self) -> hisi_riscv_hal::gpio::OutputSignal
+pub mod hisi_riscv_hal::i2c
+#[non_exhaustive] pub enum hisi_riscv_hal::i2c::I2cError
+pub hisi_riscv_hal::i2c::I2cError::Ack
+pub hisi_riscv_hal::i2c::I2cError::BusError
+pub hisi_riscv_hal::i2c::I2cError::InvalidAddress
+pub hisi_riscv_hal::i2c::I2cError::Timeout
+impl embedded_hal::i2c::Error for hisi_riscv_hal::i2c::I2cError
+pub fn hisi_riscv_hal::i2c::I2cError::kind(&self) -> embedded_hal::i2c::ErrorKind
+#[non_exhaustive] pub enum hisi_riscv_hal::i2c::Speed
+pub hisi_riscv_hal::i2c::Speed::Fast
+pub hisi_riscv_hal::i2c::Speed::Standard
+impl hisi_riscv_hal::i2c::Speed
+pub const fn hisi_riscv_hal::i2c::Speed::hz(self) -> u32
+pub struct hisi_riscv_hal::i2c::I2c<'d, T>
+impl<'d> hisi_riscv_hal::i2c::I2c<'d, hisi_riscv_hal::peripherals::I2c0<'d>>
+pub fn hisi_riscv_hal::i2c::I2c<'d, hisi_riscv_hal::peripherals::I2c0<'d>>::new_i2c0(hisi_riscv_hal::peripherals::I2c0<'d>, hisi_riscv_hal::i2c::Speed) -> Self
+impl<T> hisi_riscv_hal::i2c::I2c<'_, T>
+pub fn hisi_riscv_hal::i2c::I2c<'_, T>::read(&mut self, u8, &mut [u8]) -> core::result::Result<(), hisi_riscv_hal::i2c::I2cError>
+pub fn hisi_riscv_hal::i2c::I2c<'_, T>::write(&mut self, u8, &[u8]) -> core::result::Result<(), hisi_riscv_hal::i2c::I2cError>
+pub fn hisi_riscv_hal::i2c::I2c<'_, T>::write_read(&mut self, u8, &[u8], &mut [u8]) -> core::result::Result<(), hisi_riscv_hal::i2c::I2cError>
+impl embedded_hal::i2c::ErrorType for hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c0<'_>>
+pub type hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c0<'_>>::Error = hisi_riscv_hal::i2c::I2cError
+impl embedded_hal::i2c::ErrorType for hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c1<'_>>
+pub type hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c1<'_>>::Error = hisi_riscv_hal::i2c::I2cError
+impl embedded_hal::i2c::I2c for hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c0<'_>>
+pub fn hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c0<'_>>::transaction(&mut self, u8, &mut [embedded_hal::i2c::Operation<'_>]) -> core::result::Result<(), Self::Error>
+impl embedded_hal::i2c::I2c for hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c1<'_>>
+pub fn hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c1<'_>>::transaction(&mut self, u8, &mut [embedded_hal::i2c::Operation<'_>]) -> core::result::Result<(), Self::Error>
+pub mod hisi_riscv_hal::i2s
+pub enum hisi_riscv_hal::i2s::ChannelCount
+pub hisi_riscv_hal::i2s::ChannelCount::Eight = 2
+pub hisi_riscv_hal::i2s::ChannelCount::Four = 1
+pub hisi_riscv_hal::i2s::ChannelCount::Sixteen = 3
+pub hisi_riscv_hal::i2s::ChannelCount::Two = 0
+impl hisi_riscv_hal::i2s::ChannelCount
+pub const fn hisi_riscv_hal::i2s::ChannelCount::count(self) -> u32
+pub enum hisi_riscv_hal::i2s::DataWidth
+pub hisi_riscv_hal::i2s::DataWidth::Bits16 = 1
+pub hisi_riscv_hal::i2s::DataWidth::Bits18 = 2
+pub hisi_riscv_hal::i2s::DataWidth::Bits20 = 3
+pub hisi_riscv_hal::i2s::DataWidth::Bits24 = 4
+pub hisi_riscv_hal::i2s::DataWidth::Bits32 = 5
+impl hisi_riscv_hal::i2s::DataWidth
+pub const fn hisi_riscv_hal::i2s::DataWidth::bits(self) -> u32
+pub enum hisi_riscv_hal::i2s::I2sMode
+pub hisi_riscv_hal::i2s::I2sMode::I2s
+pub hisi_riscv_hal::i2s::I2sMode::Pcm
+pub struct hisi_riscv_hal::i2s::I2sDriver<'d, R>
+impl<'d, R: hisi_riscv_hal::i2s::sealed::Role> hisi_riscv_hal::i2s::I2sDriver<'d, R>
+pub fn hisi_riscv_hal::i2s::I2sDriver<'d, R>::version(&self) -> u8
+impl<'d> hisi_riscv_hal::i2s::I2sDriver<'d, hisi_riscv_hal::i2s::Master>
+pub fn hisi_riscv_hal::i2s::I2sDriver<'d, hisi_riscv_hal::i2s::Master>::new_master(hisi_riscv_hal::peripherals::I2s<'d>, &hisi_riscv_hal::i2s::MasterConfig) -> Self
+pub struct hisi_riscv_hal::i2s::Master
+pub struct hisi_riscv_hal::i2s::MasterConfig
+pub hisi_riscv_hal::i2s::MasterConfig::channels: hisi_riscv_hal::i2s::ChannelCount
+pub hisi_riscv_hal::i2s::MasterConfig::data_width: hisi_riscv_hal::i2s::DataWidth
+pub hisi_riscv_hal::i2s::MasterConfig::loopback: bool
+pub hisi_riscv_hal::i2s::MasterConfig::mode: hisi_riscv_hal::i2s::I2sMode
+pub hisi_riscv_hal::i2s::MasterConfig::rx_fifo_threshold: u8
+pub hisi_riscv_hal::i2s::MasterConfig::tx_fifo_threshold: u8
+impl core::default::Default for hisi_riscv_hal::i2s::MasterConfig
+pub fn hisi_riscv_hal::i2s::MasterConfig::default() -> Self
+pub mod hisi_riscv_hal::interrupt
+pub use hisi_riscv_hal::interrupt::Interrupt
+pub struct hisi_riscv_hal::interrupt::Priority(_)
+impl hisi_riscv_hal::interrupt::Priority
+pub const hisi_riscv_hal::interrupt::Priority::HIGHEST: Self
+pub const hisi_riscv_hal::interrupt::Priority::LOWEST: Self
+pub const hisi_riscv_hal::interrupt::Priority::P1: Self
+pub const hisi_riscv_hal::interrupt::Priority::P2: Self
+pub const hisi_riscv_hal::interrupt::Priority::P3: Self
+pub const hisi_riscv_hal::interrupt::Priority::P4: Self
+pub const hisi_riscv_hal::interrupt::Priority::P5: Self
+pub const hisi_riscv_hal::interrupt::Priority::P6: Self
+pub const hisi_riscv_hal::interrupt::Priority::P7: Self
+pub const fn hisi_riscv_hal::interrupt::Priority::from_level(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::interrupt::Priority::level(self) -> u8
+pub struct hisi_riscv_hal::interrupt::Threshold(_)
+impl hisi_riscv_hal::interrupt::Threshold
+pub const hisi_riscv_hal::interrupt::Threshold::T0: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T1: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T2: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T3: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T4: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T5: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T6: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T7: Self
+pub const fn hisi_riscv_hal::interrupt::Threshold::from_level(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::interrupt::Threshold::level(self) -> u8
+pub fn hisi_riscv_hal::interrupt::clear_pending(ws63_pac::interrupt::ExternalInterrupt)
+pub unsafe fn hisi_riscv_hal::interrupt::disable(ws63_pac::interrupt::ExternalInterrupt)
+pub unsafe fn hisi_riscv_hal::interrupt::disable_global()
+pub unsafe fn hisi_riscv_hal::interrupt::enable(ws63_pac::interrupt::ExternalInterrupt)
+pub unsafe fn hisi_riscv_hal::interrupt::enable_global()
+pub fn hisi_riscv_hal::interrupt::init()
+pub fn hisi_riscv_hal::interrupt::is_enabled(ws63_pac::interrupt::ExternalInterrupt) -> bool
+pub fn hisi_riscv_hal::interrupt::is_pending(ws63_pac::interrupt::ExternalInterrupt) -> bool
+pub mod hisi_riscv_hal::io_config
+pub enum hisi_riscv_hal::io_config::DriveStrength
+pub hisi_riscv_hal::io_config::DriveStrength::Medium = 2
+pub hisi_riscv_hal::io_config::DriveStrength::Minimum = 7
+pub hisi_riscv_hal::io_config::DriveStrength::Strong = 1
+pub hisi_riscv_hal::io_config::DriveStrength::Strongest = 0
+pub hisi_riscv_hal::io_config::DriveStrength::VeryWeak = 5
+pub hisi_riscv_hal::io_config::DriveStrength::Weak = 3
+pub hisi_riscv_hal::io_config::DriveStrength::Weaker = 4
+pub hisi_riscv_hal::io_config::DriveStrength::Weakest = 6
+pub enum hisi_riscv_hal::io_config::GpioPad
+pub hisi_riscv_hal::io_config::GpioPad::Gpio00
+pub hisi_riscv_hal::io_config::GpioPad::Gpio01
+pub hisi_riscv_hal::io_config::GpioPad::Gpio02
+pub hisi_riscv_hal::io_config::GpioPad::Gpio03
+pub hisi_riscv_hal::io_config::GpioPad::Gpio04
+pub hisi_riscv_hal::io_config::GpioPad::Gpio05
+pub hisi_riscv_hal::io_config::GpioPad::Gpio06
+pub hisi_riscv_hal::io_config::GpioPad::Gpio07
+pub hisi_riscv_hal::io_config::GpioPad::Gpio08
+pub hisi_riscv_hal::io_config::GpioPad::Gpio09
+pub hisi_riscv_hal::io_config::GpioPad::Gpio10
+pub hisi_riscv_hal::io_config::GpioPad::Gpio11
+pub hisi_riscv_hal::io_config::GpioPad::Gpio12
+pub hisi_riscv_hal::io_config::GpioPad::Gpio13
+pub hisi_riscv_hal::io_config::GpioPad::Gpio14
+impl hisi_riscv_hal::io_config::GpioPad
+pub const fn hisi_riscv_hal::io_config::GpioPad::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::io_config::GpioPad::index(self) -> u8
+pub enum hisi_riscv_hal::io_config::PullResistor
+pub hisi_riscv_hal::io_config::PullResistor::Down
+pub hisi_riscv_hal::io_config::PullResistor::None
+pub hisi_riscv_hal::io_config::PullResistor::Up
+pub enum hisi_riscv_hal::io_config::UartPad
+pub hisi_riscv_hal::io_config::UartPad::Uart0Rxd
+pub hisi_riscv_hal::io_config::UartPad::Uart0Txd
+pub hisi_riscv_hal::io_config::UartPad::Uart1Rxd
+pub hisi_riscv_hal::io_config::UartPad::Uart1Txd
+pub struct hisi_riscv_hal::io_config::IoConfigDriver<'d>
+impl<'d> hisi_riscv_hal::io_config::IoConfigDriver<'d>
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::configure_gpio_pad(&mut self, hisi_riscv_hal::io_config::GpioPad, hisi_riscv_hal::io_config::DriveStrength, hisi_riscv_hal::io_config::PullResistor, bool, bool)
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::configure_uart_pad(&mut self, hisi_riscv_hal::io_config::UartPad, hisi_riscv_hal::io_config::DriveStrength, hisi_riscv_hal::io_config::PullResistor, bool, bool)
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::gpio_mux(&self, hisi_riscv_hal::io_config::GpioPad) -> hisi_riscv_hal::io_config::MuxFunction
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::new(hisi_riscv_hal::peripherals::IoConfig<'d>) -> Self
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::read_gpio_pad(&self, hisi_riscv_hal::io_config::GpioPad) -> u32
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::set_gpio_mux(&mut self, hisi_riscv_hal::io_config::GpioPad, hisi_riscv_hal::io_config::MuxFunction)
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::set_uart_mux(&mut self, hisi_riscv_hal::io_config::UartPad, hisi_riscv_hal::io_config::MuxFunction)
+pub struct hisi_riscv_hal::io_config::MuxFunction(_)
+impl hisi_riscv_hal::io_config::MuxFunction
+pub const hisi_riscv_hal::io_config::MuxFunction::F0: Self
+pub const hisi_riscv_hal::io_config::MuxFunction::F1: Self
+pub const hisi_riscv_hal::io_config::MuxFunction::F2: Self
+pub const hisi_riscv_hal::io_config::MuxFunction::F3: Self
+pub const hisi_riscv_hal::io_config::MuxFunction::F4: Self
+pub const hisi_riscv_hal::io_config::MuxFunction::F5: Self
+pub const hisi_riscv_hal::io_config::MuxFunction::F6: Self
+pub const hisi_riscv_hal::io_config::MuxFunction::F7: Self
+pub const fn hisi_riscv_hal::io_config::MuxFunction::bits(self) -> u8
+pub const fn hisi_riscv_hal::io_config::MuxFunction::from_bits(u8) -> core::option::Option<Self>
+pub mod hisi_riscv_hal::lsadc
+pub enum hisi_riscv_hal::lsadc::AdcChannel
+pub hisi_riscv_hal::lsadc::AdcChannel::Channel0 = 0
+pub hisi_riscv_hal::lsadc::AdcChannel::Channel1 = 1
+pub hisi_riscv_hal::lsadc::AdcChannel::Channel2 = 2
+pub hisi_riscv_hal::lsadc::AdcChannel::Channel3 = 3
+pub hisi_riscv_hal::lsadc::AdcChannel::Channel4 = 4
+pub hisi_riscv_hal::lsadc::AdcChannel::Channel5 = 5
+impl hisi_riscv_hal::lsadc::AdcChannel
+pub fn hisi_riscv_hal::lsadc::AdcChannel::from_index(u8) -> core::option::Option<Self>
+pub enum hisi_riscv_hal::lsadc::Averaging
+pub hisi_riscv_hal::lsadc::Averaging::Eight = 3
+pub hisi_riscv_hal::lsadc::Averaging::Four = 2
+pub hisi_riscv_hal::lsadc::Averaging::One = 0
+pub hisi_riscv_hal::lsadc::Averaging::Two = 1
+pub struct hisi_riscv_hal::lsadc::AdcConfig
+pub hisi_riscv_hal::lsadc::AdcConfig::averaging: hisi_riscv_hal::lsadc::Averaging
+pub hisi_riscv_hal::lsadc::AdcConfig::cast_count: hisi_riscv_hal::lsadc::CastCount
+pub hisi_riscv_hal::lsadc::AdcConfig::sample_count: hisi_riscv_hal::lsadc::SampleCount
+pub hisi_riscv_hal::lsadc::AdcConfig::start_count: u8
+impl core::default::Default for hisi_riscv_hal::lsadc::AdcConfig
+pub fn hisi_riscv_hal::lsadc::AdcConfig::default() -> Self
+pub struct hisi_riscv_hal::lsadc::AdcSample
+pub hisi_riscv_hal::lsadc::AdcSample::channel: u8
+pub hisi_riscv_hal::lsadc::AdcSample::data: u16
+pub struct hisi_riscv_hal::lsadc::CastCount(_)
+impl hisi_riscv_hal::lsadc::CastCount
+pub const fn hisi_riscv_hal::lsadc::CastCount::bits(self) -> u8
+pub const fn hisi_riscv_hal::lsadc::CastCount::new(u8) -> core::option::Option<Self>
+pub struct hisi_riscv_hal::lsadc::FifoWaterline(_)
+impl hisi_riscv_hal::lsadc::FifoWaterline
+pub const fn hisi_riscv_hal::lsadc::FifoWaterline::bits(self) -> u8
+pub const fn hisi_riscv_hal::lsadc::FifoWaterline::new(u8) -> core::option::Option<Self>
+pub struct hisi_riscv_hal::lsadc::LsAdc<'d>
+impl<'d> hisi_riscv_hal::lsadc::LsAdc<'d>
+pub fn hisi_riscv_hal::lsadc::LsAdc<'d>::configure_scan(&mut self, hisi_riscv_hal::lsadc::AdcChannel, &hisi_riscv_hal::lsadc::AdcConfig)
+pub fn hisi_riscv_hal::lsadc::LsAdc<'d>::new(hisi_riscv_hal::peripherals::Lsadc<'d>) -> Self
+pub struct hisi_riscv_hal::lsadc::SampleCount(_)
+impl hisi_riscv_hal::lsadc::SampleCount
+pub const fn hisi_riscv_hal::lsadc::SampleCount::bits(self) -> u8
+pub const fn hisi_riscv_hal::lsadc::SampleCount::new(u8) -> core::option::Option<Self>
+pub mod hisi_riscv_hal::peripherals
+pub use hisi_riscv_hal::peripherals::Interrupt
+pub struct hisi_riscv_hal::peripherals::BtEmCtl<'d>
+impl<'d> hisi_riscv_hal::peripherals::BtEmCtl<'d>
+pub fn hisi_riscv_hal::peripherals::BtEmCtl<'d>::ptr() -> *const <ws63_pac::BtEmCtl as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::BtEmCtl<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::BtEmCtl<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::BtEmCtl<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::BtEmCtl<'d>
+pub struct hisi_riscv_hal::peripherals::CldoCrg<'d>
+impl<'d> hisi_riscv_hal::peripherals::CldoCrg<'d>
+pub fn hisi_riscv_hal::peripherals::CldoCrg<'d>::ptr() -> *const <ws63_pac::CldoCrg as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::CldoCrg<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::CldoCrg<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::CldoCrg<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::CldoCrg<'d>
+pub struct hisi_riscv_hal::peripherals::Dma<'d>
+impl<'d> hisi_riscv_hal::peripherals::Dma<'d>
+pub fn hisi_riscv_hal::peripherals::Dma<'d>::ptr() -> *const <ws63_pac::Dma as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Dma<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Dma<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Dma<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Dma<'d>
+pub struct hisi_riscv_hal::peripherals::Efuse<'d>
+impl<'d> hisi_riscv_hal::peripherals::Efuse<'d>
+pub fn hisi_riscv_hal::peripherals::Efuse<'d>::ptr() -> *const <ws63_pac::Efuse as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Efuse<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Efuse<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Efuse<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Efuse<'d>
+pub struct hisi_riscv_hal::peripherals::FamaRemap<'d>
+impl<'d> hisi_riscv_hal::peripherals::FamaRemap<'d>
+pub fn hisi_riscv_hal::peripherals::FamaRemap<'d>::ptr() -> *const <ws63_pac::FamaRemap as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::FamaRemap<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::FamaRemap<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::FamaRemap<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::FamaRemap<'d>
+pub struct hisi_riscv_hal::peripherals::GlbCtlM<'d>
+impl<'d> hisi_riscv_hal::peripherals::GlbCtlM<'d>
+pub fn hisi_riscv_hal::peripherals::GlbCtlM<'d>::ptr() -> *const <ws63_pac::GlbCtlM as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::GlbCtlM<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::GlbCtlM<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::GlbCtlM<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::GlbCtlM<'d>
+pub struct hisi_riscv_hal::peripherals::Gpio0<'d>
+impl<'d> hisi_riscv_hal::peripherals::Gpio0<'d>
+pub fn hisi_riscv_hal::peripherals::Gpio0<'d>::ptr() -> *const <ws63_pac::Gpio0 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Gpio0<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Gpio0<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Gpio0<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Gpio0<'d>
+pub struct hisi_riscv_hal::peripherals::Gpio1<'d>
+impl<'d> hisi_riscv_hal::peripherals::Gpio1<'d>
+pub fn hisi_riscv_hal::peripherals::Gpio1<'d>::ptr() -> *const <ws63_pac::Gpio1 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Gpio1<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Gpio1<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Gpio1<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Gpio1<'d>
+pub struct hisi_riscv_hal::peripherals::Gpio2<'d>
+impl<'d> hisi_riscv_hal::peripherals::Gpio2<'d>
+pub fn hisi_riscv_hal::peripherals::Gpio2<'d>::ptr() -> *const <ws63_pac::Gpio2 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Gpio2<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Gpio2<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Gpio2<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Gpio2<'d>
+pub struct hisi_riscv_hal::peripherals::I2c0<'d>
+impl<'d> hisi_riscv_hal::peripherals::I2c0<'d>
+pub fn hisi_riscv_hal::peripherals::I2c0<'d>::ptr() -> *const <ws63_pac::I2c0 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::I2c0<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::I2c0<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::I2c0<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::I2c0<'d>
+pub struct hisi_riscv_hal::peripherals::I2c1<'d>
+impl<'d> hisi_riscv_hal::peripherals::I2c1<'d>
+pub fn hisi_riscv_hal::peripherals::I2c1<'d>::ptr() -> *const <ws63_pac::I2c1 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::I2c1<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::I2c1<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::I2c1<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::I2c1<'d>
+pub struct hisi_riscv_hal::peripherals::I2s<'d>
+impl<'d> hisi_riscv_hal::peripherals::I2s<'d>
+pub fn hisi_riscv_hal::peripherals::I2s<'d>::ptr() -> *const <ws63_pac::I2s as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::I2s<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::I2s<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::I2s<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::I2s<'d>
+pub struct hisi_riscv_hal::peripherals::IoConfig<'d>
+impl<'d> hisi_riscv_hal::peripherals::IoConfig<'d>
+pub fn hisi_riscv_hal::peripherals::IoConfig<'d>::ptr() -> *const <ws63_pac::IoConfig as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::IoConfig<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::IoConfig<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::IoConfig<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::IoConfig<'d>
+pub struct hisi_riscv_hal::peripherals::Km<'d>
+impl<'d> hisi_riscv_hal::peripherals::Km<'d>
+pub fn hisi_riscv_hal::peripherals::Km<'d>::ptr() -> *const <ws63_pac::Km as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Km<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Km<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Km<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Km<'d>
+pub struct hisi_riscv_hal::peripherals::Lsadc<'d>
+impl<'d> hisi_riscv_hal::peripherals::Lsadc<'d>
+pub fn hisi_riscv_hal::peripherals::Lsadc<'d>::ptr() -> *const <ws63_pac::Lsadc as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Lsadc<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Lsadc<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Lsadc<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Lsadc<'d>
+pub struct hisi_riscv_hal::peripherals::Peripherals
+pub hisi_riscv_hal::peripherals::Peripherals::BT_EM_CTL: hisi_riscv_hal::peripherals::BtEmCtl<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::CLDO_CRG: hisi_riscv_hal::peripherals::CldoCrg<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::DMA: hisi_riscv_hal::peripherals::Dma<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::EFUSE: hisi_riscv_hal::peripherals::Efuse<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::FAMA_REMAP: hisi_riscv_hal::peripherals::FamaRemap<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::GLB_CTL_M: hisi_riscv_hal::peripherals::GlbCtlM<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::GPIO0: hisi_riscv_hal::peripherals::Gpio0<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::GPIO1: hisi_riscv_hal::peripherals::Gpio1<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::GPIO2: hisi_riscv_hal::peripherals::Gpio2<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::I2C0: hisi_riscv_hal::peripherals::I2c0<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::I2C1: hisi_riscv_hal::peripherals::I2c1<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::I2S: hisi_riscv_hal::peripherals::I2s<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::IO_CONFIG: hisi_riscv_hal::peripherals::IoConfig<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::KM: hisi_riscv_hal::peripherals::Km<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::LSADC: hisi_riscv_hal::peripherals::Lsadc<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::PKE: hisi_riscv_hal::peripherals::Pke<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::PWM: hisi_riscv_hal::peripherals::Pwm<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::RF_WB_CTL: hisi_riscv_hal::peripherals::RfWbCtl<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::RTC: hisi_riscv_hal::peripherals::Rtc<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::SDMA: hisi_riscv_hal::peripherals::Sdma<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::SFC_CFG: hisi_riscv_hal::peripherals::SfcCfg<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::SHARE_MEM_CTL: hisi_riscv_hal::peripherals::ShareMemCtl<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::SPACC: hisi_riscv_hal::peripherals::Spacc<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::SPI0: hisi_riscv_hal::peripherals::Spi0<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::SPI1: hisi_riscv_hal::peripherals::Spi1<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::SYS_CTL0: hisi_riscv_hal::peripherals::SysCtl0<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::SYS_CTL1: hisi_riscv_hal::peripherals::SysCtl1<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::TCXO: hisi_riscv_hal::peripherals::Tcxo<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::TIMER: hisi_riscv_hal::peripherals::Timer<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::TRNG: hisi_riscv_hal::peripherals::Trng<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::TSENSOR: hisi_riscv_hal::peripherals::Tsensor<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::UART0: hisi_riscv_hal::peripherals::Uart0<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::UART1: hisi_riscv_hal::peripherals::Uart1<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::UART2: hisi_riscv_hal::peripherals::Uart2<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::ULP_GPIO: hisi_riscv_hal::peripherals::UlpGpio<'static>
+pub hisi_riscv_hal::peripherals::Peripherals::WDT: hisi_riscv_hal::peripherals::Wdt<'static>
+impl hisi_riscv_hal::peripherals::Peripherals
+pub unsafe fn hisi_riscv_hal::peripherals::Peripherals::steal() -> Self
+pub fn hisi_riscv_hal::peripherals::Peripherals::take() -> core::option::Option<Self>
+pub struct hisi_riscv_hal::peripherals::Pke<'d>
+impl<'d> hisi_riscv_hal::peripherals::Pke<'d>
+pub fn hisi_riscv_hal::peripherals::Pke<'d>::ptr() -> *const <ws63_pac::Pke as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Pke<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Pke<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Pke<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Pke<'d>
+pub struct hisi_riscv_hal::peripherals::Pwm<'d>
+impl<'d> hisi_riscv_hal::peripherals::Pwm<'d>
+pub fn hisi_riscv_hal::peripherals::Pwm<'d>::ptr() -> *const <ws63_pac::Pwm as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Pwm<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Pwm<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Pwm<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Pwm<'d>
+pub struct hisi_riscv_hal::peripherals::RfWbCtl<'d>
+impl<'d> hisi_riscv_hal::peripherals::RfWbCtl<'d>
+pub fn hisi_riscv_hal::peripherals::RfWbCtl<'d>::ptr() -> *const <ws63_pac::RfWbCtl as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::RfWbCtl<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::RfWbCtl<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::RfWbCtl<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::RfWbCtl<'d>
+pub struct hisi_riscv_hal::peripherals::Rtc<'d>
+impl<'d> hisi_riscv_hal::peripherals::Rtc<'d>
+pub fn hisi_riscv_hal::peripherals::Rtc<'d>::ptr() -> *const <ws63_pac::Rtc as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Rtc<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Rtc<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Rtc<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Rtc<'d>
+pub struct hisi_riscv_hal::peripherals::Sdma<'d>
+impl<'d> hisi_riscv_hal::peripherals::Sdma<'d>
+pub fn hisi_riscv_hal::peripherals::Sdma<'d>::ptr() -> *const <ws63_pac::Sdma as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Sdma<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Sdma<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Sdma<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Sdma<'d>
+pub struct hisi_riscv_hal::peripherals::SfcCfg<'d>
+impl<'d> hisi_riscv_hal::peripherals::SfcCfg<'d>
+pub fn hisi_riscv_hal::peripherals::SfcCfg<'d>::ptr() -> *const <ws63_pac::SfcCfg as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::SfcCfg<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::SfcCfg<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::SfcCfg<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::SfcCfg<'d>
+pub struct hisi_riscv_hal::peripherals::ShareMemCtl<'d>
+impl<'d> hisi_riscv_hal::peripherals::ShareMemCtl<'d>
+pub fn hisi_riscv_hal::peripherals::ShareMemCtl<'d>::ptr() -> *const <ws63_pac::ShareMemCtl as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::ShareMemCtl<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::ShareMemCtl<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::ShareMemCtl<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::ShareMemCtl<'d>
+pub struct hisi_riscv_hal::peripherals::Spacc<'d>
+impl<'d> hisi_riscv_hal::peripherals::Spacc<'d>
+pub fn hisi_riscv_hal::peripherals::Spacc<'d>::ptr() -> *const <ws63_pac::Spacc as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Spacc<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Spacc<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Spacc<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Spacc<'d>
+pub struct hisi_riscv_hal::peripherals::Spi0<'d>
+impl<'d> hisi_riscv_hal::peripherals::Spi0<'d>
+pub fn hisi_riscv_hal::peripherals::Spi0<'d>::ptr() -> *const <ws63_pac::Spi0 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Spi0<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Spi0<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Spi0<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Spi0<'d>
+pub struct hisi_riscv_hal::peripherals::Spi1<'d>
+impl<'d> hisi_riscv_hal::peripherals::Spi1<'d>
+pub fn hisi_riscv_hal::peripherals::Spi1<'d>::ptr() -> *const <ws63_pac::Spi1 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Spi1<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Spi1<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Spi1<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Spi1<'d>
+pub struct hisi_riscv_hal::peripherals::SysCtl0<'d>
+impl<'d> hisi_riscv_hal::peripherals::SysCtl0<'d>
+pub fn hisi_riscv_hal::peripherals::SysCtl0<'d>::ptr() -> *const <ws63_pac::SysCtl0 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::SysCtl0<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::SysCtl0<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::SysCtl0<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::SysCtl0<'d>
+pub struct hisi_riscv_hal::peripherals::SysCtl1<'d>
+impl<'d> hisi_riscv_hal::peripherals::SysCtl1<'d>
+pub fn hisi_riscv_hal::peripherals::SysCtl1<'d>::ptr() -> *const <ws63_pac::SysCtl1 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::SysCtl1<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::SysCtl1<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::SysCtl1<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::SysCtl1<'d>
+pub struct hisi_riscv_hal::peripherals::Tcxo<'d>
+impl<'d> hisi_riscv_hal::peripherals::Tcxo<'d>
+pub fn hisi_riscv_hal::peripherals::Tcxo<'d>::ptr() -> *const <ws63_pac::Tcxo as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Tcxo<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Tcxo<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Tcxo<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Tcxo<'d>
+pub struct hisi_riscv_hal::peripherals::Timer<'d>
+impl<'d> hisi_riscv_hal::peripherals::Timer<'d>
+pub fn hisi_riscv_hal::peripherals::Timer<'d>::ptr() -> *const <ws63_pac::Timer as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Timer<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Timer<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Timer<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Timer<'d>
+pub struct hisi_riscv_hal::peripherals::Trng<'d>
+impl<'d> hisi_riscv_hal::peripherals::Trng<'d>
+pub fn hisi_riscv_hal::peripherals::Trng<'d>::ptr() -> *const <ws63_pac::Trng as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Trng<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Trng<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Trng<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Trng<'d>
+pub struct hisi_riscv_hal::peripherals::Tsensor<'d>
+impl<'d> hisi_riscv_hal::peripherals::Tsensor<'d>
+pub fn hisi_riscv_hal::peripherals::Tsensor<'d>::ptr() -> *const <ws63_pac::Tsensor as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Tsensor<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Tsensor<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Tsensor<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Tsensor<'d>
+pub struct hisi_riscv_hal::peripherals::Uart0<'d>
+impl<'d> hisi_riscv_hal::peripherals::Uart0<'d>
+pub fn hisi_riscv_hal::peripherals::Uart0<'d>::ptr() -> *const <ws63_pac::Uart0 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Uart0<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Uart0<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Uart0<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Uart0<'d>
+impl<'d> hisi_riscv_hal::uart::UartInstance for hisi_riscv_hal::peripherals::Uart0<'d>
+pub const hisi_riscv_hal::peripherals::Uart0<'d>::PORT: hisi_riscv_hal::uart::UartPort
+pub struct hisi_riscv_hal::peripherals::Uart1<'d>
+impl<'d> hisi_riscv_hal::peripherals::Uart1<'d>
+pub fn hisi_riscv_hal::peripherals::Uart1<'d>::ptr() -> *const <ws63_pac::Uart1 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Uart1<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Uart1<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Uart1<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Uart1<'d>
+impl<'d> hisi_riscv_hal::uart::UartInstance for hisi_riscv_hal::peripherals::Uart1<'d>
+pub const hisi_riscv_hal::peripherals::Uart1<'d>::PORT: hisi_riscv_hal::uart::UartPort
+pub struct hisi_riscv_hal::peripherals::Uart2<'d>
+impl<'d> hisi_riscv_hal::peripherals::Uart2<'d>
+pub fn hisi_riscv_hal::peripherals::Uart2<'d>::ptr() -> *const <ws63_pac::Uart2 as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Uart2<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Uart2<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Uart2<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Uart2<'d>
+impl<'d> hisi_riscv_hal::uart::UartInstance for hisi_riscv_hal::peripherals::Uart2<'d>
+pub const hisi_riscv_hal::peripherals::Uart2<'d>::PORT: hisi_riscv_hal::uart::UartPort
+pub struct hisi_riscv_hal::peripherals::UlpGpio<'d>
+impl<'d> hisi_riscv_hal::peripherals::UlpGpio<'d>
+pub fn hisi_riscv_hal::peripherals::UlpGpio<'d>::ptr() -> *const <ws63_pac::UlpGpio as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::UlpGpio<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::UlpGpio<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::UlpGpio<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::UlpGpio<'d>
+pub struct hisi_riscv_hal::peripherals::Wdt<'d>
+impl<'d> hisi_riscv_hal::peripherals::Wdt<'d>
+pub fn hisi_riscv_hal::peripherals::Wdt<'d>::ptr() -> *const <ws63_pac::Wdt as core::ops::deref::Deref>::Target
+pub fn hisi_riscv_hal::peripherals::Wdt<'d>::reborrow(&mut self) -> hisi_riscv_hal::peripherals::Wdt<'_>
+pub unsafe fn hisi_riscv_hal::peripherals::Wdt<'d>::steal() -> Self
+impl<'d> core::marker::Send for hisi_riscv_hal::peripherals::Wdt<'d>
+pub mod hisi_riscv_hal::prelude
+pub use hisi_riscv_hal::prelude::Interrupt
+pub use hisi_riscv_hal::prelude::_
+pub use hisi_riscv_hal::prelude::_
+pub use hisi_riscv_hal::prelude::_
+pub use hisi_riscv_hal::prelude::_
+pub use hisi_riscv_hal::prelude::_
+pub use hisi_riscv_hal::prelude::_
+pub use hisi_riscv_hal::prelude::_
+pub use hisi_riscv_hal::prelude::_
+pub use hisi_riscv_hal::prelude::block
+pub enum hisi_riscv_hal::prelude::GpioBank
+pub hisi_riscv_hal::prelude::GpioBank::Bank0
+pub hisi_riscv_hal::prelude::GpioBank::Bank1
+pub hisi_riscv_hal::prelude::GpioBank::Bank2
+impl hisi_riscv_hal::gpio::GpioBank
+pub const fn hisi_riscv_hal::gpio::GpioBank::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::gpio::GpioBank::index(self) -> u8
+pub enum hisi_riscv_hal::prelude::Peripheral
+pub hisi_riscv_hal::prelude::Peripheral::Dma
+pub hisi_riscv_hal::prelude::Peripheral::I2c0
+pub hisi_riscv_hal::prelude::Peripheral::I2c1
+pub hisi_riscv_hal::prelude::Peripheral::I2s
+pub hisi_riscv_hal::prelude::Peripheral::Lsadc
+pub hisi_riscv_hal::prelude::Peripheral::Pwm
+pub hisi_riscv_hal::prelude::Peripheral::Sdma
+pub hisi_riscv_hal::prelude::Peripheral::SecurityGroup
+pub hisi_riscv_hal::prelude::Peripheral::Sfc
+pub hisi_riscv_hal::prelude::Peripheral::Spi0
+pub hisi_riscv_hal::prelude::Peripheral::Spi1
+pub hisi_riscv_hal::prelude::Peripheral::Timer
+pub hisi_riscv_hal::prelude::Peripheral::Trng
+pub hisi_riscv_hal::prelude::Peripheral::Tsensor
+pub hisi_riscv_hal::prelude::Peripheral::Uart0
+pub hisi_riscv_hal::prelude::Peripheral::Uart1
+pub hisi_riscv_hal::prelude::Peripheral::Uart2
+impl hisi_riscv_hal::clock::Peripheral
+pub fn hisi_riscv_hal::clock::Peripheral::cken_info(&self) -> core::option::Option<(u8, u8)>
+pub enum hisi_riscv_hal::prelude::Pull
+pub hisi_riscv_hal::prelude::Pull::Down
+pub hisi_riscv_hal::prelude::Pull::None
+pub hisi_riscv_hal::prelude::Pull::Up
+pub enum hisi_riscv_hal::prelude::PwmChannelId
+pub hisi_riscv_hal::prelude::PwmChannelId::Ch0
+pub hisi_riscv_hal::prelude::PwmChannelId::Ch1
+pub hisi_riscv_hal::prelude::PwmChannelId::Ch2
+pub hisi_riscv_hal::prelude::PwmChannelId::Ch3
+pub hisi_riscv_hal::prelude::PwmChannelId::Ch4
+pub hisi_riscv_hal::prelude::PwmChannelId::Ch5
+pub hisi_riscv_hal::prelude::PwmChannelId::Ch6
+pub hisi_riscv_hal::prelude::PwmChannelId::Ch7
+impl hisi_riscv_hal::pwm::PwmChannelId
+pub const fn hisi_riscv_hal::pwm::PwmChannelId::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::pwm::PwmChannelId::index(self) -> u8
+pub enum hisi_riscv_hal::prelude::TimerChannel
+pub hisi_riscv_hal::prelude::TimerChannel::Channel0
+pub hisi_riscv_hal::prelude::TimerChannel::Channel1
+pub hisi_riscv_hal::prelude::TimerChannel::Channel2
+impl hisi_riscv_hal::timer::TimerChannel
+pub const fn hisi_riscv_hal::timer::TimerChannel::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::timer::TimerChannel::index(self) -> usize
+pub enum hisi_riscv_hal::prelude::UartClock
+pub hisi_riscv_hal::prelude::UartClock::Boot
+pub hisi_riscv_hal::prelude::UartClock::Pll
+pub enum hisi_riscv_hal::prelude::UartPort
+pub hisi_riscv_hal::prelude::UartPort::Uart0
+pub hisi_riscv_hal::prelude::UartPort::Uart1
+pub hisi_riscv_hal::prelude::UartPort::Uart2
+impl hisi_riscv_hal::uart::UartPort
+pub const fn hisi_riscv_hal::uart::UartPort::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::uart::UartPort::index(self) -> usize
+pub struct hisi_riscv_hal::prelude::AnyPin<'d>
+impl<'d> hisi_riscv_hal::gpio::AnyPin<'d>
+pub fn hisi_riscv_hal::gpio::AnyPin<'d>::init_flex(self, hisi_riscv_hal::gpio::OutputConfig) -> hisi_riscv_hal::gpio::Flex<'d>
+pub fn hisi_riscv_hal::gpio::AnyPin<'d>::init_input(self, hisi_riscv_hal::gpio::InputConfig) -> hisi_riscv_hal::gpio::Input<'d>
+pub fn hisi_riscv_hal::gpio::AnyPin<'d>::init_output(self, hisi_riscv_hal::gpio::OutputConfig) -> hisi_riscv_hal::gpio::Output<'d>
+pub fn hisi_riscv_hal::gpio::AnyPin<'d>::number(&self) -> u8
+pub unsafe fn hisi_riscv_hal::gpio::AnyPin<'d>::steal(u8) -> Self
+pub struct hisi_riscv_hal::prelude::Duration(_)
+impl hisi_riscv_hal::time::Duration
+pub const fn hisi_riscv_hal::time::Duration::as_micros(&self) -> u64
+pub const fn hisi_riscv_hal::time::Duration::as_millis(&self) -> u64
+pub const fn hisi_riscv_hal::time::Duration::as_secs(&self) -> u64
+pub const fn hisi_riscv_hal::time::Duration::from_micros(u64) -> Self
+pub const fn hisi_riscv_hal::time::Duration::from_millis(u64) -> Self
+pub const fn hisi_riscv_hal::time::Duration::from_secs(u64) -> Self
+impl core::ops::arith::Add for hisi_riscv_hal::time::Duration
+pub type hisi_riscv_hal::time::Duration::Output = hisi_riscv_hal::time::Duration
+pub fn hisi_riscv_hal::time::Duration::add(self, Self) -> Self
+impl core::ops::arith::AddAssign for hisi_riscv_hal::time::Duration
+pub fn hisi_riscv_hal::time::Duration::add_assign(&mut self, Self)
+impl core::ops::arith::Sub for hisi_riscv_hal::time::Duration
+pub type hisi_riscv_hal::time::Duration::Output = hisi_riscv_hal::time::Duration
+pub fn hisi_riscv_hal::time::Duration::sub(self, Self) -> Self
+pub struct hisi_riscv_hal::prelude::Duty(_)
+impl hisi_riscv_hal::pwm::Duty
+pub const hisi_riscv_hal::pwm::Duty::FULL: hisi_riscv_hal::pwm::Duty
+pub const hisi_riscv_hal::pwm::Duty::HALF: hisi_riscv_hal::pwm::Duty
+pub const hisi_riscv_hal::pwm::Duty::ZERO: hisi_riscv_hal::pwm::Duty
+pub const fn hisi_riscv_hal::pwm::Duty::from_percent(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::pwm::Duty::percent(self) -> u8
+pub struct hisi_riscv_hal::prelude::EfuseByteAddress(_)
+impl hisi_riscv_hal::efuse::EfuseByteAddress
+pub const fn hisi_riscv_hal::efuse::EfuseByteAddress::byte(self) -> u16
+pub const fn hisi_riscv_hal::efuse::EfuseByteAddress::from_byte(u16) -> core::option::Option<Self>
+pub struct hisi_riscv_hal::prelude::EfuseDriver<'d>
+impl<'d> hisi_riscv_hal::efuse::EfuseDriver<'d>
+pub fn hisi_riscv_hal::efuse::EfuseDriver<'d>::new(hisi_riscv_hal::peripherals::Efuse<'d>) -> Self
+pub fn hisi_riscv_hal::efuse::EfuseDriver<'d>::read_byte(&mut self, hisi_riscv_hal::efuse::EfuseByteAddress) -> u8
+pub struct hisi_riscv_hal::prelude::Flex<'d>
+impl<'d> hisi_riscv_hal::gpio::Flex<'d>
+pub fn hisi_riscv_hal::gpio::Flex<'d>::degrade(self) -> hisi_riscv_hal::gpio::AnyPin<'d>
+pub fn hisi_riscv_hal::gpio::Flex<'d>::is_high(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Flex<'d>::is_low(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Flex<'d>::is_set_high(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Flex<'d>::number(&self) -> u8
+pub fn hisi_riscv_hal::gpio::Flex<'d>::set_as_input(&mut self)
+pub fn hisi_riscv_hal::gpio::Flex<'d>::set_as_output(&mut self)
+pub fn hisi_riscv_hal::gpio::Flex<'d>::set_high(&mut self)
+pub fn hisi_riscv_hal::gpio::Flex<'d>::set_low(&mut self)
+pub fn hisi_riscv_hal::gpio::Flex<'d>::toggle(&mut self)
+impl embedded_hal::digital::ErrorType for hisi_riscv_hal::gpio::Flex<'_>
+pub type hisi_riscv_hal::gpio::Flex<'_>::Error = core::convert::Infallible
+impl embedded_hal::digital::InputPin for hisi_riscv_hal::gpio::Flex<'_>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::is_high(&mut self) -> core::result::Result<bool, Self::Error>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::is_low(&mut self) -> core::result::Result<bool, Self::Error>
+impl embedded_hal::digital::OutputPin for hisi_riscv_hal::gpio::Flex<'_>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::set_high(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::set_low(&mut self) -> core::result::Result<(), Self::Error>
+impl embedded_hal::digital::StatefulOutputPin for hisi_riscv_hal::gpio::Flex<'_>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::is_set_high(&mut self) -> core::result::Result<bool, Self::Error>
+pub fn hisi_riscv_hal::gpio::Flex<'_>::is_set_low(&mut self) -> core::result::Result<bool, Self::Error>
+pub struct hisi_riscv_hal::prelude::I2c<'d, T>
+impl<'d> hisi_riscv_hal::i2c::I2c<'d, hisi_riscv_hal::peripherals::I2c0<'d>>
+pub fn hisi_riscv_hal::i2c::I2c<'d, hisi_riscv_hal::peripherals::I2c0<'d>>::new_i2c0(hisi_riscv_hal::peripherals::I2c0<'d>, hisi_riscv_hal::i2c::Speed) -> Self
+impl<T> hisi_riscv_hal::i2c::I2c<'_, T>
+pub fn hisi_riscv_hal::i2c::I2c<'_, T>::read(&mut self, u8, &mut [u8]) -> core::result::Result<(), hisi_riscv_hal::i2c::I2cError>
+pub fn hisi_riscv_hal::i2c::I2c<'_, T>::write(&mut self, u8, &[u8]) -> core::result::Result<(), hisi_riscv_hal::i2c::I2cError>
+pub fn hisi_riscv_hal::i2c::I2c<'_, T>::write_read(&mut self, u8, &[u8], &mut [u8]) -> core::result::Result<(), hisi_riscv_hal::i2c::I2cError>
+impl embedded_hal::i2c::ErrorType for hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c0<'_>>
+pub type hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c0<'_>>::Error = hisi_riscv_hal::i2c::I2cError
+impl embedded_hal::i2c::ErrorType for hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c1<'_>>
+pub type hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c1<'_>>::Error = hisi_riscv_hal::i2c::I2cError
+impl embedded_hal::i2c::I2c for hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c0<'_>>
+pub fn hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c0<'_>>::transaction(&mut self, u8, &mut [embedded_hal::i2c::Operation<'_>]) -> core::result::Result<(), Self::Error>
+impl embedded_hal::i2c::I2c for hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c1<'_>>
+pub fn hisi_riscv_hal::i2c::I2c<'_, hisi_riscv_hal::peripherals::I2c1<'_>>::transaction(&mut self, u8, &mut [embedded_hal::i2c::Operation<'_>]) -> core::result::Result<(), Self::Error>
+pub struct hisi_riscv_hal::prelude::I2sDriver<'d, R>
+impl<'d, R: hisi_riscv_hal::i2s::sealed::Role> hisi_riscv_hal::i2s::I2sDriver<'d, R>
+pub fn hisi_riscv_hal::i2s::I2sDriver<'d, R>::version(&self) -> u8
+impl<'d> hisi_riscv_hal::i2s::I2sDriver<'d, hisi_riscv_hal::i2s::Master>
+pub fn hisi_riscv_hal::i2s::I2sDriver<'d, hisi_riscv_hal::i2s::Master>::new_master(hisi_riscv_hal::peripherals::I2s<'d>, &hisi_riscv_hal::i2s::MasterConfig) -> Self
+pub struct hisi_riscv_hal::prelude::Input<'d>
+impl<'d> hisi_riscv_hal::gpio::Input<'d>
+pub fn hisi_riscv_hal::gpio::Input<'d>::degrade(self) -> hisi_riscv_hal::gpio::AnyPin<'d>
+pub fn hisi_riscv_hal::gpio::Input<'d>::is_high(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Input<'d>::is_low(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Input<'d>::number(&self) -> u8
+impl embedded_hal::digital::ErrorType for hisi_riscv_hal::gpio::Input<'_>
+pub type hisi_riscv_hal::gpio::Input<'_>::Error = core::convert::Infallible
+impl embedded_hal::digital::InputPin for hisi_riscv_hal::gpio::Input<'_>
+pub fn hisi_riscv_hal::gpio::Input<'_>::is_high(&mut self) -> core::result::Result<bool, Self::Error>
+pub fn hisi_riscv_hal::gpio::Input<'_>::is_low(&mut self) -> core::result::Result<bool, Self::Error>
+pub struct hisi_riscv_hal::prelude::InputConfig
+pub hisi_riscv_hal::prelude::InputConfig::pull: hisi_riscv_hal::gpio::Pull
+impl hisi_riscv_hal::gpio::InputConfig
+pub const fn hisi_riscv_hal::gpio::InputConfig::new() -> Self
+pub const fn hisi_riscv_hal::gpio::InputConfig::with_pull(self, hisi_riscv_hal::gpio::Pull) -> Self
+impl core::default::Default for hisi_riscv_hal::gpio::InputConfig
+pub fn hisi_riscv_hal::gpio::InputConfig::default() -> Self
+pub struct hisi_riscv_hal::prelude::Instant(_)
+impl hisi_riscv_hal::time::Instant
+pub fn hisi_riscv_hal::time::Instant::checked_duration_since(&self, hisi_riscv_hal::time::Instant) -> core::option::Option<hisi_riscv_hal::time::Duration>
+pub fn hisi_riscv_hal::time::Instant::duration_since(&self, hisi_riscv_hal::time::Instant) -> hisi_riscv_hal::time::Duration
+pub fn hisi_riscv_hal::time::Instant::raw(&self) -> u64
+pub struct hisi_riscv_hal::prelude::IoConfigDriver<'d>
+impl<'d> hisi_riscv_hal::io_config::IoConfigDriver<'d>
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::configure_gpio_pad(&mut self, hisi_riscv_hal::io_config::GpioPad, hisi_riscv_hal::io_config::DriveStrength, hisi_riscv_hal::io_config::PullResistor, bool, bool)
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::configure_uart_pad(&mut self, hisi_riscv_hal::io_config::UartPad, hisi_riscv_hal::io_config::DriveStrength, hisi_riscv_hal::io_config::PullResistor, bool, bool)
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::gpio_mux(&self, hisi_riscv_hal::io_config::GpioPad) -> hisi_riscv_hal::io_config::MuxFunction
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::new(hisi_riscv_hal::peripherals::IoConfig<'d>) -> Self
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::read_gpio_pad(&self, hisi_riscv_hal::io_config::GpioPad) -> u32
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::set_gpio_mux(&mut self, hisi_riscv_hal::io_config::GpioPad, hisi_riscv_hal::io_config::MuxFunction)
+pub fn hisi_riscv_hal::io_config::IoConfigDriver<'d>::set_uart_mux(&mut self, hisi_riscv_hal::io_config::UartPad, hisi_riscv_hal::io_config::MuxFunction)
+pub struct hisi_riscv_hal::prelude::LsAdc<'d>
+impl<'d> hisi_riscv_hal::lsadc::LsAdc<'d>
+pub fn hisi_riscv_hal::lsadc::LsAdc<'d>::configure_scan(&mut self, hisi_riscv_hal::lsadc::AdcChannel, &hisi_riscv_hal::lsadc::AdcConfig)
+pub fn hisi_riscv_hal::lsadc::LsAdc<'d>::new(hisi_riscv_hal::peripherals::Lsadc<'d>) -> Self
+pub struct hisi_riscv_hal::prelude::Output<'d>
+impl<'d> hisi_riscv_hal::gpio::Output<'d>
+pub fn hisi_riscv_hal::gpio::Output<'d>::degrade(self) -> hisi_riscv_hal::gpio::AnyPin<'d>
+pub fn hisi_riscv_hal::gpio::Output<'d>::into_flex(self) -> hisi_riscv_hal::gpio::Flex<'d>
+pub fn hisi_riscv_hal::gpio::Output<'d>::into_latched(self) -> hisi_riscv_hal::gpio::OutputLatched
+pub fn hisi_riscv_hal::gpio::Output<'d>::is_set_high(&self) -> bool
+pub fn hisi_riscv_hal::gpio::Output<'d>::number(&self) -> u8
+pub fn hisi_riscv_hal::gpio::Output<'d>::set_high(&mut self)
+pub fn hisi_riscv_hal::gpio::Output<'d>::set_low(&mut self)
+pub fn hisi_riscv_hal::gpio::Output<'d>::toggle(&mut self)
+impl core::ops::drop::Drop for hisi_riscv_hal::gpio::Output<'_>
+pub fn hisi_riscv_hal::gpio::Output<'_>::drop(&mut self)
+impl embedded_hal::digital::ErrorType for hisi_riscv_hal::gpio::Output<'_>
+pub type hisi_riscv_hal::gpio::Output<'_>::Error = core::convert::Infallible
+impl embedded_hal::digital::OutputPin for hisi_riscv_hal::gpio::Output<'_>
+pub fn hisi_riscv_hal::gpio::Output<'_>::set_high(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::gpio::Output<'_>::set_low(&mut self) -> core::result::Result<(), Self::Error>
+impl embedded_hal::digital::StatefulOutputPin for hisi_riscv_hal::gpio::Output<'_>
+pub fn hisi_riscv_hal::gpio::Output<'_>::is_set_high(&mut self) -> core::result::Result<bool, Self::Error>
+pub fn hisi_riscv_hal::gpio::Output<'_>::is_set_low(&mut self) -> core::result::Result<bool, Self::Error>
+pub struct hisi_riscv_hal::prelude::OutputConfig
+pub hisi_riscv_hal::prelude::OutputConfig::initial_high: bool
+impl hisi_riscv_hal::gpio::OutputConfig
+pub const fn hisi_riscv_hal::gpio::OutputConfig::new() -> Self
+pub const fn hisi_riscv_hal::gpio::OutputConfig::with_initial(self, bool) -> Self
+pub struct hisi_riscv_hal::prelude::Peripherals
+pub hisi_riscv_hal::prelude::Peripherals::BT_EM_CTL: hisi_riscv_hal::peripherals::BtEmCtl<'static>
+pub hisi_riscv_hal::prelude::Peripherals::CLDO_CRG: hisi_riscv_hal::peripherals::CldoCrg<'static>
+pub hisi_riscv_hal::prelude::Peripherals::DMA: hisi_riscv_hal::peripherals::Dma<'static>
+pub hisi_riscv_hal::prelude::Peripherals::EFUSE: hisi_riscv_hal::peripherals::Efuse<'static>
+pub hisi_riscv_hal::prelude::Peripherals::FAMA_REMAP: hisi_riscv_hal::peripherals::FamaRemap<'static>
+pub hisi_riscv_hal::prelude::Peripherals::GLB_CTL_M: hisi_riscv_hal::peripherals::GlbCtlM<'static>
+pub hisi_riscv_hal::prelude::Peripherals::GPIO0: hisi_riscv_hal::peripherals::Gpio0<'static>
+pub hisi_riscv_hal::prelude::Peripherals::GPIO1: hisi_riscv_hal::peripherals::Gpio1<'static>
+pub hisi_riscv_hal::prelude::Peripherals::GPIO2: hisi_riscv_hal::peripherals::Gpio2<'static>
+pub hisi_riscv_hal::prelude::Peripherals::I2C0: hisi_riscv_hal::peripherals::I2c0<'static>
+pub hisi_riscv_hal::prelude::Peripherals::I2C1: hisi_riscv_hal::peripherals::I2c1<'static>
+pub hisi_riscv_hal::prelude::Peripherals::I2S: hisi_riscv_hal::peripherals::I2s<'static>
+pub hisi_riscv_hal::prelude::Peripherals::IO_CONFIG: hisi_riscv_hal::peripherals::IoConfig<'static>
+pub hisi_riscv_hal::prelude::Peripherals::KM: hisi_riscv_hal::peripherals::Km<'static>
+pub hisi_riscv_hal::prelude::Peripherals::LSADC: hisi_riscv_hal::peripherals::Lsadc<'static>
+pub hisi_riscv_hal::prelude::Peripherals::PKE: hisi_riscv_hal::peripherals::Pke<'static>
+pub hisi_riscv_hal::prelude::Peripherals::PWM: hisi_riscv_hal::peripherals::Pwm<'static>
+pub hisi_riscv_hal::prelude::Peripherals::RF_WB_CTL: hisi_riscv_hal::peripherals::RfWbCtl<'static>
+pub hisi_riscv_hal::prelude::Peripherals::RTC: hisi_riscv_hal::peripherals::Rtc<'static>
+pub hisi_riscv_hal::prelude::Peripherals::SDMA: hisi_riscv_hal::peripherals::Sdma<'static>
+pub hisi_riscv_hal::prelude::Peripherals::SFC_CFG: hisi_riscv_hal::peripherals::SfcCfg<'static>
+pub hisi_riscv_hal::prelude::Peripherals::SHARE_MEM_CTL: hisi_riscv_hal::peripherals::ShareMemCtl<'static>
+pub hisi_riscv_hal::prelude::Peripherals::SPACC: hisi_riscv_hal::peripherals::Spacc<'static>
+pub hisi_riscv_hal::prelude::Peripherals::SPI0: hisi_riscv_hal::peripherals::Spi0<'static>
+pub hisi_riscv_hal::prelude::Peripherals::SPI1: hisi_riscv_hal::peripherals::Spi1<'static>
+pub hisi_riscv_hal::prelude::Peripherals::SYS_CTL0: hisi_riscv_hal::peripherals::SysCtl0<'static>
+pub hisi_riscv_hal::prelude::Peripherals::SYS_CTL1: hisi_riscv_hal::peripherals::SysCtl1<'static>
+pub hisi_riscv_hal::prelude::Peripherals::TCXO: hisi_riscv_hal::peripherals::Tcxo<'static>
+pub hisi_riscv_hal::prelude::Peripherals::TIMER: hisi_riscv_hal::peripherals::Timer<'static>
+pub hisi_riscv_hal::prelude::Peripherals::TRNG: hisi_riscv_hal::peripherals::Trng<'static>
+pub hisi_riscv_hal::prelude::Peripherals::TSENSOR: hisi_riscv_hal::peripherals::Tsensor<'static>
+pub hisi_riscv_hal::prelude::Peripherals::UART0: hisi_riscv_hal::peripherals::Uart0<'static>
+pub hisi_riscv_hal::prelude::Peripherals::UART1: hisi_riscv_hal::peripherals::Uart1<'static>
+pub hisi_riscv_hal::prelude::Peripherals::UART2: hisi_riscv_hal::peripherals::Uart2<'static>
+pub hisi_riscv_hal::prelude::Peripherals::ULP_GPIO: hisi_riscv_hal::peripherals::UlpGpio<'static>
+pub hisi_riscv_hal::prelude::Peripherals::WDT: hisi_riscv_hal::peripherals::Wdt<'static>
+impl hisi_riscv_hal::peripherals::Peripherals
+pub unsafe fn hisi_riscv_hal::peripherals::Peripherals::steal() -> Self
+pub fn hisi_riscv_hal::peripherals::Peripherals::take() -> core::option::Option<Self>
+pub struct hisi_riscv_hal::prelude::Priority(_)
+impl hisi_riscv_hal::interrupt::Priority
+pub const hisi_riscv_hal::interrupt::Priority::HIGHEST: Self
+pub const hisi_riscv_hal::interrupt::Priority::LOWEST: Self
+pub const hisi_riscv_hal::interrupt::Priority::P1: Self
+pub const hisi_riscv_hal::interrupt::Priority::P2: Self
+pub const hisi_riscv_hal::interrupt::Priority::P3: Self
+pub const hisi_riscv_hal::interrupt::Priority::P4: Self
+pub const hisi_riscv_hal::interrupt::Priority::P5: Self
+pub const hisi_riscv_hal::interrupt::Priority::P6: Self
+pub const hisi_riscv_hal::interrupt::Priority::P7: Self
+pub const fn hisi_riscv_hal::interrupt::Priority::from_level(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::interrupt::Priority::level(self) -> u8
+pub struct hisi_riscv_hal::prelude::PwmChannel<'d>
+impl<'d> hisi_riscv_hal::pwm::PwmChannel<'d>
+pub fn hisi_riscv_hal::pwm::PwmChannel<'d>::configure(&mut self, hisi_riscv_hal::pwm::PwmPeriod, hisi_riscv_hal::pwm::Duty)
+pub fn hisi_riscv_hal::pwm::PwmChannel<'d>::disable(&mut self)
+pub fn hisi_riscv_hal::pwm::PwmChannel<'d>::enable(&mut self)
+pub fn hisi_riscv_hal::pwm::PwmChannel<'d>::new(&hisi_riscv_hal::peripherals::Pwm<'d>, hisi_riscv_hal::pwm::PwmChannelId) -> Self
+impl core::ops::drop::Drop for hisi_riscv_hal::pwm::PwmChannel<'_>
+pub fn hisi_riscv_hal::pwm::PwmChannel<'_>::drop(&mut self)
+impl embedded_hal::pwm::ErrorType for hisi_riscv_hal::pwm::PwmChannel<'_>
+pub type hisi_riscv_hal::pwm::PwmChannel<'_>::Error = hisi_riscv_hal::pwm::PwmError
+impl embedded_hal::pwm::SetDutyCycle for hisi_riscv_hal::pwm::PwmChannel<'_>
+pub fn hisi_riscv_hal::pwm::PwmChannel<'_>::max_duty_cycle(&self) -> u16
+pub fn hisi_riscv_hal::pwm::PwmChannel<'_>::set_duty_cycle(&mut self, u16) -> core::result::Result<(), Self::Error>
+pub struct hisi_riscv_hal::prelude::PwmPeriod(_)
+impl hisi_riscv_hal::pwm::PwmPeriod
+pub const fn hisi_riscv_hal::pwm::PwmPeriod::count(self) -> u16
+pub const fn hisi_riscv_hal::pwm::PwmPeriod::duty_count(self, hisi_riscv_hal::pwm::Duty) -> u16
+pub const fn hisi_riscv_hal::pwm::PwmPeriod::from_count(u16) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::pwm::PwmPeriod::try_from_hz(u32) -> core::option::Option<Self>
+pub struct hisi_riscv_hal::prelude::Rate(_)
+impl hisi_riscv_hal::time::Rate
+pub const fn hisi_riscv_hal::time::Rate::from_hz(u32) -> Self
+pub const fn hisi_riscv_hal::time::Rate::from_khz(u32) -> Self
+pub const fn hisi_riscv_hal::time::Rate::from_mhz(u32) -> Self
+pub const fn hisi_riscv_hal::time::Rate::to_hz(&self) -> u32
+pub const fn hisi_riscv_hal::time::Rate::to_khz(&self) -> u32
+pub struct hisi_riscv_hal::prelude::Spi<'d, T>
+impl<'d, T> hisi_riscv_hal::spi::Spi<'d, T>
+pub fn hisi_riscv_hal::spi::Spi<'d, T>::transfer(&mut self, &[u8], &mut [u8]) -> core::result::Result<(), hisi_riscv_hal::spi::SpiError>
+pub fn hisi_riscv_hal::spi::Spi<'d, T>::wait_idle(&self) -> core::result::Result<(), hisi_riscv_hal::spi::SpiError>
+pub fn hisi_riscv_hal::spi::Spi<'d, T>::write(&mut self, &[u8]) -> core::result::Result<(), hisi_riscv_hal::spi::SpiError>
+impl<'d> hisi_riscv_hal::spi::Spi<'d, hisi_riscv_hal::peripherals::Spi0<'d>>
+pub fn hisi_riscv_hal::spi::Spi<'d, hisi_riscv_hal::peripherals::Spi0<'d>>::new_spi0(hisi_riscv_hal::peripherals::Spi0<'d>, hisi_riscv_hal::spi::Config) -> Self
+impl embedded_hal::spi::ErrorType for hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>
+pub type hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::Error = hisi_riscv_hal::spi::SpiError
+impl embedded_hal::spi::ErrorType for hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>
+pub type hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::Error = hisi_riscv_hal::spi::SpiError
+impl embedded_hal::spi::SpiBus for hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::transfer(&mut self, &mut [u8], &[u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::transfer_in_place(&mut self, &mut [u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::write(&mut self, &[u8]) -> core::result::Result<(), Self::Error>
+impl embedded_hal::spi::SpiBus for hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::transfer(&mut self, &mut [u8], &[u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::transfer_in_place(&mut self, &mut [u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::write(&mut self, &[u8]) -> core::result::Result<(), Self::Error>
+pub struct hisi_riscv_hal::prelude::System<'d>
+pub hisi_riscv_hal::prelude::System::cldo_crg: hisi_riscv_hal::peripherals::CldoCrg<'d>
+pub hisi_riscv_hal::prelude::System::glb_ctl_m: hisi_riscv_hal::peripherals::GlbCtlM<'d>
+pub hisi_riscv_hal::prelude::System::sys_ctl0: hisi_riscv_hal::peripherals::SysCtl0<'d>
+impl hisi_riscv_hal::system::System<'_>
+pub fn hisi_riscv_hal::system::System<'_>::reset_reason(&self) -> hisi_riscv_hal::system::ResetReason
+impl<'d> hisi_riscv_hal::system::System<'d>
+pub fn hisi_riscv_hal::system::System<'d>::new(hisi_riscv_hal::peripherals::SysCtl0<'d>, hisi_riscv_hal::peripherals::GlbCtlM<'d>, hisi_riscv_hal::peripherals::CldoCrg<'d>) -> Self
+pub struct hisi_riscv_hal::prelude::TcxoDriver<'d>
+impl<'d> hisi_riscv_hal::tcxo::TcxoDriver<'d>
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::clear(&mut self)
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::disable(&mut self)
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::enable(&mut self)
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::is_valid(&self) -> bool
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::new(hisi_riscv_hal::peripherals::Tcxo<'d>) -> Self
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::read_counter(&self) -> core::option::Option<u64>
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::read_counter32(&self) -> core::option::Option<u32>
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::refresh_ok(&self) -> bool
+pub struct hisi_riscv_hal::prelude::TempSensor<'d>
+impl<'d> hisi_riscv_hal::tsensor::TempSensor<'d>
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::data_ready(&self) -> bool
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::enable(&mut self)
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::new(hisi_riscv_hal::peripherals::Tsensor<'d>) -> Self
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::read_raw(&self) -> core::option::Option<u16>
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::start_conversion(&mut self)
+pub struct hisi_riscv_hal::prelude::Threshold(_)
+impl hisi_riscv_hal::interrupt::Threshold
+pub const hisi_riscv_hal::interrupt::Threshold::T0: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T1: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T2: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T3: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T4: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T5: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T6: Self
+pub const hisi_riscv_hal::interrupt::Threshold::T7: Self
+pub const fn hisi_riscv_hal::interrupt::Threshold::from_level(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::interrupt::Threshold::level(self) -> u8
+pub struct hisi_riscv_hal::prelude::TimerDriver<'d>
+impl<'d> hisi_riscv_hal::timer::TimerDriver<'d>
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::clear_interrupt(&self, hisi_riscv_hal::timer::TimerChannel)
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::configure(&self, hisi_riscv_hal::timer::TimerChannel, hisi_riscv_hal::timer::TimerMode, u32)
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::current_value(&self, hisi_riscv_hal::timer::TimerChannel) -> u32
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::disable(&self, hisi_riscv_hal::timer::TimerChannel)
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::enable(&self, hisi_riscv_hal::timer::TimerChannel)
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::interrupt_pending(&self, hisi_riscv_hal::timer::TimerChannel) -> bool
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::new(hisi_riscv_hal::peripherals::Timer<'d>) -> Self
+pub struct hisi_riscv_hal::prelude::TrngDriver<'d>
+impl<'d> hisi_riscv_hal::trng::TrngDriver<'d>
+pub fn hisi_riscv_hal::trng::TrngDriver<'d>::data_ready(&self) -> bool
+pub fn hisi_riscv_hal::trng::TrngDriver<'d>::fill_bytes(&self, &mut [u8]) -> core::result::Result<(), hisi_riscv_hal::trng::TrngError>
+pub fn hisi_riscv_hal::trng::TrngDriver<'d>::new(hisi_riscv_hal::peripherals::Trng<'d>) -> Self
+pub fn hisi_riscv_hal::trng::TrngDriver<'d>::read_blocking(&self) -> core::result::Result<u32, hisi_riscv_hal::trng::TrngError>
+pub struct hisi_riscv_hal::prelude::Uart<'d, T>
+impl<'d> hisi_riscv_hal::uart::Uart<'d, hisi_riscv_hal::peripherals::Uart0<'d>>
+pub fn hisi_riscv_hal::uart::Uart<'d, hisi_riscv_hal::peripherals::Uart0<'d>>::new_uart0(hisi_riscv_hal::peripherals::Uart0<'d>, hisi_riscv_hal::uart::Config) -> Self
+impl<'d> hisi_riscv_hal::uart::Uart<'d, hisi_riscv_hal::peripherals::Uart1<'d>>
+pub fn hisi_riscv_hal::uart::Uart<'d, hisi_riscv_hal::peripherals::Uart1<'d>>::new_uart1(hisi_riscv_hal::peripherals::Uart1<'d>, hisi_riscv_hal::uart::Config) -> Self
+impl<T: hisi_riscv_hal::uart::UartInstance> hisi_riscv_hal::uart::Uart<'_, T>
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::flush_tx(&self)
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::read_byte(&self) -> core::option::Option<u8>
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::tx_flushed(&self) -> bool
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::write(&self, &[u8])
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::write_byte(&self, u8)
+impl embedded_hal_nb::serial::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::Error = core::convert::Infallible
+impl embedded_hal_nb::serial::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::Error = core::convert::Infallible
+impl embedded_hal_nb::serial::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::Error = core::convert::Infallible
+impl embedded_hal_nb::serial::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::read(&mut self) -> nb::Result<u8, Self::Error>
+impl embedded_hal_nb::serial::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::read(&mut self) -> nb::Result<u8, Self::Error>
+impl embedded_hal_nb::serial::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::read(&mut self) -> nb::Result<u8, Self::Error>
+impl embedded_hal_nb::serial::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::flush(&mut self) -> nb::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::write(&mut self, u8) -> nb::Result<(), Self::Error>
+impl embedded_hal_nb::serial::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::flush(&mut self) -> nb::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::write(&mut self, u8) -> nb::Result<(), Self::Error>
+impl embedded_hal_nb::serial::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::flush(&mut self) -> nb::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::write(&mut self, u8) -> nb::Result<(), Self::Error>
+impl embedded_io::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::Error = core::convert::Infallible
+impl embedded_io::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::Error = core::convert::Infallible
+impl embedded_io::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::Error = core::convert::Infallible
+impl embedded_io::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
+pub struct hisi_riscv_hal::prelude::Watchdog<'d>
+impl<'d> hisi_riscv_hal::wdt::Watchdog<'d>
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::configure(&mut self, hisi_riscv_hal::wdt::WdtTimeout, hisi_riscv_hal::wdt::WdtMode, bool, hisi_riscv_hal::wdt::ResetPulseLength) -> core::result::Result<(), hisi_riscv_hal::wdt::WdtError>
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::counter_value(&self) -> core::result::Result<u32, hisi_riscv_hal::wdt::WdtError>
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::disable(&mut self)
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::enable(&mut self)
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::feed(&mut self)
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::into_armed(self) -> hisi_riscv_hal::wdt::WatchdogArmed
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::is_busy(&self) -> bool
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::leak(self) -> hisi_riscv_hal::wdt::WatchdogArmed
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::new(hisi_riscv_hal::peripherals::Wdt<'d>) -> Self
+impl core::ops::drop::Drop for hisi_riscv_hal::wdt::Watchdog<'_>
+pub fn hisi_riscv_hal::wdt::Watchdog<'_>::drop(&mut self)
+pub mod hisi_riscv_hal::pwm
+pub enum hisi_riscv_hal::pwm::PwmChannelId
+pub hisi_riscv_hal::pwm::PwmChannelId::Ch0
+pub hisi_riscv_hal::pwm::PwmChannelId::Ch1
+pub hisi_riscv_hal::pwm::PwmChannelId::Ch2
+pub hisi_riscv_hal::pwm::PwmChannelId::Ch3
+pub hisi_riscv_hal::pwm::PwmChannelId::Ch4
+pub hisi_riscv_hal::pwm::PwmChannelId::Ch5
+pub hisi_riscv_hal::pwm::PwmChannelId::Ch6
+pub hisi_riscv_hal::pwm::PwmChannelId::Ch7
+impl hisi_riscv_hal::pwm::PwmChannelId
+pub const fn hisi_riscv_hal::pwm::PwmChannelId::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::pwm::PwmChannelId::index(self) -> u8
+#[non_exhaustive] pub enum hisi_riscv_hal::pwm::PwmError
+pub hisi_riscv_hal::pwm::PwmError::DutyOutOfRange
+impl embedded_hal::pwm::Error for hisi_riscv_hal::pwm::PwmError
+pub fn hisi_riscv_hal::pwm::PwmError::kind(&self) -> embedded_hal::pwm::ErrorKind
+pub struct hisi_riscv_hal::pwm::Duty(_)
+impl hisi_riscv_hal::pwm::Duty
+pub const hisi_riscv_hal::pwm::Duty::FULL: hisi_riscv_hal::pwm::Duty
+pub const hisi_riscv_hal::pwm::Duty::HALF: hisi_riscv_hal::pwm::Duty
+pub const hisi_riscv_hal::pwm::Duty::ZERO: hisi_riscv_hal::pwm::Duty
+pub const fn hisi_riscv_hal::pwm::Duty::from_percent(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::pwm::Duty::percent(self) -> u8
+pub struct hisi_riscv_hal::pwm::PwmChannel<'d>
+impl<'d> hisi_riscv_hal::pwm::PwmChannel<'d>
+pub fn hisi_riscv_hal::pwm::PwmChannel<'d>::configure(&mut self, hisi_riscv_hal::pwm::PwmPeriod, hisi_riscv_hal::pwm::Duty)
+pub fn hisi_riscv_hal::pwm::PwmChannel<'d>::disable(&mut self)
+pub fn hisi_riscv_hal::pwm::PwmChannel<'d>::enable(&mut self)
+pub fn hisi_riscv_hal::pwm::PwmChannel<'d>::new(&hisi_riscv_hal::peripherals::Pwm<'d>, hisi_riscv_hal::pwm::PwmChannelId) -> Self
+impl core::ops::drop::Drop for hisi_riscv_hal::pwm::PwmChannel<'_>
+pub fn hisi_riscv_hal::pwm::PwmChannel<'_>::drop(&mut self)
+impl embedded_hal::pwm::ErrorType for hisi_riscv_hal::pwm::PwmChannel<'_>
+pub type hisi_riscv_hal::pwm::PwmChannel<'_>::Error = hisi_riscv_hal::pwm::PwmError
+impl embedded_hal::pwm::SetDutyCycle for hisi_riscv_hal::pwm::PwmChannel<'_>
+pub fn hisi_riscv_hal::pwm::PwmChannel<'_>::max_duty_cycle(&self) -> u16
+pub fn hisi_riscv_hal::pwm::PwmChannel<'_>::set_duty_cycle(&mut self, u16) -> core::result::Result<(), Self::Error>
+pub struct hisi_riscv_hal::pwm::PwmPeriod(_)
+impl hisi_riscv_hal::pwm::PwmPeriod
+pub const fn hisi_riscv_hal::pwm::PwmPeriod::count(self) -> u16
+pub const fn hisi_riscv_hal::pwm::PwmPeriod::duty_count(self, hisi_riscv_hal::pwm::Duty) -> u16
+pub const fn hisi_riscv_hal::pwm::PwmPeriod::from_count(u16) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::pwm::PwmPeriod::try_from_hz(u32) -> core::option::Option<Self>
+pub const hisi_riscv_hal::pwm::PWM_CLOCK_HZ: u32
+pub mod hisi_riscv_hal::soc
+pub mod hisi_riscv_hal::soc::chip
+pub use hisi_riscv_hal::soc::chip::Interrupt
+pub const hisi_riscv_hal::soc::chip::ALARM_INTERRUPT: ws63_pac::interrupt::ExternalInterrupt
+pub const hisi_riscv_hal::soc::chip::DMA_CHANNEL_COUNT: usize
+pub const hisi_riscv_hal::soc::chip::GPIO_COUNT: usize
+pub const hisi_riscv_hal::soc::chip::I2C_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::chip::I2C_COUNT: usize
+pub const hisi_riscv_hal::soc::chip::LSADC_CHANNEL_COUNT: usize
+pub const hisi_riscv_hal::soc::chip::PWM_CHANNEL_COUNT: usize
+pub const hisi_riscv_hal::soc::chip::RTC_COUNTER_WIDTH: usize
+pub const hisi_riscv_hal::soc::chip::SPI_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::chip::SPI_COUNT: usize
+pub const hisi_riscv_hal::soc::chip::SYSTEM_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::chip::TCXO_COUNTER_WIDTH: usize
+pub const hisi_riscv_hal::soc::chip::TCXO_HZ: u32
+pub const hisi_riscv_hal::soc::chip::TIMER_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::chip::TIMER_COUNT: usize
+pub const hisi_riscv_hal::soc::chip::UART_BOOT_CLOCK_24M_HZ: u32
+pub const hisi_riscv_hal::soc::chip::UART_BOOT_CLOCK_40M_HZ: u32
+pub const hisi_riscv_hal::soc::chip::UART_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::chip::UART_COUNT: usize
+pub const hisi_riscv_hal::soc::chip::ULP_GPIO_COUNT: usize
+pub fn hisi_riscv_hal::soc::chip::uart_boot_clock_hz() -> u32
+pub mod hisi_riscv_hal::soc::ws63
+pub use hisi_riscv_hal::soc::ws63::Interrupt
+pub const hisi_riscv_hal::soc::ws63::ALARM_INTERRUPT: ws63_pac::interrupt::ExternalInterrupt
+pub const hisi_riscv_hal::soc::ws63::DMA_CHANNEL_COUNT: usize
+pub const hisi_riscv_hal::soc::ws63::GPIO_COUNT: usize
+pub const hisi_riscv_hal::soc::ws63::I2C_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::ws63::I2C_COUNT: usize
+pub const hisi_riscv_hal::soc::ws63::LSADC_CHANNEL_COUNT: usize
+pub const hisi_riscv_hal::soc::ws63::PWM_CHANNEL_COUNT: usize
+pub const hisi_riscv_hal::soc::ws63::RTC_COUNTER_WIDTH: usize
+pub const hisi_riscv_hal::soc::ws63::SPI_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::ws63::SPI_COUNT: usize
+pub const hisi_riscv_hal::soc::ws63::SYSTEM_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::ws63::TCXO_COUNTER_WIDTH: usize
+pub const hisi_riscv_hal::soc::ws63::TCXO_HZ: u32
+pub const hisi_riscv_hal::soc::ws63::TIMER_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::ws63::TIMER_COUNT: usize
+pub const hisi_riscv_hal::soc::ws63::UART_BOOT_CLOCK_24M_HZ: u32
+pub const hisi_riscv_hal::soc::ws63::UART_BOOT_CLOCK_40M_HZ: u32
+pub const hisi_riscv_hal::soc::ws63::UART_CLOCK_HZ: u32
+pub const hisi_riscv_hal::soc::ws63::UART_COUNT: usize
+pub const hisi_riscv_hal::soc::ws63::ULP_GPIO_COUNT: usize
+pub fn hisi_riscv_hal::soc::ws63::uart_boot_clock_hz() -> u32
+pub mod hisi_riscv_hal::spi
+#[non_exhaustive] pub enum hisi_riscv_hal::spi::SpiError
+pub hisi_riscv_hal::spi::SpiError::BufferTooLong
+pub hisi_riscv_hal::spi::SpiError::Overflow
+pub hisi_riscv_hal::spi::SpiError::Timeout
+impl embedded_hal::spi::Error for hisi_riscv_hal::spi::SpiError
+pub fn hisi_riscv_hal::spi::SpiError::kind(&self) -> embedded_hal::spi::ErrorKind
+pub enum hisi_riscv_hal::spi::SpiMode
+pub hisi_riscv_hal::spi::SpiMode::Mode0
+pub hisi_riscv_hal::spi::SpiMode::Mode1
+pub hisi_riscv_hal::spi::SpiMode::Mode2
+pub hisi_riscv_hal::spi::SpiMode::Mode3
+pub struct hisi_riscv_hal::spi::Config
+pub hisi_riscv_hal::spi::Config::data_bits: hisi_riscv_hal::spi::DataBits
+pub hisi_riscv_hal::spi::Config::frequency: hisi_riscv_hal::spi::SpiHz
+pub hisi_riscv_hal::spi::Config::mode: hisi_riscv_hal::spi::SpiMode
+impl core::default::Default for hisi_riscv_hal::spi::Config
+pub fn hisi_riscv_hal::spi::Config::default() -> Self
+pub struct hisi_riscv_hal::spi::DataBits(_)
+impl hisi_riscv_hal::spi::DataBits
+pub const hisi_riscv_hal::spi::DataBits::EIGHT: hisi_riscv_hal::spi::DataBits
+pub const hisi_riscv_hal::spi::DataBits::SIXTEEN: hisi_riscv_hal::spi::DataBits
+pub const fn hisi_riscv_hal::spi::DataBits::bits(self) -> u8
+pub const fn hisi_riscv_hal::spi::DataBits::new(u8) -> core::option::Option<Self>
+pub struct hisi_riscv_hal::spi::Spi<'d, T>
+impl<'d, T> hisi_riscv_hal::spi::Spi<'d, T>
+pub fn hisi_riscv_hal::spi::Spi<'d, T>::transfer(&mut self, &[u8], &mut [u8]) -> core::result::Result<(), hisi_riscv_hal::spi::SpiError>
+pub fn hisi_riscv_hal::spi::Spi<'d, T>::wait_idle(&self) -> core::result::Result<(), hisi_riscv_hal::spi::SpiError>
+pub fn hisi_riscv_hal::spi::Spi<'d, T>::write(&mut self, &[u8]) -> core::result::Result<(), hisi_riscv_hal::spi::SpiError>
+impl<'d> hisi_riscv_hal::spi::Spi<'d, hisi_riscv_hal::peripherals::Spi0<'d>>
+pub fn hisi_riscv_hal::spi::Spi<'d, hisi_riscv_hal::peripherals::Spi0<'d>>::new_spi0(hisi_riscv_hal::peripherals::Spi0<'d>, hisi_riscv_hal::spi::Config) -> Self
+impl embedded_hal::spi::ErrorType for hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>
+pub type hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::Error = hisi_riscv_hal::spi::SpiError
+impl embedded_hal::spi::ErrorType for hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>
+pub type hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::Error = hisi_riscv_hal::spi::SpiError
+impl embedded_hal::spi::SpiBus for hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::transfer(&mut self, &mut [u8], &[u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::transfer_in_place(&mut self, &mut [u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi0<'_>>::write(&mut self, &[u8]) -> core::result::Result<(), Self::Error>
+impl embedded_hal::spi::SpiBus for hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::transfer(&mut self, &mut [u8], &[u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::transfer_in_place(&mut self, &mut [u8]) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::spi::Spi<'_, hisi_riscv_hal::peripherals::Spi1<'_>>::write(&mut self, &[u8]) -> core::result::Result<(), Self::Error>
+pub struct hisi_riscv_hal::spi::SpiHz(_)
+impl hisi_riscv_hal::spi::SpiHz
+pub const hisi_riscv_hal::spi::SpiHz::ONE_MHZ: hisi_riscv_hal::spi::SpiHz
+pub const fn hisi_riscv_hal::spi::SpiHz::hz(self) -> u32
+pub const fn hisi_riscv_hal::spi::SpiHz::try_from_hz(u32) -> core::option::Option<Self>
+pub mod hisi_riscv_hal::system
+pub enum hisi_riscv_hal::system::ResetReason
+pub hisi_riscv_hal::system::ResetReason::BrownOut
+pub hisi_riscv_hal::system::ResetReason::ExternalPin
+pub hisi_riscv_hal::system::ResetReason::PowerOn
+pub hisi_riscv_hal::system::ResetReason::Software
+pub hisi_riscv_hal::system::ResetReason::Unknown
+pub hisi_riscv_hal::system::ResetReason::Watchdog
+pub struct hisi_riscv_hal::system::Clocks
+pub hisi_riscv_hal::system::Clocks::pclk: u32
+pub hisi_riscv_hal::system::Clocks::sysclk: u32
+impl core::default::Default for hisi_riscv_hal::system::Clocks
+pub fn hisi_riscv_hal::system::Clocks::default() -> Self
+pub struct hisi_riscv_hal::system::System<'d>
+pub hisi_riscv_hal::system::System::cldo_crg: hisi_riscv_hal::peripherals::CldoCrg<'d>
+pub hisi_riscv_hal::system::System::glb_ctl_m: hisi_riscv_hal::peripherals::GlbCtlM<'d>
+pub hisi_riscv_hal::system::System::sys_ctl0: hisi_riscv_hal::peripherals::SysCtl0<'d>
+impl hisi_riscv_hal::system::System<'_>
+pub fn hisi_riscv_hal::system::System<'_>::reset_reason(&self) -> hisi_riscv_hal::system::ResetReason
+impl<'d> hisi_riscv_hal::system::System<'d>
+pub fn hisi_riscv_hal::system::System<'d>::new(hisi_riscv_hal::peripherals::SysCtl0<'d>, hisi_riscv_hal::peripherals::GlbCtlM<'d>, hisi_riscv_hal::peripherals::CldoCrg<'d>) -> Self
+pub mod hisi_riscv_hal::tcxo
+pub struct hisi_riscv_hal::tcxo::TcxoDriver<'d>
+impl<'d> hisi_riscv_hal::tcxo::TcxoDriver<'d>
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::clear(&mut self)
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::disable(&mut self)
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::enable(&mut self)
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::is_valid(&self) -> bool
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::new(hisi_riscv_hal::peripherals::Tcxo<'d>) -> Self
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::read_counter(&self) -> core::option::Option<u64>
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::read_counter32(&self) -> core::option::Option<u32>
+pub fn hisi_riscv_hal::tcxo::TcxoDriver<'d>::refresh_ok(&self) -> bool
+pub mod hisi_riscv_hal::time
+pub struct hisi_riscv_hal::time::Duration(_)
+impl hisi_riscv_hal::time::Duration
+pub const fn hisi_riscv_hal::time::Duration::as_micros(&self) -> u64
+pub const fn hisi_riscv_hal::time::Duration::as_millis(&self) -> u64
+pub const fn hisi_riscv_hal::time::Duration::as_secs(&self) -> u64
+pub const fn hisi_riscv_hal::time::Duration::from_micros(u64) -> Self
+pub const fn hisi_riscv_hal::time::Duration::from_millis(u64) -> Self
+pub const fn hisi_riscv_hal::time::Duration::from_secs(u64) -> Self
+impl core::ops::arith::Add for hisi_riscv_hal::time::Duration
+pub type hisi_riscv_hal::time::Duration::Output = hisi_riscv_hal::time::Duration
+pub fn hisi_riscv_hal::time::Duration::add(self, Self) -> Self
+impl core::ops::arith::AddAssign for hisi_riscv_hal::time::Duration
+pub fn hisi_riscv_hal::time::Duration::add_assign(&mut self, Self)
+impl core::ops::arith::Sub for hisi_riscv_hal::time::Duration
+pub type hisi_riscv_hal::time::Duration::Output = hisi_riscv_hal::time::Duration
+pub fn hisi_riscv_hal::time::Duration::sub(self, Self) -> Self
+pub struct hisi_riscv_hal::time::Instant(_)
+impl hisi_riscv_hal::time::Instant
+pub fn hisi_riscv_hal::time::Instant::checked_duration_since(&self, hisi_riscv_hal::time::Instant) -> core::option::Option<hisi_riscv_hal::time::Duration>
+pub fn hisi_riscv_hal::time::Instant::duration_since(&self, hisi_riscv_hal::time::Instant) -> hisi_riscv_hal::time::Duration
+pub fn hisi_riscv_hal::time::Instant::raw(&self) -> u64
+pub struct hisi_riscv_hal::time::Rate(_)
+impl hisi_riscv_hal::time::Rate
+pub const fn hisi_riscv_hal::time::Rate::from_hz(u32) -> Self
+pub const fn hisi_riscv_hal::time::Rate::from_khz(u32) -> Self
+pub const fn hisi_riscv_hal::time::Rate::from_mhz(u32) -> Self
+pub const fn hisi_riscv_hal::time::Rate::to_hz(&self) -> u32
+pub const fn hisi_riscv_hal::time::Rate::to_khz(&self) -> u32
+pub mod hisi_riscv_hal::timer
+pub enum hisi_riscv_hal::timer::TimerChannel
+pub hisi_riscv_hal::timer::TimerChannel::Channel0
+pub hisi_riscv_hal::timer::TimerChannel::Channel1
+pub hisi_riscv_hal::timer::TimerChannel::Channel2
+impl hisi_riscv_hal::timer::TimerChannel
+pub const fn hisi_riscv_hal::timer::TimerChannel::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::timer::TimerChannel::index(self) -> usize
+#[non_exhaustive] pub enum hisi_riscv_hal::timer::TimerError
+pub hisi_riscv_hal::timer::TimerError::TicksOverflow
+pub enum hisi_riscv_hal::timer::TimerMode
+pub hisi_riscv_hal::timer::TimerMode::OneShot = 0
+pub hisi_riscv_hal::timer::TimerMode::Periodic = 1
+pub struct hisi_riscv_hal::timer::TimerDriver<'d>
+impl<'d> hisi_riscv_hal::timer::TimerDriver<'d>
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::clear_interrupt(&self, hisi_riscv_hal::timer::TimerChannel)
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::configure(&self, hisi_riscv_hal::timer::TimerChannel, hisi_riscv_hal::timer::TimerMode, u32)
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::current_value(&self, hisi_riscv_hal::timer::TimerChannel) -> u32
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::disable(&self, hisi_riscv_hal::timer::TimerChannel)
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::enable(&self, hisi_riscv_hal::timer::TimerChannel)
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::interrupt_pending(&self, hisi_riscv_hal::timer::TimerChannel) -> bool
+pub fn hisi_riscv_hal::timer::TimerDriver<'d>::new(hisi_riscv_hal::peripherals::Timer<'d>) -> Self
+pub mod hisi_riscv_hal::trng
+#[non_exhaustive] pub enum hisi_riscv_hal::trng::TrngError
+pub hisi_riscv_hal::trng::TrngError::NoData
+pub hisi_riscv_hal::trng::TrngError::Timeout
+pub struct hisi_riscv_hal::trng::TrngDriver<'d>
+impl<'d> hisi_riscv_hal::trng::TrngDriver<'d>
+pub fn hisi_riscv_hal::trng::TrngDriver<'d>::data_ready(&self) -> bool
+pub fn hisi_riscv_hal::trng::TrngDriver<'d>::fill_bytes(&self, &mut [u8]) -> core::result::Result<(), hisi_riscv_hal::trng::TrngError>
+pub fn hisi_riscv_hal::trng::TrngDriver<'d>::new(hisi_riscv_hal::peripherals::Trng<'d>) -> Self
+pub fn hisi_riscv_hal::trng::TrngDriver<'d>::read_blocking(&self) -> core::result::Result<u32, hisi_riscv_hal::trng::TrngError>
+pub mod hisi_riscv_hal::tsensor
+pub struct hisi_riscv_hal::tsensor::TempSensor<'d>
+impl<'d> hisi_riscv_hal::tsensor::TempSensor<'d>
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::data_ready(&self) -> bool
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::enable(&mut self)
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::new(hisi_riscv_hal::peripherals::Tsensor<'d>) -> Self
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::read_raw(&self) -> core::option::Option<u16>
+pub fn hisi_riscv_hal::tsensor::TempSensor<'d>::start_conversion(&mut self)
+pub const hisi_riscv_hal::tsensor::TEMP_CODE_MAX: u16
+pub const hisi_riscv_hal::tsensor::TEMP_CODE_MIN: u16
+pub mod hisi_riscv_hal::uart
+pub enum hisi_riscv_hal::uart::DataBits
+pub hisi_riscv_hal::uart::DataBits::Eight
+pub hisi_riscv_hal::uart::DataBits::Five
+pub hisi_riscv_hal::uart::DataBits::Seven
+pub hisi_riscv_hal::uart::DataBits::Six
+pub enum hisi_riscv_hal::uart::Parity
+pub hisi_riscv_hal::uart::Parity::Even
+pub hisi_riscv_hal::uart::Parity::None
+pub hisi_riscv_hal::uart::Parity::Odd
+pub enum hisi_riscv_hal::uart::StopBits
+pub hisi_riscv_hal::uart::StopBits::One
+pub hisi_riscv_hal::uart::StopBits::Two
+pub enum hisi_riscv_hal::uart::UartClock
+pub hisi_riscv_hal::uart::UartClock::Boot
+pub hisi_riscv_hal::uart::UartClock::Pll
+pub enum hisi_riscv_hal::uart::UartPort
+pub hisi_riscv_hal::uart::UartPort::Uart0
+pub hisi_riscv_hal::uart::UartPort::Uart1
+pub hisi_riscv_hal::uart::UartPort::Uart2
+impl hisi_riscv_hal::uart::UartPort
+pub const fn hisi_riscv_hal::uart::UartPort::from_index(u8) -> core::option::Option<Self>
+pub const fn hisi_riscv_hal::uart::UartPort::index(self) -> usize
+pub struct hisi_riscv_hal::uart::BaudRate(_)
+impl hisi_riscv_hal::uart::BaudRate
+pub const hisi_riscv_hal::uart::BaudRate::BAUD_115200: hisi_riscv_hal::uart::BaudRate
+pub const fn hisi_riscv_hal::uart::BaudRate::baud(self) -> u32
+pub const fn hisi_riscv_hal::uart::BaudRate::try_new(u32) -> core::option::Option<Self>
+pub struct hisi_riscv_hal::uart::Config
+pub hisi_riscv_hal::uart::Config::baudrate: hisi_riscv_hal::uart::BaudRate
+pub hisi_riscv_hal::uart::Config::clock: hisi_riscv_hal::uart::UartClock
+pub hisi_riscv_hal::uart::Config::data_bits: hisi_riscv_hal::uart::DataBits
+pub hisi_riscv_hal::uart::Config::parity: hisi_riscv_hal::uart::Parity
+pub hisi_riscv_hal::uart::Config::stop_bits: hisi_riscv_hal::uart::StopBits
+impl core::default::Default for hisi_riscv_hal::uart::Config
+pub fn hisi_riscv_hal::uart::Config::default() -> Self
+pub struct hisi_riscv_hal::uart::Uart<'d, T>
+impl<'d> hisi_riscv_hal::uart::Uart<'d, hisi_riscv_hal::peripherals::Uart0<'d>>
+pub fn hisi_riscv_hal::uart::Uart<'d, hisi_riscv_hal::peripherals::Uart0<'d>>::new_uart0(hisi_riscv_hal::peripherals::Uart0<'d>, hisi_riscv_hal::uart::Config) -> Self
+impl<'d> hisi_riscv_hal::uart::Uart<'d, hisi_riscv_hal::peripherals::Uart1<'d>>
+pub fn hisi_riscv_hal::uart::Uart<'d, hisi_riscv_hal::peripherals::Uart1<'d>>::new_uart1(hisi_riscv_hal::peripherals::Uart1<'d>, hisi_riscv_hal::uart::Config) -> Self
+impl<T: hisi_riscv_hal::uart::UartInstance> hisi_riscv_hal::uart::Uart<'_, T>
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::flush_tx(&self)
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::read_byte(&self) -> core::option::Option<u8>
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::tx_flushed(&self) -> bool
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::write(&self, &[u8])
+pub fn hisi_riscv_hal::uart::Uart<'_, T>::write_byte(&self, u8)
+impl embedded_hal_nb::serial::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::Error = core::convert::Infallible
+impl embedded_hal_nb::serial::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::Error = core::convert::Infallible
+impl embedded_hal_nb::serial::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::Error = core::convert::Infallible
+impl embedded_hal_nb::serial::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::read(&mut self) -> nb::Result<u8, Self::Error>
+impl embedded_hal_nb::serial::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::read(&mut self) -> nb::Result<u8, Self::Error>
+impl embedded_hal_nb::serial::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::read(&mut self) -> nb::Result<u8, Self::Error>
+impl embedded_hal_nb::serial::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::flush(&mut self) -> nb::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::write(&mut self, u8) -> nb::Result<(), Self::Error>
+impl embedded_hal_nb::serial::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::flush(&mut self) -> nb::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::write(&mut self, u8) -> nb::Result<(), Self::Error>
+impl embedded_hal_nb::serial::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::flush(&mut self) -> nb::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::write(&mut self, u8) -> nb::Result<(), Self::Error>
+impl embedded_io::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::Error = core::convert::Infallible
+impl embedded_io::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::Error = core::convert::Infallible
+impl embedded_io::ErrorType for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub type hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::Error = core::convert::Infallible
+impl embedded_io::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Read for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart0<'_>>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart1<'_>>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
+impl embedded_io::Write for hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hisi_riscv_hal::uart::Uart<'_, hisi_riscv_hal::peripherals::Uart2<'_>>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
+pub trait hisi_riscv_hal::uart::UartInstance: hisi_riscv_hal::uart::sealed::UartInstanceSealed
+pub const hisi_riscv_hal::uart::UartInstance::PORT: hisi_riscv_hal::uart::UartPort
+impl<'d> hisi_riscv_hal::uart::UartInstance for hisi_riscv_hal::peripherals::Uart0<'d>
+pub const hisi_riscv_hal::peripherals::Uart0<'d>::PORT: hisi_riscv_hal::uart::UartPort
+impl<'d> hisi_riscv_hal::uart::UartInstance for hisi_riscv_hal::peripherals::Uart1<'d>
+pub const hisi_riscv_hal::peripherals::Uart1<'d>::PORT: hisi_riscv_hal::uart::UartPort
+impl<'d> hisi_riscv_hal::uart::UartInstance for hisi_riscv_hal::peripherals::Uart2<'d>
+pub const hisi_riscv_hal::peripherals::Uart2<'d>::PORT: hisi_riscv_hal::uart::UartPort
+pub mod hisi_riscv_hal::wdt
+pub enum hisi_riscv_hal::wdt::ResetPulseLength
+pub hisi_riscv_hal::wdt::ResetPulseLength::Cycles128 = 6
+pub hisi_riscv_hal::wdt::ResetPulseLength::Cycles16 = 3
+pub hisi_riscv_hal::wdt::ResetPulseLength::Cycles2 = 0
+pub hisi_riscv_hal::wdt::ResetPulseLength::Cycles256 = 7
+pub hisi_riscv_hal::wdt::ResetPulseLength::Cycles32 = 4
+pub hisi_riscv_hal::wdt::ResetPulseLength::Cycles4 = 1
+pub hisi_riscv_hal::wdt::ResetPulseLength::Cycles64 = 5
+pub hisi_riscv_hal::wdt::ResetPulseLength::Cycles8 = 2
+#[non_exhaustive] pub enum hisi_riscv_hal::wdt::WdtError
+pub hisi_riscv_hal::wdt::WdtError::Busy
+pub enum hisi_riscv_hal::wdt::WdtMode
+pub hisi_riscv_hal::wdt::WdtMode::DoubleInterrupt
+pub hisi_riscv_hal::wdt::WdtMode::SingleInterrupt
+pub struct hisi_riscv_hal::wdt::Watchdog<'d>
+impl<'d> hisi_riscv_hal::wdt::Watchdog<'d>
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::configure(&mut self, hisi_riscv_hal::wdt::WdtTimeout, hisi_riscv_hal::wdt::WdtMode, bool, hisi_riscv_hal::wdt::ResetPulseLength) -> core::result::Result<(), hisi_riscv_hal::wdt::WdtError>
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::counter_value(&self) -> core::result::Result<u32, hisi_riscv_hal::wdt::WdtError>
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::disable(&mut self)
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::enable(&mut self)
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::feed(&mut self)
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::into_armed(self) -> hisi_riscv_hal::wdt::WatchdogArmed
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::is_busy(&self) -> bool
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::leak(self) -> hisi_riscv_hal::wdt::WatchdogArmed
+pub fn hisi_riscv_hal::wdt::Watchdog<'d>::new(hisi_riscv_hal::peripherals::Wdt<'d>) -> Self
+impl core::ops::drop::Drop for hisi_riscv_hal::wdt::Watchdog<'_>
+pub fn hisi_riscv_hal::wdt::Watchdog<'_>::drop(&mut self)
+pub struct hisi_riscv_hal::wdt::WatchdogArmed(_)
+pub struct hisi_riscv_hal::wdt::WdtTimeout(_)
+impl hisi_riscv_hal::wdt::WdtTimeout
+pub const hisi_riscv_hal::wdt::WdtTimeout::MAX_MS: u32
+pub const fn hisi_riscv_hal::wdt::WdtTimeout::as_ms(self) -> u32
+pub const fn hisi_riscv_hal::wdt::WdtTimeout::from_ms(u32) -> core::option::Option<Self>
+pub const hisi_riscv_hal::wdt::WDT_CLOCK_HZ: u32
+pub const hisi_riscv_hal::wdt::WDT_MAX_LOAD: u32
+pub macro hisi_riscv_hal::any_peripheral!
+pub macro hisi_riscv_hal::infallible!
+pub struct hisi_riscv_hal::Peripherals
+pub hisi_riscv_hal::Peripherals::BT_EM_CTL: hisi_riscv_hal::peripherals::BtEmCtl<'static>
+pub hisi_riscv_hal::Peripherals::CLDO_CRG: hisi_riscv_hal::peripherals::CldoCrg<'static>
+pub hisi_riscv_hal::Peripherals::DMA: hisi_riscv_hal::peripherals::Dma<'static>
+pub hisi_riscv_hal::Peripherals::EFUSE: hisi_riscv_hal::peripherals::Efuse<'static>
+pub hisi_riscv_hal::Peripherals::FAMA_REMAP: hisi_riscv_hal::peripherals::FamaRemap<'static>
+pub hisi_riscv_hal::Peripherals::GLB_CTL_M: hisi_riscv_hal::peripherals::GlbCtlM<'static>
+pub hisi_riscv_hal::Peripherals::GPIO0: hisi_riscv_hal::peripherals::Gpio0<'static>
+pub hisi_riscv_hal::Peripherals::GPIO1: hisi_riscv_hal::peripherals::Gpio1<'static>
+pub hisi_riscv_hal::Peripherals::GPIO2: hisi_riscv_hal::peripherals::Gpio2<'static>
+pub hisi_riscv_hal::Peripherals::I2C0: hisi_riscv_hal::peripherals::I2c0<'static>
+pub hisi_riscv_hal::Peripherals::I2C1: hisi_riscv_hal::peripherals::I2c1<'static>
+pub hisi_riscv_hal::Peripherals::I2S: hisi_riscv_hal::peripherals::I2s<'static>
+pub hisi_riscv_hal::Peripherals::IO_CONFIG: hisi_riscv_hal::peripherals::IoConfig<'static>
+pub hisi_riscv_hal::Peripherals::KM: hisi_riscv_hal::peripherals::Km<'static>
+pub hisi_riscv_hal::Peripherals::LSADC: hisi_riscv_hal::peripherals::Lsadc<'static>
+pub hisi_riscv_hal::Peripherals::PKE: hisi_riscv_hal::peripherals::Pke<'static>
+pub hisi_riscv_hal::Peripherals::PWM: hisi_riscv_hal::peripherals::Pwm<'static>
+pub hisi_riscv_hal::Peripherals::RF_WB_CTL: hisi_riscv_hal::peripherals::RfWbCtl<'static>
+pub hisi_riscv_hal::Peripherals::RTC: hisi_riscv_hal::peripherals::Rtc<'static>
+pub hisi_riscv_hal::Peripherals::SDMA: hisi_riscv_hal::peripherals::Sdma<'static>
+pub hisi_riscv_hal::Peripherals::SFC_CFG: hisi_riscv_hal::peripherals::SfcCfg<'static>
+pub hisi_riscv_hal::Peripherals::SHARE_MEM_CTL: hisi_riscv_hal::peripherals::ShareMemCtl<'static>
+pub hisi_riscv_hal::Peripherals::SPACC: hisi_riscv_hal::peripherals::Spacc<'static>
+pub hisi_riscv_hal::Peripherals::SPI0: hisi_riscv_hal::peripherals::Spi0<'static>
+pub hisi_riscv_hal::Peripherals::SPI1: hisi_riscv_hal::peripherals::Spi1<'static>
+pub hisi_riscv_hal::Peripherals::SYS_CTL0: hisi_riscv_hal::peripherals::SysCtl0<'static>
+pub hisi_riscv_hal::Peripherals::SYS_CTL1: hisi_riscv_hal::peripherals::SysCtl1<'static>
+pub hisi_riscv_hal::Peripherals::TCXO: hisi_riscv_hal::peripherals::Tcxo<'static>
+pub hisi_riscv_hal::Peripherals::TIMER: hisi_riscv_hal::peripherals::Timer<'static>
+pub hisi_riscv_hal::Peripherals::TRNG: hisi_riscv_hal::peripherals::Trng<'static>
+pub hisi_riscv_hal::Peripherals::TSENSOR: hisi_riscv_hal::peripherals::Tsensor<'static>
+pub hisi_riscv_hal::Peripherals::UART0: hisi_riscv_hal::peripherals::Uart0<'static>
+pub hisi_riscv_hal::Peripherals::UART1: hisi_riscv_hal::peripherals::Uart1<'static>
+pub hisi_riscv_hal::Peripherals::UART2: hisi_riscv_hal::peripherals::Uart2<'static>
+pub hisi_riscv_hal::Peripherals::ULP_GPIO: hisi_riscv_hal::peripherals::UlpGpio<'static>
+pub hisi_riscv_hal::Peripherals::WDT: hisi_riscv_hal::peripherals::Wdt<'static>
+impl hisi_riscv_hal::peripherals::Peripherals
+pub unsafe fn hisi_riscv_hal::peripherals::Peripherals::steal() -> Self
+pub fn hisi_riscv_hal::peripherals::Peripherals::take() -> core::option::Option<Self>
+pub struct hisi_riscv_hal::System<'d>
+pub hisi_riscv_hal::System::cldo_crg: hisi_riscv_hal::peripherals::CldoCrg<'d>
+pub hisi_riscv_hal::System::glb_ctl_m: hisi_riscv_hal::peripherals::GlbCtlM<'d>
+pub hisi_riscv_hal::System::sys_ctl0: hisi_riscv_hal::peripherals::SysCtl0<'d>
+impl hisi_riscv_hal::system::System<'_>
+pub fn hisi_riscv_hal::system::System<'_>::reset_reason(&self) -> hisi_riscv_hal::system::ResetReason
+impl<'d> hisi_riscv_hal::system::System<'d>
+pub fn hisi_riscv_hal::system::System<'d>::new(hisi_riscv_hal::peripherals::SysCtl0<'d>, hisi_riscv_hal::peripherals::GlbCtlM<'d>, hisi_riscv_hal::peripherals::CldoCrg<'d>) -> Self

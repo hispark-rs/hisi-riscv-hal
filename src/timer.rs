@@ -121,7 +121,8 @@ impl<'d> TimerDriver<'d> {
     /// typed-config exemption: `load_value` is written verbatim into the **full
     /// 32-bit** `timerN_load_count` register, so every `u32` is a valid, runnable
     /// value — there is nothing to truncate or clamp. The fallible duration helpers
-    /// ([`OneShotTimer::start_micros`] etc.) are the typed path for time units.
+    /// (`OneShotTimer::start_micros` etc., currently unstable) are the typed path
+    /// for time units.
     pub fn configure(&self, channel: TimerChannel, mode: TimerMode, load_value: u32) {
         let r = self.regs();
         match channel {

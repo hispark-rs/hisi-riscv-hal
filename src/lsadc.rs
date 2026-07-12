@@ -107,8 +107,8 @@ impl CastCount {
 }
 
 /// A validated RX-FIFO interrupt waterline (`LSADC_CTRL_1.rxintsize`, 3-bit).
-/// [`FifoWaterline::new`] returns `None` for `> 7`, so [`LsAdc::set_fifo_waterline`]
-/// can never silently `& 0x07`-truncate it.
+/// [`FifoWaterline::new`] returns `None` for `> 7`, so the currently unstable
+/// `LsAdc::set_fifo_waterline` can never silently `& 0x07`-truncate it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FifoWaterline(u8);

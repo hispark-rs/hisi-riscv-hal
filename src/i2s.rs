@@ -233,7 +233,8 @@ impl Default for SlaveConfig {
     }
 }
 
-/// I2S audio interface driver, parameterised by clock role ([`Master`] / [`Slave`]).
+/// I2S audio interface driver, parameterised by clock role ([`Master`] or the
+/// currently unstable `Slave`).
 pub struct I2sDriver<'d, R> {
     _i2s: I2s<'d>,
     _role: PhantomData<R>,

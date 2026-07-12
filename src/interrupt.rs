@@ -207,7 +207,8 @@ fn locipri_read(idx: u16) -> u32 {
 
 /// Local-interrupt priority. Valid range **1 (lowest) ..= 7 (highest)**; the
 /// reset default is 1. An interrupt is delivered only when its priority is
-/// strictly greater than the global threshold (see [`set_threshold`]).
+/// strictly greater than the global threshold (configured by the unstable
+/// `set_threshold` API).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Priority(u8);
 

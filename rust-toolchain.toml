@@ -1,0 +1,7 @@
+# Keep standalone HAL builds aligned with the parent ecosystem release train.
+# rustup does not yet ship rust-std for riscv32imfc-unknown-none-elf, so target
+# CI commands build core/alloc from this pinned nightly's rust-src.
+[toolchain]
+channel = "nightly-2026-07-09"
+profile = "minimal"
+components = ["rust-src", "clippy", "rustfmt"]

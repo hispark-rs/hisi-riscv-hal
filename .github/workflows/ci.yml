@@ -9,6 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  TARGET: riscv32imfc-unknown-none-elf
 
 concurrency:
   cancel-in-progress: true
@@ -20,9 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - run: rustup show active-toolchain
       - run: cargo fmt --all --check
 
   register-access:
@@ -31,6 +30,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 scripts/check-register-access.py
+
+  stable-api:
+    name: Stable API snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - run: cargo install cargo-public-api --version 0.52.0 --locked
+      - run: scripts/check-stable-api.sh --check
+      - name: Stable-only rustdoc has no private links
+        run: cargo doc --locked --no-deps --no-default-features --features chip-ws63
+        env:
+          RUSTFLAGS: --cfg instability_disable_unstable_docs
+          RUSTDOCFLAGS: -D warnings
 
   # NB: chip-ws63 and chip-bs21 are mutually exclusive (a compile_error in lib.rs),
   # so `--all-features` cannot be used. Test each chip with its supported feature
@@ -44,10 +57,8 @@ jobs:
         features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt,unstable"]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - run: cargo clippy --locked --no-default-features --features "${{ matrix.features }}" -- -D warnings
+      - run: rustup show active-toolchain
+      - run: cargo clippy -Zbuild-std=core,alloc --target "$TARGET" --locked --no-default-features --features "${{ matrix.features }}" -- -D warnings
 
   build:
     name: Build
@@ -57,18 +68,18 @@ jobs:
         features: ["chip-ws63,rt,async,embassy", "chip-ws63,rt,async,embassy,defmt", "chip-bs21,rt,unstable"]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --locked --no-default-features --features "${{ matrix.features }}"
-      - run: cargo check --locked --no-default-features --features "${{ matrix.features }}" --release
+      - run: rustup show active-toolchain
+      - run: cargo check -Zbuild-std=core,alloc --target "$TARGET" --locked --no-default-features --features "${{ matrix.features }}"
+      - run: cargo check -Zbuild-std=core,alloc --target "$TARGET" --locked --no-default-features --features "${{ matrix.features }}" --release
 
   bs2x-gate:
     name: BS2X requires unstable
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show active-toolchain
       - run: |
-          if cargo check --locked --no-default-features --features chip-bs21,rt 2>bs2x-stable.log; then
+          if cargo check -Zbuild-std=core,alloc --target "$TARGET" --locked --no-default-features --features chip-bs21,rt 2>bs2x-stable.log; then
             printf 'chip-bs21 built without unstable\n'
             exit 1
           fi
@@ -79,10 +90,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show active-toolchain
       # The HAL has no default chip (esp-hal style) — docs must select one, matching
       # the [package.metadata.docs.rs] feature set.
-      - run: cargo doc --locked --no-deps --document-private-items --no-default-features --features "chip-ws63,rt,async,embassy"
+      - run: cargo doc -Zbuild-std=core,alloc --target "$TARGET" --locked --no-deps --document-private-items --no-default-features --features "chip-ws63,rt,async,embassy"
         env:
           RUSTDOCFLAGS: -D warnings
 
