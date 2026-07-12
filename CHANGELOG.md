@@ -6,10 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0-rc.1] - 2026-07-12
+
+First release candidate for the 0.6.0 stable-API cycle. This release freezes
+the default WS63 public surface; the RF bring-up helpers below remain behind
+`unstable` and do not widen the 0.6 stable API.
+
 ### Added
 
 - Add the unstable WS63 `SharedMemory` driver for the official default Wi-Fi
   packet-RAM/ITCM/DTCM bank configuration.
+- Add unstable typed RF power sequencing, factory XO-trim recovery, externally
+  owned eFuse reads, and whole-cache flush support for the connectivity runtime.
+- Commit a generated 0.6 stable API snapshot and check it in CI with
+  `cargo-public-api`; stable-only rustdoc also rejects links to gated items.
+
+### Changed
+
+- Pin standalone builds to the official `nightly-2026-07-09` toolchain and make
+  CI compile, lint, and document the real `riscv32imfc-unknown-none-elf` target
+  with `-Zbuild-std=core,alloc` instead of accepting a host-only build.
+- Require `ws63-pac 0.2.2` for the RF, shared-RAM, XO-trim, and ROM-patch
+  register definitions used by the HAL.
+- Expand the self-contained WS63 embedded-test suite to 30 stable tests and 32
+  tests with `unstable`; both matrices passed on real silicon on 2026-07-12.
 
 ### Fixed
 
