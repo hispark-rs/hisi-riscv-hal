@@ -4,9 +4,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SNAPSHOT="$ROOT/api/hisi-riscv-hal-0.6-stable.txt"
+TOOLCHAIN="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' "$ROOT/rust-toolchain.toml")"
 WORK="$(mktemp -d)"
 ACTUAL="$WORK/actual.txt"
 trap 'rm -rf "$WORK"' EXIT
+
+if [[ -z "$TOOLCHAIN" ]]; then
+    echo "could not read [toolchain].channel from rust-toolchain.toml" >&2
+    exit 1
+fi
 
 command -v cargo-public-api >/dev/null 2>&1 || {
     echo "cargo-public-api is required (CI pins 0.52.0)" >&2
@@ -20,7 +26,7 @@ command -v cargo-public-api >/dev/null 2>&1 || {
 (
     cd "$WORK"
     RUSTFLAGS="--cfg instability_disable_unstable_docs" \
-        cargo public-api \
+        cargo "+$TOOLCHAIN" public-api \
         --manifest-path "$ROOT/Cargo.toml" \
         --no-default-features \
         --features chip-ws63 \
