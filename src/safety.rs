@@ -1,4 +1,4 @@
-//! Compile-time safety checks for hisi-riscv-hal.
+//! Compile-time safety checks for hisi-hal.
 //!
 //! Provides:
 //! 1. Const assertions that key peripheral MMIO addresses are within range and

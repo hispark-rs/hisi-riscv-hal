@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SNAPSHOT="$ROOT/api/hisi-riscv-hal-0.6-stable.txt"
+SNAPSHOT="$ROOT/api/hisi-hal-0.7-stable.txt"
 TOOLCHAIN="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' "$ROOT/rust-toolchain.toml")"
 WORK="$(mktemp -d)"
 ACTUAL="$WORK/actual.txt"

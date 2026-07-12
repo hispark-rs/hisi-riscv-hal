@@ -7,7 +7,7 @@
 //! crate.
 //!
 //! Built with
-//! `cargo test -p hisi-riscv-hal --no-default-features --features chip-ws63 \
+//! `cargo test -p hisi-hal --no-default-features --features chip-ws63 \
 //!      --target riscv32imfc-unknown-none-elf --test hil`
 //! and run on real silicon by the patched probe-rs fork via the
 //! `hil/embedded-test-runner.sh` cargo runner (see ../../../hil/README.md). Each
@@ -25,7 +25,7 @@
 //! builds ONLY this embedded-test integration target (its own `harness = false`
 //! provides `main`), so the on-target build/run never touches the host-only
 //! lib-test harness. The host unit tests are unaffected and still run via
-//! `cargo test -p hisi-riscv-hal --target x86_64-unknown-linux-gnu`.
+//! `cargo test -p hisi-hal --target x86_64-unknown-linux-gnu`.
 //!
 //! ## Entry-point interaction with hisi-riscv-rt
 //!
@@ -83,7 +83,7 @@ use hisi_riscv_rt as _;
 #[cfg(all(test, target_arch = "riscv32", feature = "chip-bs21"))]
 use bs2x_pac as pac;
 #[cfg(all(test, target_arch = "riscv32"))]
-use hisi_riscv_hal as hal;
+use hisi_hal as hal;
 #[cfg(all(test, target_arch = "riscv32", feature = "chip-ws63"))]
 use ws63_pac as pac;
 

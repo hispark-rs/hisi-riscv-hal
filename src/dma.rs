@@ -518,7 +518,7 @@ impl<'d> DmaDriver<'d, Dma0> {
 /// UART1 = UART_H0, UART2 = UART_H1.
 ///
 /// (These superseded the earlier fabricated sequential 0..11 values; only the
-/// main-DMA (MDMA) sources hisi-riscv-hal models are listed — the SDMA-group I2C IDs
+/// main-DMA (MDMA) sources hisi-hal models are listed — the SDMA-group I2C IDs
 /// (≥29) don't fit the 4-bit field and aren't modelled here.)
 // Peripheral-paced DMA request IDs are WS63-specific (the fbb_ws63 vs fbb_bs2x
 // dma_porting.h handshake enums are entirely different). chip-ws63 only; BS2X DMA
@@ -876,7 +876,7 @@ fn cancel_then_quiesce(peri_dis: &mut PeriDmaCtl, driver: &mut DmaDriver<'_, Dma
     quiesce_channel(driver, channel);
 }
 
-// ── Peripheral-paced DMA (hisi-riscv-hal#6 / 0.5.1) ──────────────────────────
+// ── Peripheral-paced DMA (hisi-hal#6 / 0.5.1) ──────────────────────────
 
 /// Errors from DMA transfer setup or completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

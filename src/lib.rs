@@ -1,4 +1,4 @@
-//! # hisi-riscv-hal — Hardware Abstraction Layer for HiSilicon WS63 (RISC-V).
+//! # hisi-hal — Hardware Abstraction Layer for HiSilicon WS63 (RISC-V).
 //!
 //! A comprehensive HAL providing safe, idiomatic Rust APIs for all WS63
 //! peripherals. Modeled on esp-hal patterns with typed GPIO drivers, audited
@@ -47,16 +47,16 @@
 // Exactly one chip must be selected (each pulls its PAC + soc/<chip>.rs). There is
 // NO default chip (esp-hal style) — every consumer names one explicitly.
 #[cfg(all(feature = "chip-ws63", feature = "chip-bs21"))]
-compile_error!("hisi-riscv-hal: select exactly ONE chip feature — `chip-ws63` OR `chip-bs21`, not both.");
+compile_error!("hisi-hal: select exactly ONE chip feature — `chip-ws63` OR `chip-bs21`, not both.");
 #[cfg(not(any(feature = "chip-ws63", feature = "chip-bs21")))]
 compile_error!(
-    "hisi-riscv-hal: no chip selected — enable exactly one chip feature, e.g. \
+    "hisi-hal: no chip selected — enable exactly one chip feature, e.g. \
      `features = [\"chip-ws63\"]` (WS63) or `features = [\"chip-bs21\", \"unstable\"]` (BS2X). \
      There is no default chip."
 );
 #[cfg(all(feature = "chip-bs21", not(feature = "unstable")))]
 compile_error!(
-    "hisi-riscv-hal: BS2X support is experimental; enable `unstable` with \
+    "hisi-hal: BS2X support is experimental; enable `unstable` with \
      `features = [\"chip-bs21\", \"unstable\"]`."
 );
 
@@ -80,7 +80,7 @@ pub mod gpio;
 pub mod interrupt;
 /// Peripheral singleton tokens and the `Peripherals` struct (`take()`/`steal()`).
 pub mod peripherals;
-/// Common re-exports for `use hisi_riscv_hal::prelude::*;`.
+/// Common re-exports for `use hisi_hal::prelude::*;`.
 pub mod prelude;
 // Sealed marker traits restricting external trait implementations.
 mod private;

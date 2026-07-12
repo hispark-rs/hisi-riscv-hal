@@ -39,6 +39,7 @@ jobs:
       - run: rustup show active-toolchain
       - run: cargo install cargo-public-api --version 0.52.0 --locked
       - run: scripts/check-stable-api.sh --check
+      - run: scripts/check-rename-api.sh
       - name: Stable-only rustdoc has no private links
         run: cargo doc --locked --no-deps --no-default-features --features chip-ws63
         env:
@@ -114,7 +115,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Detect published package baseline
+        id: baseline
+        run: |
+          if cargo search '^hisi-hal$' --limit 1 | grep -q '^hisi-hal = '; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: cargo-semver-checks (vs last crates.io release)
+        if: steps.baseline.outputs.available == 'true'
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           feature-group: only-explicit-features

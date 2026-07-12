@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.0-alpha.1] - 2026-07-12
+
+### Changed
+
+- Rename the package from `hisi-riscv-hal` to `hisi-hal` and the Rust crate
+  path from `hisi_riscv_hal` to `hisi_hal`. The stable API and feature surface
+  are otherwise identical to the 0.6 line; CI compares normalized public API
+  snapshots to enforce rename-only parity.
+
 ## [0.6.1] - 2026-07-12
 
 ### Documentation

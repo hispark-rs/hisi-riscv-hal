@@ -387,7 +387,7 @@ impl<'d> Uart<'d, Uart2<'d>> {
 ///
 /// **UNSTABLE** (behind the `unstable` feature): no UartDma HIL test exists — the
 /// `write_dma` (TX) silicon attempt timed out (the UART1 TX shift register never
-/// advances on this board, `hisi-riscv-hal#5`), and `read_dma` (RX, fixed-length)
+/// advances on this board, `hisi-hal#5`), and `read_dma` (RX, fixed-length)
 /// loopback is blocked by the same #5 board issue. The register sequence compiles
 /// and is correct, but round-trip verification is deferred to a #5-fixed board.
 /// The `uart_parameter.dma_mode` field is PAC-read-only, so DMA pacing is driven
@@ -479,7 +479,7 @@ impl<'d, T> UartDma<'d, T> {
     /// Fixed-length RX DMA (peripheral→memory). Reads exactly `buf.len()` bytes — a
     /// short/idle line will **time out** (no char-timeout path here). `buf` is owned
     /// for the whole call and returned on success. **Loopback data-correctness is
-    /// blocked by hisi-riscv-hal#5** on this board; the register sequence compiles
+    /// blocked by hisi-hal#5** on this board; the register sequence compiles
     /// and is correct but cannot be round-trip-verified here.
     #[instability::unstable]
     pub fn read_dma<B: embedded_dma::WriteBuffer<Word = u8>>(

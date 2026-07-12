@@ -1,4 +1,4 @@
-# Local dev recipes for hisi-riscv-hal — mirror the CI checks so a contributor can
+# Local dev recipes for hisi-hal — mirror the CI checks so a contributor can
 # reproduce them before pushing. `just` = https://github.com/casey/just.
 #
 # The host target builds the lib + unit tests (the on-target HIL tests in
@@ -39,5 +39,5 @@ semver:
 # Add `,async` for the async DMA capstone (spi_dma_write_async / spi_dma_irq59).
 hil:
     CARGO_TARGET_RISCV32IMFC_UNKNOWN_NONE_ELF_RUNNER=../../hil/embedded-test-runner.sh \
-        cargo test -p hisi-riscv-hal --no-default-features --features chip-ws63,unstable \
+        cargo test -p hisi-hal --no-default-features --features chip-ws63,unstable \
         --target riscv32imfc-unknown-none-elf --test hil

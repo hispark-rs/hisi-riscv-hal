@@ -316,8 +316,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "hisi-riscv-hal"
-version = "0.6.1"
+name = "hisi-hal"
+version = "0.7.0-alpha.1"
 dependencies = [
  "bs2x-pac",
  "cfg-if",

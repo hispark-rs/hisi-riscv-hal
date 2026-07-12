@@ -1,4 +1,4 @@
-//! Build script for hisi-riscv-hal.
+//! Build script for hisi-hal.
 //!
 //! The HAL itself needs no codegen — this script exists ONLY to put the two
 //! linker scripts required by the on-target HIL integration test (`tests/hil.rs`,
