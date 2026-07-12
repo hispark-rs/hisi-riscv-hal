@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-12
+
+### Documentation
+
+- Add the package/repository migration guide for the upcoming `hisi-hal`
+  package. The 0.6 stable API, feature semantics, and implementation are
+  unchanged from 0.6.0.
+
 ## [0.6.0] - 2026-07-12
 
 The first stable release of the 0.6 API line. Its default WS63 public surface,
