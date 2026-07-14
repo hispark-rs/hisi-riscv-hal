@@ -778,9 +778,9 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "ws63-pac"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5364d6a785f994130a50a0f97a1d2dedf2f56818468feed383fee5db58e4a1a0"
+checksum = "7b1031e9c841dceab8b7fb846affef7d33647a1e2cad3a6dbd2c0d1c26ae8750"
 dependencies = [
  "critical-section",
  "riscv",

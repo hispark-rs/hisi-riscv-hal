@@ -242,17 +242,21 @@ impl<'d> TimerDriver<'d> {
         let r = self.regs();
         match channel {
             TimerChannel::Channel0 => {
-                r.timer0_eoi(0).write(|w| w.eoi().set_bit());
+                // SAFETY: TIMER_EOI is a write-only command register; `1` is
+                // the complete command value and does not preserve prior bits.
+                r.timer0_eoi(0).write(|w| unsafe { w.bits(1) });
                 #[cfg(feature = "chip-ws63")]
                 interrupt::clear_pending(Interrupt::TIMER_INT0);
             }
             TimerChannel::Channel1 => {
-                r.timer0_eoi(1).write(|w| w.eoi().set_bit());
+                // SAFETY: see channel 0 above.
+                r.timer0_eoi(1).write(|w| unsafe { w.bits(1) });
                 #[cfg(feature = "chip-ws63")]
                 interrupt::clear_pending(Interrupt::TIMER_INT1);
             }
             TimerChannel::Channel2 => {
-                r.timer0_eoi(2).write(|w| w.eoi().set_bit());
+                // SAFETY: see channel 0 above.
+                r.timer0_eoi(2).write(|w| unsafe { w.bits(1) });
                 #[cfg(feature = "chip-ws63")]
                 interrupt::clear_pending(Interrupt::TIMER_INT2);
             }
@@ -310,7 +314,9 @@ impl<'d> TimerAlarm0<'d> {
         let ticks = milliseconds.get() * (TIMER_CLOCK_HZ / 1_000);
         let regs = unsafe { &*Timer::ptr() };
         regs.timer0_control(0).write(|w| w.enable().clear_bit().mode().one_shot().int_mask().clear_bit());
-        regs.timer0_eoi(0).write(|w| w.eoi().set_bit());
+        // SAFETY: TIMER_EOI is a write-only command register; `1` is the
+        // complete command value and does not preserve prior bits.
+        regs.timer0_eoi(0).write(|w| unsafe { w.bits(1) });
         interrupt::clear_pending(Interrupt::TIMER_INT0);
         regs.timer0_load_count(0).write(|w| unsafe { w.bits(ticks) });
         regs.timer0_control(0).write(|w| w.enable().set_bit().mode().one_shot().int_mask().clear_bit());
@@ -327,7 +333,9 @@ impl<'d> TimerAlarm0<'d> {
     #[instability::unstable]
     pub fn clear_interrupt() {
         let regs = unsafe { &*Timer::ptr() };
-        regs.timer0_eoi(0).write(|w| w.eoi().set_bit());
+        // SAFETY: TIMER_EOI is a write-only command register; `1` is the
+        // complete command value and does not preserve prior bits.
+        regs.timer0_eoi(0).write(|w| unsafe { w.bits(1) });
         interrupt::clear_pending(Interrupt::TIMER_INT0);
     }
 }
@@ -598,19 +606,23 @@ mod asynch_impl {
             TimerChannel::Channel0 => {
                 let prev = r.timer0_control(0).read().bits();
                 r.timer0_control(0).write(|w| unsafe { w.bits(prev & !1) }); // stop (clear EN)
-                r.timer0_eoi(0).write(|w| w.eoi().set_bit());
+                // SAFETY: TIMER_EOI is a write-only command register; `1` is
+                // the complete command value and does not preserve prior bits.
+                r.timer0_eoi(0).write(|w| unsafe { w.bits(1) });
                 interrupt::clear_pending(Interrupt::TIMER_INT0);
             }
             TimerChannel::Channel1 => {
                 let prev = r.timer0_control(1).read().bits();
                 r.timer0_control(1).write(|w| unsafe { w.bits(prev & !1) });
-                r.timer0_eoi(1).write(|w| w.eoi().set_bit());
+                // SAFETY: see channel 0 above.
+                r.timer0_eoi(1).write(|w| unsafe { w.bits(1) });
                 interrupt::clear_pending(Interrupt::TIMER_INT1);
             }
             TimerChannel::Channel2 => {
                 let prev = r.timer0_control(2).read().bits();
                 r.timer0_control(2).write(|w| unsafe { w.bits(prev & !1) });
-                r.timer0_eoi(2).write(|w| w.eoi().set_bit());
+                // SAFETY: see channel 0 above.
+                r.timer0_eoi(2).write(|w| unsafe { w.bits(1) });
                 interrupt::clear_pending(Interrupt::TIMER_INT2);
             }
         }

@@ -76,7 +76,9 @@ impl HisiTimeDriver {
         // Stop + clear the alarm channel first.
         let prev = r.timer0_control(ALARM_CH).read().bits();
         unsafe { r.timer0_control(ALARM_CH).write(|w| w.bits(prev & !1)) };
-        r.timer0_eoi(ALARM_CH).write(|w| w.eoi().set_bit());
+        // SAFETY: TIMER_EOI is a write-only command register; `1` is the
+        // complete command value and does not preserve prior bits.
+        r.timer0_eoi(ALARM_CH).write(|w| unsafe { w.bits(1) });
         interrupt::clear_pending(crate::soc::chip::ALARM_INTERRUPT);
 
         if at == u64::MAX {
