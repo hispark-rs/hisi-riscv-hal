@@ -697,21 +697,6 @@ mod asynch_impl {
         }
     }
 
-    // Named device.x handlers (UART0/1/2_INT = IRQ 53/54/55): the rt routes the
-    // UART IRQ here by number, so an async UART app needs no `mcause` trap.
-    #[unsafe(no_mangle)]
-    extern "C" fn UART0_INT() {
-        on_interrupt(UartPort::Uart0);
-    }
-    #[unsafe(no_mangle)]
-    extern "C" fn UART1_INT() {
-        on_interrupt(UartPort::Uart1);
-    }
-    #[unsafe(no_mangle)]
-    extern "C" fn UART2_INT() {
-        on_interrupt(UartPort::Uart2);
-    }
-
     struct RxFuture {
         port: UartPort,
     }

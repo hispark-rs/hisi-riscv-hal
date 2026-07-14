@@ -364,8 +364,8 @@ mod tests {
 
     #[cfg(all(feature = "chip-ws63", feature = "async", feature = "hil-loopback", feature = "unstable"))]
     #[test]
-    fn gpio_int0_named_routing() {
-        crate::irq::gpio_int0_named_routing();
+    fn gpio_int0_app_owned_routing() {
+        crate::irq::gpio_int0_app_owned_routing();
     }
 
     #[cfg(all(feature = "chip-ws63", feature = "hil-loopback"))]

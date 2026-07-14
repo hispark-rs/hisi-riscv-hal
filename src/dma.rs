@@ -1813,13 +1813,6 @@ mod asynch_impl {
         interrupt::clear_pending(Interrupt::DMA_INT);
     }
 
-    /// Named device.x handler (DMA_INT = IRQ 59): the rt routes the DMA IRQ here by
-    /// number, so an async DMA app needs no `mcause` trap.
-    #[unsafe(no_mangle)]
-    extern "C" fn DMA_INT() {
-        on_interrupt();
-    }
-
     /// A future that resolves once `DMA_SIGNAL[ch]` fires (the ISR signals it when
     /// channel `ch`'s transfer-done bit asserts).
     struct DmaDoneFuture {

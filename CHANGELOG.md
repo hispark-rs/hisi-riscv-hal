@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Async GPIO, UART, timer, DMA, LSADC, and Embassy time support no longer
+  exports strong device interrupt symbols from the HAL library. Firmware owns
+  vector routing and calls the corresponding `on_interrupt` hook, preventing
+  Cargo feature unification from installing handlers in unrelated binaries.
+
 ## [0.7.0-alpha.1] - 2026-07-12
 
 ### Changed

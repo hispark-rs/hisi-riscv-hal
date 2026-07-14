@@ -127,31 +127,16 @@ embassy_time_driver::time_driver_impl!(
     }
 );
 
-/// Alarm-channel handler: wakes the expired timers and re-arms the alarm for the
-/// next deadline. Invoked automatically via the named `TIMER_INT0` device.x handler
-/// below (hisi-riscv-rt's direct-mode `__rt_irq_dispatch` routes the alarm IRQ here);
-/// also kept `pub` so an app that owns its own trap (direct mtvec) can call it.
+/// Alarm-channel handler: wakes expired timers and re-arms the next deadline.
+///
+/// The application or runtime that owns trap routing must call this from the
+/// alarm IRQ. The HAL deliberately does not export a strong `TIMER_INT0` symbol:
+/// Cargo feature unification can otherwise install that handler in unrelated
+/// workspace binaries and conflict with their runtime-owned vector.
 pub fn on_alarm_interrupt() {
     critical_section::with(|cs| {
         let mut q = DRIVER.queue.borrow(cs).borrow_mut();
         let next = q.next_expiration(now_ticks());
         DRIVER.set_alarm(cs, next);
     });
-}
-
-/// Named hisi-riscv-rt interrupt handler for the embassy-time alarm IRQ — **WS63:
-/// `TIMER_INT0` = IRQ 26** (`ALARM_INTERRUPT`). With the rt's direct-mode routing
-/// (`__rt_irq_dispatch` indexes `__INTERRUPTS` by IRQ number to the matching
-/// `device.x` named symbol), this fires automatically when the alarm TIMER channel
-/// expires, so an embassy app needs **no `mcause` trap of its own** — just
-/// `embassy-executor` + `Timer::after` (the driver's `set_alarm` already calls
-/// `interrupt::enable(ALARM_INTERRUPT)`, which now also raises its `LOCIPRI`, plus
-/// `interrupt::enable_global()`). Strong symbol overriding the weak `device.x`
-/// PROVIDE; only present with the `embassy` feature, so the HIL/test build (no
-/// `embassy`) is free to define its own `TIMER_INT0`. BS2X's alarm is a different
-/// IRQ/symbol — added once a BS2X board validates it.
-#[cfg(all(feature = "embassy", feature = "chip-ws63"))]
-#[unsafe(no_mangle)]
-extern "C" fn TIMER_INT0() {
-    on_alarm_interrupt();
 }
