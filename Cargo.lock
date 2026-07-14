@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "hisi-hal"
-version = "0.7.0-alpha.1"
+version = "0.7.0-alpha.2"
 dependencies = [
  "bs2x-pac",
  "cfg-if",
@@ -339,20 +339,20 @@ dependencies = [
  "portable-atomic",
  "proptest",
  "semihosting",
- "ws63-pac 0.3.0",
+ "ws63-pac",
 ]
 
 [[package]]
 name = "hisi-riscv-rt"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7e9628a0d7c26bcddf28beace336fdc40343189fc2ce0c2942a5d2696522099"
+checksum = "7d9f22c422838689cdc862f193d80dc0c9b57c590c4f0b5d783054e61722c73d"
 dependencies = [
  "bs2x-pac",
  "critical-section",
  "riscv",
  "riscv-rt",
- "ws63-pac 0.2.4",
+ "ws63-pac",
 ]
 
 [[package]]
@@ -775,17 +775,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "ws63-pac"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07a9c43ac3b182f9eff0a48062f71218394c004e2b5533ed29edd7d6118908aa"
-dependencies = [
- "critical-section",
- "riscv",
- "vcell",
-]
 
 [[package]]
 name = "ws63-pac"

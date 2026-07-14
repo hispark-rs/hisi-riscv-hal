@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.0-alpha.2] - 2026-07-14
+
 ### Changed
 
 - Async GPIO, UART, timer, DMA, LSADC, and Embassy time support no longer
@@ -15,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Require `ws63-pac 0.3.0` for the software-interrupt vectors and corrected
   write-only timer EOI model used by the scheduler port. Timer EOI is expressed
   as a complete command write so the BS2X PAC stays compatible.
+- Require `hisi-riscv-rt 0.5.4` so the runtime and HAL resolve one WS63 PAC
+  major version in firmware that enables the `rt` feature.
 
 ## [0.7.0-alpha.1] - 2026-07-12
 
