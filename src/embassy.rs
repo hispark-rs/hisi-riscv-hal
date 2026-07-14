@@ -76,7 +76,8 @@ impl HisiTimeDriver {
         // Stop + clear the alarm channel first.
         let prev = r.timer0_control(ALARM_CH).read().bits();
         unsafe { r.timer0_control(ALARM_CH).write(|w| w.bits(prev & !1)) };
-        let _ = r.timer0_eoi(ALARM_CH).read().bits();
+        r.timer0_eoi(ALARM_CH).write(|w| w.eoi().set_bit());
+        interrupt::clear_pending(crate::soc::chip::ALARM_INTERRUPT);
 
         if at == u64::MAX {
             return; // no pending timers

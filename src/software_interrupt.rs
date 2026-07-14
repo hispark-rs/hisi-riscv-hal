@@ -26,6 +26,14 @@ impl<'d> SoftwareInterrupt0<'d> {
 
     /// Pends software interrupt 0.
     pub fn pend(&self) {
+        Self::pend_interrupt();
+    }
+
+    /// Pends software interrupt 0 from an installed scheduler port.
+    ///
+    /// A live [`SoftwareInterrupt0`] token must own the source while this is
+    /// called.
+    pub fn pend_interrupt() {
         let regs = unsafe { &*SysCtl1::ptr() };
         regs.soft_int_set().write(|w| w.soft_int0_set().set_bit());
     }

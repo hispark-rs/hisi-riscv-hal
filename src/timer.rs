@@ -17,6 +17,9 @@
 use crate::peripherals::Timer;
 use crate::soc::chip::TIMER_CLOCK_HZ;
 
+#[cfg(feature = "chip-ws63")]
+use crate::interrupt::{self, Interrupt};
+
 /// Timer operating mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimerMode {
@@ -239,13 +242,19 @@ impl<'d> TimerDriver<'d> {
         let r = self.regs();
         match channel {
             TimerChannel::Channel0 => {
-                let _ = r.timer0_eoi(0).read().bits();
+                r.timer0_eoi(0).write(|w| w.eoi().set_bit());
+                #[cfg(feature = "chip-ws63")]
+                interrupt::clear_pending(Interrupt::TIMER_INT0);
             }
             TimerChannel::Channel1 => {
-                let _ = r.timer0_eoi(1).read().bits();
+                r.timer0_eoi(1).write(|w| w.eoi().set_bit());
+                #[cfg(feature = "chip-ws63")]
+                interrupt::clear_pending(Interrupt::TIMER_INT1);
             }
             TimerChannel::Channel2 => {
-                let _ = r.timer0_eoi(2).read().bits();
+                r.timer0_eoi(2).write(|w| w.eoi().set_bit());
+                #[cfg(feature = "chip-ws63")]
+                interrupt::clear_pending(Interrupt::TIMER_INT2);
             }
         }
     }
@@ -260,6 +269,75 @@ impl<'d> TimerDriver<'d> {
     #[instability::unstable]
     pub fn periodic(&self, channel: TimerChannel) -> PeriodicTimer<'_> {
         PeriodicTimer { driver: self, channel }
+    }
+}
+
+/// Exclusive owner of TIMER0 as an interrupt-driven one-shot alarm.
+///
+/// This unstable token is intended for executors and schedulers. It cannot be
+/// constructed alongside another [`TimerDriver`] because both consume the
+/// singleton [`Timer`] peripheral.
+#[cfg(feature = "chip-ws63")]
+#[instability::unstable]
+pub struct TimerAlarm0<'d> {
+    _timer: Timer<'d>,
+}
+
+#[cfg(feature = "chip-ws63")]
+impl<'d> TimerAlarm0<'d> {
+    /// Maximum whole-millisecond delay representable by TIMER0.
+    #[instability::unstable]
+    pub const MAX_DELAY_MS: u32 = u32::MAX / (TIMER_CLOCK_HZ / 1_000);
+
+    /// Claims TIMER0, clears stale state, and enables IRQ 26 at the controller.
+    #[instability::unstable]
+    pub fn new(timer: Timer<'d>) -> Self {
+        Self::disarm();
+        Self::clear_interrupt();
+        unsafe { interrupt::enable(Interrupt::TIMER_INT0) };
+        Self { _timer: timer }
+    }
+
+    /// Arms or replaces TIMER0 with a non-zero relative millisecond delay.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `milliseconds` exceeds [`MAX_DELAY_MS`](Self::MAX_DELAY_MS).
+    /// Scheduler ports must advertise this maximum and chunk longer deadlines.
+    #[instability::unstable]
+    pub fn arm_millis(milliseconds: core::num::NonZeroU32) {
+        assert!(milliseconds.get() <= Self::MAX_DELAY_MS);
+        let ticks = milliseconds.get() * (TIMER_CLOCK_HZ / 1_000);
+        let regs = unsafe { &*Timer::ptr() };
+        regs.timer0_control(0).write(|w| w.enable().clear_bit().mode().one_shot().int_mask().clear_bit());
+        regs.timer0_eoi(0).write(|w| w.eoi().set_bit());
+        interrupt::clear_pending(Interrupt::TIMER_INT0);
+        regs.timer0_load_count(0).write(|w| unsafe { w.bits(ticks) });
+        regs.timer0_control(0).write(|w| w.enable().set_bit().mode().one_shot().int_mask().clear_bit());
+    }
+
+    /// Stops TIMER0 without changing interrupt-controller ownership.
+    #[instability::unstable]
+    pub fn disarm() {
+        let regs = unsafe { &*Timer::ptr() };
+        regs.timer0_control(0).write(|w| w.enable().clear_bit().mode().one_shot().int_mask().clear_bit());
+    }
+
+    /// Acknowledges TIMER0's write-one-to-clear interrupt source.
+    #[instability::unstable]
+    pub fn clear_interrupt() {
+        let regs = unsafe { &*Timer::ptr() };
+        regs.timer0_eoi(0).write(|w| w.eoi().set_bit());
+        interrupt::clear_pending(Interrupt::TIMER_INT0);
+    }
+}
+
+#[cfg(feature = "chip-ws63")]
+impl Drop for TimerAlarm0<'_> {
+    fn drop(&mut self) {
+        Self::disarm();
+        Self::clear_interrupt();
+        unsafe { interrupt::disable(Interrupt::TIMER_INT0) };
     }
 }
 
@@ -520,17 +598,20 @@ mod asynch_impl {
             TimerChannel::Channel0 => {
                 let prev = r.timer0_control(0).read().bits();
                 r.timer0_control(0).write(|w| unsafe { w.bits(prev & !1) }); // stop (clear EN)
-                let _ = r.timer0_eoi(0).read().bits(); // EOI (read-clear)
+                r.timer0_eoi(0).write(|w| w.eoi().set_bit());
+                interrupt::clear_pending(Interrupt::TIMER_INT0);
             }
             TimerChannel::Channel1 => {
                 let prev = r.timer0_control(1).read().bits();
                 r.timer0_control(1).write(|w| unsafe { w.bits(prev & !1) });
-                let _ = r.timer0_eoi(1).read().bits();
+                r.timer0_eoi(1).write(|w| w.eoi().set_bit());
+                interrupt::clear_pending(Interrupt::TIMER_INT1);
             }
             TimerChannel::Channel2 => {
                 let prev = r.timer0_control(2).read().bits();
                 r.timer0_control(2).write(|w| unsafe { w.bits(prev & !1) });
-                let _ = r.timer0_eoi(2).read().bits();
+                r.timer0_eoi(2).write(|w| w.eoi().set_bit());
+                interrupt::clear_pending(Interrupt::TIMER_INT2);
             }
         }
         TIMER_SIGNAL[ch.index()].signal();
