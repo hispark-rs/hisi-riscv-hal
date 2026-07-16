@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Removed
+
+- Remove the experimental `spacc` and `pke` driver facades, whose operations
+  were no-ops and whose busy status was a fixed value. The unique `Spacc` and
+  `Pke` peripheral tokens remain available; fallible algorithm and accelerator
+  behavior belongs to chip crypto backends such as `hisi-crypto-ws63`.
+
 ## [0.7.0-alpha.2] - 2026-07-14
 
 ### Changed

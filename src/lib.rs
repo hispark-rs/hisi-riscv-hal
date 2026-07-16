@@ -193,11 +193,6 @@ unstable_module! {
 }
 // BS2X USB 2.0 OTG (Synopsys DWC OTG) — config-level (core-ID; full stack deferred).
 unstable_module! {
-    /// Public-key engine (PKE) crypto accelerator driver.
-    #[cfg(feature = "chip-ws63")]
-    pub mod pke;
-}
-unstable_module! {
     /// BS2X quadrature decoder (HID) driver.
     #[cfg(feature = "chip-bs21")]
     pub mod qdec;
@@ -250,11 +245,6 @@ unstable_module! {
     /// SFC (serial flash controller) driver.
     #[cfg(feature = "chip-ws63")]
     pub mod sfc;
-}
-unstable_module! {
-    /// SPACC symmetric-crypto accelerator driver.
-    #[cfg(feature = "chip-ws63")]
-    pub mod spacc;
 }
 /// SPI driver (v151), blocking and `embedded-hal`.
 pub mod spi;
