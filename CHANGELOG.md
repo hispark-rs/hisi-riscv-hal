@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.0-alpha.3] - 2026-07-17
+
 ### Fixed
 
 - Use the SSI v151 data-register window at offset `0x2c` for blocking and DMA
@@ -21,6 +23,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   were no-ops and whose busy status was a fixed value. The unique `Spacc` and
   `Pke` peripheral tokens remain available; fallible algorithm and accelerator
   behavior belongs to chip crypto backends such as `hisi-crypto-ws63`.
+
+### Changed
+
+- Require `ws63-pac 0.4.0` for the audited 32-bit UART bus model, complete SSI
+  v151 data-register window, and corrected register access semantics.
+- Require `hisi-riscv-rt 0.5.5` so runtime-enabled firmware resolves the same
+  `ws63-pac 0.4.0` package as the HAL.
 
 ## [0.7.0-alpha.2] - 2026-07-14
 
