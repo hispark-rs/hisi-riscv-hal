@@ -375,18 +375,9 @@ impl<'d, T: DmaInstance> DmaDriver<'d, T> {
             r.dmac_chn_config_0(ch).write(|w| w.bits(ch_cfg));
         }
 
-        // Actually START the transfer: set this channel's bit in the global
-        // channel-enable register (`dmac_en_chns`, the DesignWare ChEnReg). On
-        // real silicon the per-channel CFG `ch_enable` bit alone does NOT kick the
-        // engine — the vendor `hal_dma_v151_enable` writes `en_chns`, and the
-        // hardware auto-clears the bit when the (single-block) transfer completes.
-        // (QEMU runs its synchronous memcpy on the CFG write and may not model
-        // `en_chns`, so this is a harmless extra write there.) Completion is then
-        // observed via `channel_enabled()` going false — see the HIL test.
-        let en = r.dmac_en_chns().read().bits();
-        unsafe {
-            r.dmac_en_chns().write(|w| w.bits(en | (1 << ch)));
-        }
+        // Writing CFG.ch_enable above starts the channel, matching
+        // `hal_dma_v151_enable`. DMAC_EN_CHNS is a read-only query register; the
+        // hardware clears its bit when the single-block transfer completes.
     }
 
     pub(crate) fn enable_channel_raw(&mut self, channel: u8) {
@@ -939,7 +930,7 @@ pub enum PeriKind {
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(not(target_arch = "riscv32"), allow(dead_code))]
 pub struct PeriDmaCtl {
-    /// The peripheral's register-block base (e.g. `0x4402_0060`-style — the exact
+    /// The peripheral's register-block base (e.g. `0x4402_0000`-style — the exact
     /// data-register address is passed to `start_*` separately; this is the base the
     /// DMA-enable register lives at).
     base: usize,
@@ -966,8 +957,8 @@ impl PeriDmaCtl {
             PeriKind::Spi => {
                 if let Some(r) = spi_regs_from_base(self.base) {
                     match self.dir {
-                        DmaDirection::Tx => r.spi_dcr().modify(|_, w| w.tdmae().clear_bit()),
-                        DmaDirection::Rx => r.spi_dcr().modify(|_, w| w.rdmae().clear_bit()),
+                        DmaDirection::Tx => r.spi_dcr().modify(|_, w| w.tden().clear_bit()),
+                        DmaDirection::Rx => r.spi_dcr().modify(|_, w| w.rden().clear_bit()),
                     };
                 }
             }
@@ -1406,6 +1397,9 @@ mod tests {
         assert_eq!(tx.flow_control, FlowControl::MemToPeripheral);
         assert_eq!(tx.dst_peripheral, 7);
         assert!(!tx.dst_inc);
+        // The vendor v151 start path writes per-channel CFG.ch_enable. The
+        // global DMAC_EN_CHNS register is read-only status, not a start command.
+        assert_eq!(tx.channel_config_word() & 1, 1);
 
         let rx = DmaChannelConfig::default().peripheral_to_mem(DmaPeripheral::Uart1Rx);
         assert_eq!(rx.flow_control, FlowControl::PeripheralToMem);

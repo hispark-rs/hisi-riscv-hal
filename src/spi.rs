@@ -117,6 +117,18 @@ fn spi_regs(idx: u8) -> &'static crate::soc::pac::spi0::RegisterBlock {
     }
 }
 
+#[cfg(feature = "chip-ws63")]
+#[inline]
+fn spi_data_reg(regs: &crate::soc::pac::spi0::RegisterBlock) -> &crate::soc::pac::spi0::SpiDrnm {
+    regs.spi_drnm(0)
+}
+
+#[cfg(feature = "chip-bs21")]
+#[inline]
+fn spi_data_reg(regs: &crate::soc::pac::spi0::RegisterBlock) -> &crate::soc::pac::spi0::SpiDr {
+    regs.spi_dr()
+}
+
 /// SCKDV clock divider for the DesignWare SSI: `SCK = SSI_CLK / SCKDV`.
 ///
 /// Matches the WS63 C SDK (`hal_spi_v151.c`: `clk_div = bus_clk / freq`,
@@ -240,9 +252,9 @@ impl<'d, T> Spi<'d, T> {
         for i in 0..len {
             let tx = if i < write.len() { write[i] as u32 } else { 0 };
             wait_until(|| r.spi_wsr().read().txfnf().bit_is_set())?;
-            unsafe { r.spi_dr().write(|w| w.bits(tx)) };
+            unsafe { spi_data_reg(r).write(|w| w.bits(tx)) };
             wait_until(|| r.spi_wsr().read().rxfne().bit_is_set())?;
-            let rx = r.spi_dr().read().bits();
+            let rx = spi_data_reg(r).read().bits();
             if i < read.len() {
                 read[i] = rx as u8;
             }
@@ -255,7 +267,7 @@ impl<'d, T> Spi<'d, T> {
         let r = spi_regs(self.idx);
         for &byte in data {
             wait_until(|| r.spi_wsr().read().txfnf().bit_is_set())?;
-            unsafe { r.spi_dr().write(|w| w.bits(byte as u32)) };
+            unsafe { spi_data_reg(r).write(|w| w.bits(byte as u32)) };
         }
         Ok(())
     }
@@ -308,11 +320,11 @@ pub struct SpiDma<'d, T> {
 
 #[cfg(feature = "chip-ws63")]
 impl<'d, T> SpiDma<'d, T> {
-    /// The absolute address of this instance's `spi_dr` data register (the DMA
-    /// endpoint). `spi_dr` is at PAC offset 0x60 from the instance base.
+    /// The absolute address of slot 0 in this instance's SSI data-register
+    /// window (the DMA endpoint). The window starts at PAC offset `0x2c`.
     fn dr_addr(&self) -> u32 {
         let r = spi_regs(self.idx);
-        r.spi_dr() as *const _ as u32
+        spi_data_reg(r) as *const _ as u32
     }
 
     /// The `DmaPeripheral` (handshake ID) for TX on this instance.
@@ -357,7 +369,7 @@ impl<'d, T> SpiDma<'d, T> {
         let _ = ();
 
         // Vendor order (hal_spi_v151.c:634, spi.c:691-712): watermark (DMA-enable
-        // OFF) → clean source → start channel → set tdmae.
+        // OFF) → clean source → start channel → set tden.
         unsafe {
             r.spi_dtdl().write(|w| w.bits(4));
             r.spi_drdl().write(|w| w.bits(0));
@@ -366,7 +378,7 @@ impl<'d, T> SpiDma<'d, T> {
         let cfg = DmaChannelConfig::default().mem_to_peripheral(self.tx_peri()).with_width(DmaFrame::Byte);
         let chn = ch.logical();
         self.dma.configure_channel_raw(chn, ptr as u32, dr, size, &cfg);
-        r.spi_dcr().modify(|_, w| w.tdmae().set_bit());
+        r.spi_dcr().modify(|_, w| w.tden().set_bit());
 
         // Bounded wait for the channel to auto-clear its enable bit (single-block done).
         let mut n = SPI_WAIT_LOOPS;
@@ -375,7 +387,7 @@ impl<'d, T> SpiDma<'d, T> {
             if n == 0 {
                 // Cancel-then-quiesce: stop the peripheral asserting requests first,
                 // then halt → drain active → disable, before the buffer is returned.
-                r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+                r.spi_dcr().modify(|_, w| w.tden().clear_bit());
                 self.dma.halt_channel_raw(chn);
                 let mut m = SPI_WAIT_LOOPS;
                 while self.dma.channel_active_raw(chn) {
@@ -392,9 +404,9 @@ impl<'d, T> SpiDma<'d, T> {
         }
         // Drain the looped-back RX FIFO (TX clocks the bus; RX fills) to avoid overrun.
         while r.spi_wsr().read().rxfne().bit_is_set() {
-            let _ = r.spi_dr().read().bits();
+            let _ = spi_data_reg(r).read().bits();
         }
-        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+        r.spi_dcr().modify(|_, w| w.tden().clear_bit());
         Ok(buf)
     }
 
@@ -433,16 +445,16 @@ impl<'d, T> SpiDma<'d, T> {
             .with_transfer_int(true);
         let chn = ch.logical();
         self.dma.configure_channel_raw(chn, ptr as u32, dr, size, &cfg);
-        r.spi_dcr().modify(|_, w| w.tdmae().set_bit());
+        r.spi_dcr().modify(|_, w| w.tden().set_bit());
 
         // Park on IRQ 59 (per-channel demux) until this channel completes.
         self.dma.wait_transfer_done(&ch).await;
 
         // Drain the looped-back RX FIFO, then quiesce the peripheral.
         while r.spi_wsr().read().rxfne().bit_is_set() {
-            let _ = r.spi_dr().read().bits();
+            let _ = spi_data_reg(r).read().bits();
         }
-        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit());
+        r.spi_dcr().modify(|_, w| w.tden().clear_bit());
         Ok(buf)
     }
 
@@ -482,25 +494,25 @@ impl<'d, T> SpiDma<'d, T> {
         let rx_chn = rx_ch.logical();
         self.dma.configure_channel_raw(tx_chn, tx_ptr as u32, dr, size, &tx_cfg);
         self.dma.configure_channel_raw(rx_chn, dr, rx_ptr as u32, size, &rx_cfg);
-        r.spi_dcr().modify(|_, w| w.tdmae().set_bit().rdmae().set_bit());
+        r.spi_dcr().modify(|_, w| w.tden().set_bit().rden().set_bit());
 
         let mut n = SPI_WAIT_LOOPS;
         while self.dma.channel_enabled_raw(tx_chn) || self.dma.channel_enabled_raw(rx_chn) {
             n -= 1;
             if n == 0 {
-                r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+                r.spi_dcr().modify(|_, w| w.tden().clear_bit().rden().clear_bit());
                 return Err(SpiError::Timeout);
             }
             core::hint::spin_loop();
         }
         // Invalidate the RX destination so the CPU re-reads what DMA wrote.
         unsafe { crate::cache::invalidate_range(rx_ptr as usize, bytes) };
-        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        r.spi_dcr().modify(|_, w| w.tden().clear_bit().rden().clear_bit());
         Ok((read, write))
     }
 
     /// Async variant of [`transfer_dma`](Self::transfer_dma): arms both channels
-    /// (transfer_int = true), sets tdmae+rdmae, and awaits each channel's
+    /// (transfer_int = true), sets tden+rden, and awaits each channel's
     /// completion on IRQ 59 in turn (the per-channel demux means awaiting the second
     /// doesn't false-wake on the first). Requires `async` + global interrupts.
     #[instability::unstable]
@@ -545,14 +557,14 @@ impl<'d, T> SpiDma<'d, T> {
         let rx_chn = rx_ch.logical();
         self.dma.configure_channel_raw(tx_chn, tx_ptr as u32, dr, size, &tx_cfg);
         self.dma.configure_channel_raw(rx_chn, dr, rx_ptr as u32, size, &rx_cfg);
-        r.spi_dcr().modify(|_, w| w.tdmae().set_bit().rdmae().set_bit());
+        r.spi_dcr().modify(|_, w| w.tden().set_bit().rden().set_bit());
 
         // Await each channel's completion (per-channel demux — no false-wake cross-talk).
         self.dma.wait_transfer_done(&tx_ch).await;
         self.dma.wait_transfer_done(&rx_ch).await;
 
         unsafe { crate::cache::invalidate_range(rx_ptr as usize, bytes) };
-        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        r.spi_dcr().modify(|_, w| w.tden().clear_bit().rden().clear_bit());
         Ok((read, write))
     }
 
@@ -561,7 +573,7 @@ impl<'d, T> SpiDma<'d, T> {
     #[instability::unstable]
     pub fn release(self) -> (Spi<'d, T>, crate::dma::DmaDriver<'d, crate::dma::Dma0>) {
         let r = spi_regs(self.idx);
-        r.spi_dcr().modify(|_, w| w.tdmae().clear_bit().rdmae().clear_bit());
+        r.spi_dcr().modify(|_, w| w.tden().clear_bit().rden().clear_bit());
         (Spi { idx: self.idx, _peripheral: PhantomData }, self.dma)
     }
 }
@@ -571,9 +583,9 @@ fn transfer_in_place_on(idx: u8, buf: &mut [u8]) -> Result<(), SpiError> {
     for byte in buf.iter_mut() {
         let tx = *byte as u32;
         wait_until(|| r.spi_wsr().read().txfnf().bit_is_set())?;
-        unsafe { r.spi_dr().write(|w| w.bits(tx)) };
+        unsafe { spi_data_reg(r).write(|w| w.bits(tx)) };
         wait_until(|| r.spi_wsr().read().rxfne().bit_is_set())?;
-        *byte = r.spi_dr().read().bits() as u8;
+        *byte = spi_data_reg(r).read().bits() as u8;
     }
     Ok(())
 }

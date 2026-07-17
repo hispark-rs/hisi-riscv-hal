@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Use the SSI v151 data-register window at offset `0x2c` for blocking and DMA
+  SPI transfers, replacing the previously modeled single register at `0x60`.
+- Start DMA channels through per-channel `CFG.ch_enable`; treat global
+  `DMAC_EN_CHNS` as the vendor-defined read-only completion/status register.
+- Adapt WS63 UART register writes to the controller's 32-bit register bus while
+  preserving the existing divisor and data field values.
+
 ### Removed
 
 - Remove the experimental `spacc` and `pke` driver facades, whose operations

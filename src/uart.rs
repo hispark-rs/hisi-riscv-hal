@@ -270,15 +270,15 @@ fn configure_uart(port: UartPort, config: &Config) {
     // programs a non-zero div_fra. (issue #15)
     let div64 = ((pclk as u64) * 4 / (baudrate as u64)) as u32; // = div * 64
     let div = div64 >> 6;
-    let div_fra = (div64 & 0x3F) as u16;
-    let div_l = (div & 0xFF) as u16;
-    let div_h = ((div >> 8) & 0xFF) as u16;
-    r.div_l().write(|w| unsafe { w.bits(div_l) });
-    r.div_h().write(|w| unsafe { w.bits(div_h) });
-    r.div_fra().write(|w| unsafe { w.bits(div_fra) });
+    let div_fra = div64 & 0x3F;
+    let div_l = div & 0xFF;
+    let div_h = (div >> 8) & 0xFF;
+    r.div_l().write(|w| unsafe { w.div_l().bits(div_l as u8) });
+    r.div_h().write(|w| unsafe { w.div_h().bits(div_h as u8) });
+    r.div_fra().write(|w| unsafe { w.div_fra().bits(div_fra as u8) });
 
     // Configure data bits, parity, stop bits
-    let mut ctl = 0u16;
+    let mut ctl = 0u32;
     ctl |= match config.data_bits {
         DataBits::Five => 0,
         DataBits::Six => 1 << 2,
@@ -298,7 +298,7 @@ fn configure_uart(port: UartPort, config: &Config) {
     if matches!(config.stop_bits, StopBits::Two) {
         ctl |= 1 << 7;
     }
-    r.uart_ctl().write(|w| unsafe { w.bits(ctl) }); // div_en=0: DATA maps back to TX/RX.
+    r.uart_ctl().write(|w| unsafe { w.bits(ctl as _) }); // div_en=0: DATA maps back to TX/RX.
 
     // Reset and enable FIFO with the vendor default trigger levels:
     // TX interrupt threshold = 2 chars, RX threshold = 1/4 full.
@@ -311,7 +311,7 @@ impl<T: UartInstance> Uart<'_, T> {
     pub fn write_byte(&self, byte: u8) {
         let r = uart_regs(T::PORT);
         while r.fifo_status().read().tx_fifo_full().bit_is_set() {}
-        r.data().write(|w| unsafe { w.bits(byte as u16) });
+        r.data().write(|w| unsafe { w.data().bits(byte) });
     }
 
     /// Read one byte, or `None` if this UART's RX FIFO is empty.
